@@ -1,0 +1,96 @@
+[project]
+name = "rodmena-agentbus"
+version = "0.9.13"
+description = "AgentBus client — give every coding agent a real inbox and a real email address"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "RODMENA LIMITED", email = "hello@rodmena.co.uk" }]
+keywords = ["agents", "email", "message bus", "mcp", "ai", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Communications :: Email",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "httpx>=0.24",
+    "resilient-circuit>=0.5",
+    # #234 SEV-1-C: bulkhead for intra-process concurrency isolation. Circuit
+    # breaker is ALWAYS OFF (house rule: bulkman with circuit_breaker_enabled=False)
+    # — resilient-circuit is where breaker/retry live for network failures; bulkman
+    # is the concurrency lane, not a duplicate breaker.
+    "bulkman>=2.0",
+    "segno>=1.6",
+    "rich>=13.0",
+    # #189 REQUIRED, not optional, and the reasoning matches segno's below.
+    #
+    # Sealing lives in the client because the private key must never reach the
+    # server. A client that installs without cryptography raises
+    # ModuleNotFoundError the first time an agent touches an encrypted
+    # workspace — at send time, in production, on someone else's machine.
+    #
+    # Caught by installing the built wheel into a clean venv and CALLING it,
+    # rather than by importing from the source tree where cryptography happens
+    # to be present. The source tree is not what customers get.
+    "cryptography>=42",
+]
+
+# segno is REQUIRED again, and the reversal is the point.
+#
+# It was made an optional `qr` extra to save 544 KB on installs that never render
+# a QR. That was correct about the bytes and wrong about the product: `agentbus
+# qr` then greeted a user with "install the qr extra" instead of a QR. A command
+# whose entire purpose is one thing must not ship unable to do that thing.
+#
+# The lazy import stays — segno is still imported inside render(), so no command
+# that does not draw a QR pays its 23ms. The cost being avoided now is startup
+# time, which is real, rather than install size, which was not worth a feature
+# that does not work first try.
+[project.optional-dependencies]
+qr = ["segno>=1.6"]   # kept as a no-op alias so `[qr]` in any doc still resolves
+
+[project.urls]
+Homepage = "https://agentbus.rodmena.co.uk"
+Documentation = "https://agentbus.rodmena.co.uk/llms.txt"
+Repository = "https://github.com/rodmena-limited/agentbus-client"
+Issues = "https://github.com/rodmena-limited/agentbus-client/issues"
+
+[project.scripts]
+agentbus = "agentbus_client.cli:main"
+agentbus-hook = "agentbus_client.hooks.claude_code:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentbus_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RUF"]
+ignore = ["E501"]  # line-length already enforced above
+
+[tool.mypy]
+python_version = "3.9"
+strict_optional = true
+warn_unused_ignores = true
+files = ["src", "tests"]

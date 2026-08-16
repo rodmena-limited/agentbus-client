@@ -110,7 +110,7 @@ def _client_version() -> str:
         from . import __version__
 
         return str(__version__)
-    except Exception:  # noqa: BLE001 - a watcher must not die over a version string
+    except Exception:
         return "unknown"
 
 
@@ -198,7 +198,7 @@ class Watcher:
             # 5xx/transport failures are NOT revocation and drop through to the
             # transient path below.
             return exc.status == 401
-        except Exception as exc:  # noqa: BLE001 - non-AgentBusError path
+        except Exception as exc:
             # Last-resort classifier for an exception the server client did not
             # wrap. Deliberately kept because a network stack can raise all
             # kinds of things; the typed path above is what matters in practice.
@@ -254,41 +254,53 @@ class Watcher:
         while a drain runs. When the drain ran inline, a deep backlog (100 msgs +
         slow bus) could hold up the loop past the 60s read deadline, causing a
         spurious reconnect and often a reconnect storm on backlogged inboxes.
-        Running the drain off-thread is the fix; the lock keeps at most one
-        drain in flight — a second wake during a drain re-arms the reconcile
-        timer via _last_drain, so the next iteration through the loop will start
-        another drain if there is still work.
+        Running the drain off-thread is the fix.
+
+        REG-3 (round-3 audit): the lock is now held for the DURATION of the
+        drain, not just its LAUNCH. The previous version protected only the
+        is_alive check; a main-thread caller (_backoff_and_drain, run() startup)
+        could call _drain() concurrently with the background thread, so the
+        cursor advanced twice and on_message ran twice per delivery — the
+        duplicate-wake incident (#88) would have reappeared exactly here. Now
+        _drain_async acquires non-blocking (if a drain is in flight, skip and
+        rely on _last_drain to arm the next reconcile tick), and every
+        main-thread caller wraps its _drain() in the lock — so at most ONE
+        drain runs at a time across the whole watcher.
 
         The background handler (on_message) may run subprocess.run or write to
         files; both are thread-safe. The stamped-before-work _last_drain rule
-        still holds: we stamp under the lock so a fresh drain does not start
-        until the previous one finishes.
+        still holds inside _drain().
         """
-        with self._drain_lock:
-            if self._drain_thread is not None and self._drain_thread.is_alive():
-                return  # another drain is in flight; it will surface backlog
+        # Non-blocking: if another drain is running, this call is a no-op. The
+        # SSE loop's next reconcile tick or arrival will re-invoke us; the
+        # in-flight drain will surface backlog in the meantime.
+        if not self._drain_lock.acquire(blocking=False):
+            return
 
-            def _run() -> None:
-                try:
-                    self._drain()
-                except DeadWakeSocket:
-                    # DeadWakeSocket must reach the run() loop to trigger exit;
-                    # re-raise on the main thread via a sentinel. The current
-                    # design already re-checks _dead_wake_socket_reason() at
-                    # every _stream_once start, so a background failure will
-                    # surface on the next reconnect.
-                    print(
-                        "agentbus watch: background drain reported dead wake socket; "
-                        "will exit on next reconnect",
-                        file=sys.stderr,
-                    )
-                except Exception as exc:  # noqa: BLE001 - background drain must not crash the watcher
-                    print(f"agentbus watch: background drain failed: {exc}", file=sys.stderr)
+        def _run() -> None:
+            try:
+                self._drain()
+            except DeadWakeSocket:
+                # DeadWakeSocket must reach the run() loop to trigger exit; the
+                # design re-checks _dead_wake_socket_reason() at every
+                # _stream_once start, so a background failure surfaces on the
+                # next reconnect.
+                print(
+                    "agentbus watch: background drain reported dead wake socket; "
+                    "will exit on next reconnect",
+                    file=sys.stderr,
+                )
+            except Exception as exc:
+                print(f"agentbus watch: background drain failed: {exc}", file=sys.stderr)
+            finally:
+                # REG-3: release AFTER _drain returns, so a concurrent
+                # _backoff_and_drain() blocks until we finish.
+                self._drain_lock.release()
 
-            self._drain_thread = threading.Thread(
-                target=_run, name=f"agentbus-drain-{self.agent}", daemon=True
-            )
-            self._drain_thread.start()
+        self._drain_thread = threading.Thread(
+            target=_run, name=f"agentbus-drain-{self.agent}", daemon=True
+        )
+        self._drain_thread.start()
 
     def _drain(self) -> int:
         """Deliver everything after the cursor. Used at startup and after every
@@ -315,7 +327,7 @@ class Watcher:
                 seen += 1
                 try:
                     self.on_message(message.raw)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
             self._save_cursor()
 
@@ -408,7 +420,11 @@ class Watcher:
         if reason:
             raise DeadWakeSocket(reason)
 
-        delivered = self._drain()
+        # REG-3 (round-3 audit): startup drain must serialize with any
+        # background drain _drain_async might spawn later. The lock is idle
+        # here; acquiring it is instant and keeps the invariant honest.
+        with self._drain_lock:
+            delivered = self._drain()
         if delivered:
             print(f"agentbus watch: {delivered} message(s) waiting at startup", file=sys.stderr)
         if once:
@@ -438,7 +454,7 @@ class Watcher:
                     "been waiting during that window",
                     stream=sys.stdout,
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 self._backoff_and_drain(f"stream dropped ({exc})")
 
     def _backoff_and_drain(self, reason: str, stream: Any = sys.stderr) -> None:
@@ -448,9 +464,15 @@ class Watcher:
         # Drain over HTTP while disconnected so a long outage does not mean a
         # long silence.
         try:
-            with contextlib.suppress(AgentBusError, OSError, httpx.HTTPError, ValueError, KeyError):
-                # Opportunistic: we are already in a reconnect backoff, so a
-                # failure here just means the next attempt tries again.
+            # Opportunistic: we are already in a reconnect backoff, so a
+            # failure here just means the next attempt tries again.
+            # REG-3 (round-3 audit): serialize with any in-flight background
+            # drain via _drain_lock — otherwise both threads advance the
+            # cursor and fire on_message twice per delivery.
+            with (
+                contextlib.suppress(AgentBusError, OSError, httpx.HTTPError, ValueError, KeyError),
+                self._drain_lock,
+            ):
                 self._drain()
         except DeadWakeSocket:
             # The socket died while we were disconnected — the session is gone.
@@ -507,7 +529,7 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
         # override with AGENTBUS_EXEC_TIMEOUT for genuinely slow commands.
         _timeout = float(os.environ.get("AGENTBUS_EXEC_TIMEOUT", "5"))
         try:
-            subprocess.run(command, shell=True, check=False, timeout=_timeout)  # noqa: S602
+            subprocess.run(command, shell=True, check=False, timeout=_timeout)
         except subprocess.TimeoutExpired:
             print(
                 f"agentbus watch: --exec timed out after {_timeout}s (command was: {command[:80]}...);"

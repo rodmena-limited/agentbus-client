@@ -154,14 +154,232 @@ class Delivery:
         )
 
 
+#: REG-6 (round-3 audit): per-attachment size ceiling — the quick fix.
+#: _encode_attachments buffers the raw file + its base64 form + the JSON body
+#: + httpx's own copy = peak ~4-5x file size, doubled again on encrypted send
+#: via _apply_seal. A 500 MB video used to OOM small VMs / containers before
+#: the server was even reached. This cap FAILS FAST at the boundary with a
+#: clear error, so a caller sees the size wall as a refusal rather than an
+#: OOM traceback. The real fix (streaming base64/multipart upload) needs a
+#: server change and is a separate follow-up. Override via env for genuine
+#: large-file needs on hosts with the RAM to spend.
+_DEFAULT_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+def _max_attachment_bytes() -> int:
+    raw = os.environ.get("AGENTBUS_MAX_ATTACHMENT_BYTES")
+    if not raw:
+        return _DEFAULT_MAX_ATTACHMENT_BYTES
+    try:
+        v = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_ATTACHMENT_BYTES
+    return v if v > 0 else _DEFAULT_MAX_ATTACHMENT_BYTES
+
+
+# ------------------------------------------------------------------ resilience
+#
+# REG-7 (round-3 audit): the SDK is the largest surface every caller touches,
+# and it was the one place in the codebase ignoring the house resilience
+# contract — bare httpx calls, no retry, no breaker, no bulkhead. A bus rolling
+# deploy (30-60s of 503s) turned every send/reply/inbox into a TransportError,
+# and N callers each rolled their own retry loop that hammered the recovering
+# bus.
+#
+# The design puts three layers around every SDK request, in this order (inside-out):
+#
+#     bulkman  <-  resilient_circuit  <-  actual httpx call
+#
+# - resilient_circuit.SafetyNet(RetryWithBackoff + CircuitProtector) sits closest
+#   to the call: it decides "was this attempt transient? retry" and "have too
+#   many recent attempts failed? open the breaker".
+# - bulkman.BulkheadThreading sits OUTSIDE the retry, so a whole
+#   send-with-3-retries counts as ONE concurrency slot and finishes together —
+#   otherwise N failing callers each retrying 3x would multiply the load.
+# - bulkman's OWN circuit breaker is ALWAYS OFF (`circuit_breaker_enabled=False`)
+#   per the house rule: resilient_circuit is the single breaker authority in the
+#   codebase, and two breakers on one path is worse than one.
+#
+# Everything is lazy-instantiated at first request so importing agentbus_client
+# does not pay the wiring cost, and singleton at the module level so all
+# AgentBus instances (and long-lived processes like the watcher) share one
+# breaker state and one concurrency cap.
+
+_SDK_BULKHEAD: Any = None
+_SDK_SAFETY_NET: Any = None
+
+
+def _is_transient_sdk_error(exc: BaseException) -> bool:
+    """Classify what the resilience layer should retry / count for the breaker.
+
+    Transport failures and 5xx (ServiceUnavailable) are transient — retry them.
+    Every other typed AgentBusError is DEFINITIVE (401 revoked, 403 forbidden,
+    404 not found, 422 malformed, 429 quota/rate) and MUST pass through
+    unchanged; retrying them wastes work and can make the underlying state
+    worse. Also: httpx.HTTPError catches network-level failures before the SDK
+    can wrap them as TransportError, so it counts as transient too.
+    """
+    if isinstance(exc, (TransportError, ServiceUnavailable)):
+        return True
+    return isinstance(exc, httpx.HTTPError)
+
+
+def _sdk_bulkhead() -> Any:
+    """Lazy singleton — one concurrency lane for the whole SDK per process.
+
+    circuit_breaker_enabled is HARD-CODED False (Farshid's explicit instruction,
+    round-3 audit note): bulkman is the concurrency lane, resilient_circuit is
+    the breaker. Two breakers on one call path is worse than one.
+    """
+    global _SDK_BULKHEAD
+    if _SDK_BULKHEAD is None:
+        import bulkman
+
+        _SDK_BULKHEAD = bulkman.BulkheadThreading(
+            bulkman.BulkheadConfig(
+                name="agentbus-sdk",
+                max_concurrent_calls=int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8")),
+                max_queue_size=int(os.environ.get("AGENTBUS_SDK_MAX_QUEUE", "100")),
+                # NEVER True. The single breaker authority in the codebase is
+                # resilient_circuit; bulkman here is a concurrency isolator only.
+                circuit_breaker_enabled=False,
+            )
+        )
+    return _SDK_BULKHEAD
+
+
+def _sdk_safety_net() -> Any:
+    """Lazy singleton — one retry+breaker policy shared across every request.
+
+    Widened breaker (5/5 fail, 2/2 success) and a small exponential retry
+    budget. The `should_handle` classifier ONLY matches transient errors, so a
+    401 or 404 falls through immediately — retrying a 401 hammers the bus with
+    a credential that will never work and turns one clear failure into many.
+    """
+    global _SDK_SAFETY_NET
+    if _SDK_SAFETY_NET is None:
+        import datetime as _dt
+        from fractions import Fraction
+
+        import resilient_circuit as rc
+        from resilient_circuit.storage import InMemoryStorage
+
+        _SDK_SAFETY_NET = rc.SafetyNet(
+            policies=(
+                rc.CircuitProtectorPolicy(
+                    resource_key="agentbus-sdk",
+                    storage=InMemoryStorage(),
+                    failure_limit=Fraction(5, 5),  # 5 of last 5 attempts failed
+                    success_limit=Fraction(2, 2),  # 2 clean attempts to close
+                    cooldown=_dt.timedelta(
+                        seconds=int(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30"))
+                    ),
+                    should_handle=_is_transient_sdk_error,
+                ),
+                rc.RetryWithBackoffPolicy(
+                    max_retries=int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3")),
+                    backoff=rc.ExponentialDelay(
+                        min_delay=_dt.timedelta(milliseconds=500),
+                        max_delay=_dt.timedelta(seconds=8),
+                        factor=2,
+                        jitter=0.2,
+                    ),
+                    should_handle=_is_transient_sdk_error,
+                ),
+            )
+        )
+    return _SDK_SAFETY_NET
+
+
+def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
+    """Run a sync callable through the retry/breaker/bulkhead stack.
+
+    The order matters — see the module comment. RetryWithBackoff wraps the raw
+    fn first (retries within one bulkhead slot); CircuitProtector wraps that
+    (breaker sees post-retry outcomes); the bulkhead is outermost (one
+    concurrency slot for the whole retry sequence).
+
+    A ProtectionException from resilient_circuit (breaker open, retries
+    exhausted) is unwrapped into its cause so callers still see a
+    TransportError or ServiceUnavailable, not a library-specific error type.
+
+    bulkman.execute returns a Future[ExecutionResult]; we block on .result()
+    then translate: success -> the value, failure -> re-raise the original error.
+    """
+    import bulkman
+    from resilient_circuit.exceptions import ProtectionException
+
+    guarded = _sdk_safety_net()(fn)
+
+    def _wrapped() -> Any:
+        try:
+            return guarded()
+        except ProtectionException as exc:
+            # Retries exhausted or breaker open — unwrap to the ORIGINAL error
+            # so a caller catching TransportError still catches this. `__cause__`
+            # is set by RetryWithBackoffPolicy when it gives up.
+            cause = exc.__cause__ or exc.__context__
+            if cause is not None:
+                raise cause  # noqa: B904 - deliberate: propagate the original
+            raise
+
+    try:
+        future = _sdk_bulkhead().execute(_wrapped)
+        result = future.result(timeout=timeout)
+    except bulkman.BulkheadFullError as exc:
+        # Turn a bulkhead refusal into a TransportError with clear text — a
+        # caller waiting for a slot forever is worse than a fast failure they
+        # can retry against.
+        raise TransportError(
+            f"agentbus SDK bulkhead full ({exc}); raise AGENTBUS_SDK_MAX_CONCURRENT "
+            "or AGENTBUS_SDK_MAX_QUEUE if this is a legitimate high-fan-out caller."
+        ) from exc
+    if result.success:
+        return result.result
+    assert result.error is not None
+    # bulkman wraps every non-BulkheadError as `BulkheadError(f"Execution
+    # failed: {e}")` and sets `__cause__` to the original — see
+    # bulkman/threading.py's _run(). Unwrap it so a caller who catches
+    # AuthError / QuotaExceeded / TransportError still sees the typed error,
+    # not a library-specific wrapper that erases the classification a caller
+    # is trying to branch on.
+    err = result.error
+    if isinstance(err, bulkman.BulkheadError) and err.__cause__ is not None:
+        raise err.__cause__
+    raise err
+
+
 def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
     """Read files and declare the type the bytes actually are.
 
     The server sniffs content types before egress because mail-api rejects a
     mismatch between the declared type and the sniffed one.
+
+    REG-6 (round-3 audit): every file is size-checked BEFORE it is opened, and
+    a file over AGENTBUS_MAX_ATTACHMENT_BYTES (default 50 MB) is refused with
+    an AgentBusError — never opened, never base64-encoded, never buffered.
+    Peak memory used to be ~4-5x file size (raw + base64 + JSON + httpx buffer);
+    an unbounded loop over 25 x 10 MB let a forward peak at ~2 GB. The cap
+    reads at the OS level (os.stat) so the refusal costs nothing.
     """
+    limit = _max_attachment_bytes()
     payload = []
     for path in paths or []:
+        try:
+            size = os.stat(path).st_size
+        except OSError as exc:
+            raise AgentBusError(f"cannot read attachment '{path}': {exc}") from exc
+        if size > limit:
+            raise AgentBusError(
+                f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
+                f"client cap is {limit:,} bytes (~{limit // (1024 * 1024)} MB). "
+                "The client buffers the whole file in RAM, then again as base64, "
+                "then again in the JSON body and the HTTP buffer, so a large "
+                "attachment can OOM the sending host well before the server sees "
+                "the request. Raise AGENTBUS_MAX_ATTACHMENT_BYTES if this machine "
+                "has the RAM budget, or split the file. A streaming upload API "
+                "is planned."
+            )
         with open(path, "rb") as handle:
             data = handle.read()
         guessed, _ = mimetypes.guess_type(path)
@@ -404,7 +622,7 @@ class _Base:
             signed["signing_key_fingerprint"] = _signing.fingerprint(
                 _signing.public_from_private(private)
             )
-        except Exception:  # noqa: BLE001 - never lose a send over a signature
+        except Exception:
             return payload
         return signed
 
@@ -533,19 +751,42 @@ class AgentBus(_Base):
         idempotency_key: str | None = None,
         **kwargs: Any,
     ) -> Any:
-        try:
-            response = self._client.request(
-                method,
-                path,
-                headers=self._headers(agent, idempotent, idempotency_key),
-                **kwargs,
-            )
-        except httpx.HTTPError as exc:
-            raise TransportError(str(exc)) from exc
-        _raise_for(response)
-        payload = response.json() if response.content else None
-        self._capture_challenge(payload)
-        return payload
+        # REG-7 (round-3 audit): mint the idempotency key ONCE HERE, outside
+        # any retry loop, so all attempts hit the server with the same key and
+        # the vendor's dedup layer sees a retry (not two distinct writes). If
+        # we minted inside _do_request the resilience layer's retries would
+        # each get a fresh UUID — exactly the retry-safety hole SEV-2-D
+        # closed for callers but reopened for the SDK itself.
+        if (idempotent or idempotency_key) and not idempotency_key:
+            idempotency_key = str(uuid.uuid4())
+
+        def _do_request() -> Any:
+            try:
+                response = self._client.request(
+                    method,
+                    path,
+                    headers=self._headers(agent, idempotent, idempotency_key),
+                    **kwargs,
+                )
+            except httpx.HTTPError as exc:
+                raise TransportError(str(exc)) from exc
+            _raise_for(response)
+            payload = response.json() if response.content else None
+            self._capture_challenge(payload)
+            return payload
+
+        # REG-7: wrap every request in the resilience stack. Long-polls (large
+        # timeout=) pass their timeout through so a bulkman queue-block does not
+        # override the caller's own wait budget.
+        if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
+            # An explicit opt-out for cases where a caller has its own
+            # resilience layer around the SDK and does not want doubled retries.
+            return _do_request()
+        call_timeout = kwargs.get("timeout") or self.timeout
+        # Add generous headroom over the actual HTTP timeout so bulkman's
+        # future.result(timeout=) never trips before the httpx call does; the
+        # httpx timeout is the source of truth for "this request took too long".
+        return _run_with_resilience(_do_request, timeout=call_timeout + 5)
 
     def attachment(self, delivery_id: str, index: int = 0, *, agent: str | None = None) -> bytes:
         """The RAW BYTES of one attachment on a delivery (#124).
@@ -733,7 +974,7 @@ class AgentBus(_Base):
 
     def tag(
         self,
-        set: dict[str, str] | None = None,  # noqa: A002 - mirrors the server's published `set` parameter
+        set: dict[str, str] | None = None,
         remove: Sequence[str] | None = None,
         *,
         agent: str | None = None,
@@ -1442,9 +1683,15 @@ class AgentBus(_Base):
         merely `reachable`.
         """
         result = self._request("GET", "/v1/inbox?cursor=0&limit=1", agent=agent)
+        # REG-5 (round-3 audit): the lock is the invariant, all readers honour
+        # it. `is not None` is a diagnostic bool so the impact of reading unlocked
+        # is small, but keeping every reader under the lock keeps the discipline
+        # honest — a future reader who copies this shape gets the safe pattern.
+        with self._challenge_lock:
+            answered = self._pending_challenge is not None
         return {
             "waiting": result.get("count", 0),
-            "answered_challenge": self._pending_challenge is not None,
+            "answered_challenge": answered,
         }
 
     def create_webhook(
@@ -1649,18 +1896,81 @@ class AsyncAgentBus(_Base):
         *,
         agent: str | None = None,
         idempotent: bool = False,
+        # REG-7 (round-3 audit): SEV-2-D wired `idempotency_key` through every
+        # sync public method AND the sync _request, but the async _request
+        # never got the param — so every async send/reply/request_approval
+        # was silently dropping the caller-supplied key on the floor. Sending
+        # 3 positional args to a 2-param _headers was legal Python but a real
+        # correctness hole for anyone using the async client.
+        idempotency_key: str | None = None,
         **kwargs: Any,
     ) -> Any:
-        try:
-            response = await self._client.request(
-                method, path, headers=self._headers(agent, idempotent), **kwargs
+        # Mint the key ONCE OUTSIDE the retry loop, same rule as the sync path.
+        if (idempotent or idempotency_key) and not idempotency_key:
+            idempotency_key = str(uuid.uuid4())
+
+        async def _do_request() -> Any:
+            try:
+                response = await self._client.request(
+                    method,
+                    path,
+                    headers=self._headers(agent, idempotent, idempotency_key),
+                    **kwargs,
+                )
+            except httpx.HTTPError as exc:
+                raise TransportError(str(exc)) from exc
+            _raise_for(response)
+            payload = response.json() if response.content else None
+            self._capture_challenge(payload)
+            return payload
+
+        # REG-7: resilience for the async client. resilient_circuit is sync-only
+        # so we hand-roll retry + concurrency isolation here. Semantics match
+        # the sync stack: only transient errors retry; bulkhead is a
+        # per-instance asyncio.Semaphore acquired for the whole retry sequence
+        # (so N failing callers don't multiply their load).
+        if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
+            return await _do_request()
+        return await self._run_with_resilience_async(_do_request)
+
+    async def _run_with_resilience_async(self, fn: Any) -> Any:
+        """Retry-with-backoff + async bulkhead for async _request (REG-7).
+
+        Semantics mirror the sync `_run_with_resilience`: retries only fire for
+        transient errors (transport / 503), non-transient errors pass through
+        immediately, and one Semaphore slot covers the whole retry sequence so
+        N callers can never multiply their load during a bus deploy.
+        """
+        import asyncio
+        import random
+
+        max_retries = int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3"))
+        # Same backoff shape as the sync SafetyNet: 0.5s..8s exponential, jitter.
+        base = 0.5
+        cap = 8.0
+        # Lazy per-instance semaphore so importing the module does not pay for
+        # any concurrency machinery until an async request actually happens.
+        if not hasattr(self, "_async_bulkhead"):
+            self._async_bulkhead = asyncio.Semaphore(
+                int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8"))
             )
-        except httpx.HTTPError as exc:
-            raise TransportError(str(exc)) from exc
-        _raise_for(response)
-        payload = response.json() if response.content else None
-        self._capture_challenge(payload)
-        return payload
+        last_exc: BaseException | None = None
+        async with self._async_bulkhead:
+            for attempt in range(max_retries + 1):
+                try:
+                    return await fn()
+                except BaseException as exc:
+                    if not _is_transient_sdk_error(exc):
+                        # 4xx, quota, etc. — pass through unchanged.
+                        raise
+                    last_exc = exc
+                    if attempt == max_retries:
+                        break
+                    delay = min(cap, base * (2**attempt))
+                    delay *= 1 + random.uniform(-0.2, 0.2)
+                    await asyncio.sleep(delay)
+        assert last_exc is not None
+        raise last_exc
 
     async def register(
         self,
@@ -1817,7 +2127,7 @@ class AsyncAgentBus(_Base):
 
     async def tag(
         self,
-        set: dict[str, str] | None = None,  # noqa: A002 - mirrors the server's published `set` parameter
+        set: dict[str, str] | None = None,
         remove: Sequence[str] | None = None,
         *,
         agent: str | None = None,
@@ -2123,15 +2433,28 @@ class AsyncAgentBus(_Base):
         return await self.status("busy", seconds=seconds, reason=reason, agent=agent)
 
     async def heartbeat(self, agent: str | None = None) -> None:
-        """Refresh presence for the acting agent — async twin."""
-        await self._request("POST", "/v1/heartbeat", agent=agent)
+        """Refresh presence for the acting agent — async twin.
+
+        REG-4 (round-3 audit): posts to /v1/agents/<agent>/heartbeat, matching
+        the sync twin at AgentBus.heartbeat (client.py). This method previously
+        posted to /v1/heartbeat, which the server 404s — presence went silently
+        stale for anyone using the async client. The parity test now compares
+        endpoint strings so this drift class fails CI.
+        """
+        await self._request("POST", f"/v1/agents/{agent or self.agent}/heartbeat", agent=agent)
 
     async def heartbeat_liveness(self, agent: str | None = None) -> dict[str, Any]:
         """Cheap poll to answer a challenge and learn what is waiting — async twin."""
         result = await self._request("GET", "/v1/inbox?cursor=0&limit=1", agent=agent)
+        # REG-5 (round-3 audit): the lock is the invariant, all readers honour
+        # it. `is not None` is a diagnostic bool so the impact of reading unlocked
+        # is small, but keeping every reader under the lock keeps the discipline
+        # honest — a future reader who copies this shape gets the safe pattern.
+        with self._challenge_lock:
+            answered = self._pending_challenge is not None
         return {
             "waiting": result.get("count", 0),
-            "answered_challenge": self._pending_challenge is not None,
+            "answered_challenge": answered,
         }
 
     async def retire(self, agent: str | None = None) -> None:

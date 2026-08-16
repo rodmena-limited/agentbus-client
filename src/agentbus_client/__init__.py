@@ -83,7 +83,7 @@ def __getattr__(name: str) -> Any:
             from importlib.metadata import version as _pkg_version
 
             return _pkg_version("rodmena-agentbus")
-        except Exception:  # noqa: BLE001 - source tree without install metadata
+        except Exception:
             return "0.0.0+source"
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

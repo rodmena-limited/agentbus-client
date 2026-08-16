@@ -33,3 +33,6 @@ scratch*.py
 # AgentBus per-checkout identity — never committed (kill switch)
 .agentbus/
 .claude/settings.local.json
+
+# Per-checkout issuedb — never committed
+.issue.db

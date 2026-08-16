@@ -279,7 +279,7 @@ def unseal(sealed: bytes, private_key: str) -> bytes:
         try:
             file_key = ChaCha20Poly1305(wrap_key).decrypt(b"\x00" * 12, wrapped, None)
             break
-        except Exception:  # noqa: BLE001 - a stanza for somebody else, keep looking
+        except Exception:
             continue
     if file_key is None:
         raise CannotDecrypt("no stanza in this message unwraps with this identity")

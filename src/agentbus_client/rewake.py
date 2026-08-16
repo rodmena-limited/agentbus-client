@@ -96,7 +96,7 @@ def monitor(_args: object = None) -> int:
     """Return 2 (with new mail on stdout) to re-wake, else 0. Never raises."""
     try:
         return _monitor_inner()
-    except Exception as exc:  # noqa: BLE001 - a hook must never break a session
+    except Exception as exc:
         print(f"agentbus monitor: giving up cleanly ({type(exc).__name__}: {exc})", file=sys.stderr)
         return 0
 

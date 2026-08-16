@@ -389,7 +389,7 @@ def cmd_register(args: argparse.Namespace) -> int:
                 key_note = (
                     "  NO KEY: the wake cannot start. Sign in once: agentbus signin <workspace key>"
                 )
-    except Exception as exc:  # noqa: BLE001 - a successful register must still report
+    except Exception as exc:
         key_note = f"  NO KEY ({exc}); the wake cannot start."
 
     wired_note = ""
@@ -443,7 +443,7 @@ def cmd_register(args: argparse.Namespace) -> int:
             wired_note = f"  wired:    {local_path} env.AGENTBUS_AGENT={agent_name}"
             for note in notes:
                 wired_note += f"\n             {note}"
-    except Exception as exc:  # noqa: BLE001 - never fail a successful register
+    except Exception as exc:
         wired_note = (
             f"  NOT WIRED ({exc}). The wake will not start; "
             f"run: agentbus setup claude --role <role>"
@@ -2196,7 +2196,7 @@ def _superseded_fingerprints() -> set[str]:
             path.name.removeprefix("sealing-").removesuffix(".key.superseded")
             for path in directory.glob("sealing-*.key.superseded")
         }
-    except Exception:  # noqa: BLE001 - see docstring
+    except Exception:
         return set()
 
 
@@ -2214,7 +2214,7 @@ def _local_signing_fingerprint(agent: str) -> str | None:
         return None
     try:
         return _signing.fingerprint(_signing.public_from_private(private))
-    except Exception:  # noqa: BLE001 - a warning must never be what fails
+    except Exception:
         return None
 
 
@@ -2788,7 +2788,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
         for one in handlers:
             try:
                 one(message)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
 
     # The cursor state MUST be scoped by workspace as well as agent. Cursors are
@@ -3001,7 +3001,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 print(f"credential:     {line}")
         else:
             print("credential:     none reachable from this directory")
-    except Exception as exc:  # noqa: BLE001 - a doctor report must never crash
+    except Exception as exc:
         print(f"credential:     UNAVAILABLE — {exc}")
 
     # #196: AN INSTALLED SKILL COULD NOT TELL IT WAS STALE. `setup` compares and
@@ -3017,7 +3017,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # Not fatal: a stale skill is guidance, not a broken wake path. But
             # it must not read as clean either.
             ok = False
-    except Exception as exc:  # noqa: BLE001 - a doctor report must never crash
+    except Exception as exc:
         print(f"skill:          NOT CHECKED — {exc}")
 
     agent = bus.agent

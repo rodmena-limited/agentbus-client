@@ -55,7 +55,7 @@ class FakeBus:
         self._thread = thread
         self.thread_calls: list[str] = []
 
-    def read(self, delivery_id: str) -> dict:  # noqa: ARG002 - mirrors the real client
+    def read(self, delivery_id: str) -> dict:
         return self._delivery
 
     def thread(self, thread_id: str) -> dict:

@@ -43,11 +43,11 @@ from agentbus_client import cli  # noqa: E402
 
 @pytest.fixture()
 def runtime(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "_watch_runtime_dir", lambda create=True: tmp_path)  # noqa: ARG005
+    monkeypatch.setattr(cli, "_watch_runtime_dir", lambda create=True: tmp_path)
     return tmp_path
 
 
-def test_no_log_at_all_is_reported_as_none(runtime) -> None:  # noqa: ARG001
+def test_no_log_at_all_is_reported_as_none(runtime) -> None:
     """bikeroom's case. The old code printed a path here — sending a reader to
     grep a file nothing had ever written."""
     assert cli._existing_logfile("a", "st.json.pid") is None
@@ -95,7 +95,7 @@ def test_a_legacy_watcher_owns_the_legacy_log(runtime) -> None:
     assert is_ours is True
 
 
-def test_the_daemon_writes_the_state_keyed_path(runtime) -> None:  # noqa: ARG001
+def test_the_daemon_writes_the_state_keyed_path(runtime) -> None:
     """The read side is worthless if the write side still shares one file: two
     watchers for one agent would interleave into it, and every log would be
     unattributable by construction."""
@@ -105,7 +105,7 @@ def test_the_daemon_writes_the_state_keyed_path(runtime) -> None:  # noqa: ARG00
     )
 
 
-def test_watch_status_does_not_print_a_path_it_has_not_checked(runtime) -> None:  # noqa: ARG001
+def test_watch_status_does_not_print_a_path_it_has_not_checked(runtime) -> None:
     """THE REGRESSION. The old line was an unconditional
     `print(f"  log: {_watch_logfile(agent)}")`."""
     src = inspect.getsource(cli.cmd_watch_status)
@@ -115,7 +115,7 @@ def test_watch_status_does_not_print_a_path_it_has_not_checked(runtime) -> None:
     assert src.count("_existing_logfile") >= 2
 
 
-def test_watch_status_says_why_there_is_no_log(runtime) -> None:  # noqa: ARG001
+def test_watch_status_says_why_there_is_no_log(runtime) -> None:
     """'log: none' alone would read as a fault. The reason — only
     `watch --daemon` captures output — is what stops someone hunting a bug in
     their watcher."""

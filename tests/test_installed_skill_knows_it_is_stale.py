@@ -93,7 +93,7 @@ def test_different_bytes_are_stale_and_name_the_refresh_command(skill, monkeypat
     assert "13 vs 29 bytes" in detail, detail
 
 
-def test_a_missing_skill_is_missing_not_stale(skill, monkeypatch) -> None:  # noqa: ARG001
+def test_a_missing_skill_is_missing_not_stale(skill, monkeypatch) -> None:
     """Never installed and installed-but-old need different actions, and
     collapsing them would tell a fresh machine to 'refresh' something it does
     not have."""
@@ -123,7 +123,7 @@ def test_a_non_200_is_UNKNOWN_and_never_current(skill, monkeypatch) -> None:
     assert state == "unknown"
 
 
-def test_doctor_reports_the_skill_and_a_stale_one_is_not_a_clean_bill(skill) -> None:  # noqa: ARG001
+def test_doctor_reports_the_skill_and_a_stale_one_is_not_a_clean_bill(skill) -> None:
     """A doctor line nobody prints is #94's F-07 again: a function that works
     and is called from nowhere. And printing STALE while still exiting clean
     would make the line decorative."""
@@ -136,7 +136,7 @@ def test_doctor_reports_the_skill_and_a_stale_one_is_not_a_clean_bill(skill) -> 
     assert "ok = False" in branch
 
 
-def test_setup_still_says_when_the_skill_was_already_current(skill) -> None:  # noqa: ARG001
+def test_setup_still_says_when_the_skill_was_already_current(skill) -> None:
     """The ticket's third line — setup must not rewrite silently. This was
     ALREADY true before #196; asserted rather than assumed, because a later
     refactor that dropped the 'current' branch would leave a no-op looking

@@ -229,7 +229,7 @@ def _ensure_sealing_key(bus: Any, ui: Any) -> None:
 
     try:
         state = bus._request("GET", "/v1/workspace/pubkeys")
-    except Exception:  # noqa: BLE001 - an older server has no such endpoint
+    except Exception:
         # Not an error: this machine is talking to a deployment that predates
         # encryption, and signin must still work against it.
         return
@@ -249,7 +249,7 @@ def _ensure_sealing_key(bus: Any, ui: Any) -> None:
         registered = bus._request(
             "POST", f"/v1/agents/{bus.agent}/pubkey", json={"public_key": public}
         )
-    except Exception as exc:  # noqa: BLE001 - reported, never fatal to signin
+    except Exception as exc:
         ui.fail(f"this workspace is ENCRYPTED but the public key could not be registered: {exc}")
         _say("  Until it is, this agent cannot read sealed mail and peers cannot seal to it.")
         return
@@ -522,7 +522,7 @@ def _derived_name(role: str | None) -> str | None:
 
         key = str(identity.describe(None).get("session_key") or "")
         return f"{role}-{key[:6]}" if key else None
-    except Exception:  # noqa: BLE001 - a nicer message must never break setup
+    except Exception:
         return None
 
 
@@ -684,7 +684,7 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
             lines.append(
                 f"project ({_project_claude_dir()}/settings.local.json): agent {proj_agent}"
             )
-    except Exception:  # noqa: BLE001 - a doctor report must never crash on a bad config
+    except Exception:
         pass
 
     # 2. User-scope fallback in ~/.claude.json (Claude). A projects-less MCP
@@ -703,7 +703,7 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
                 lines.append(
                     f"user-scope ~/.claude.json agentbus MCP: {scope}" + _inherited_flag(scope)
                 )
-    except Exception:  # noqa: BLE001 - a doctor report must never crash on a bad config
+    except Exception:
         pass
 
     # 3. opencode fallback config.
@@ -725,7 +725,7 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
                 scope = _scope_of_bearer(header, base_url)
                 lines.append(f"opencode {name} agentbus MCP: {scope}" + _inherited_flag(scope))
             break
-    except Exception:  # noqa: BLE001 - a doctor report must never crash on a bad config
+    except Exception:
         pass
 
     # 4. The operator credential on disk (deliberate, 0600, not inherited).
@@ -784,7 +784,7 @@ def _scope_of_bearer(bearer: str, base_url: str | None = None) -> str:
         if exc.code in ("invalid_api_key", "forbidden", "not_found"):
             return f"unusable ({exc.code})"
         return f"unreachable ({exc.code})"
-    except Exception:  # noqa: BLE001 - a doctor report must never crash on a bad config
+    except Exception:
         return "unknown (resolution failed)"
 
 
@@ -930,7 +930,7 @@ def _ensure_hook_entry(
     return "added"
 
 
-def _provision_project_agent(  # noqa: PLR0911 - each early return is a distinct, named refusal
+def _provision_project_agent(
     args: argparse.Namespace, report: list[str], harness: str
 ) -> str | None:
     """The harness-independent core of setup: resolve the project's agent
@@ -1259,7 +1259,7 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
         if resp.status_code != 200:
             return "unknown", f"served {resp.status_code}; NOT checked"
         served = resp.content
-    except Exception as exc:  # noqa: BLE001 - a doctor line must never crash
+    except Exception as exc:
         return "unknown", f"could not reach {root}: {str(exc)[:60]} — NOT checked"
 
     if installed == served:
@@ -1391,7 +1391,7 @@ def _setup_claude(args: argparse.Namespace) -> int:
                 f"sealing key: {_sealing.key_path(name)} (0600) "
                 f"registered as {_reg.get('fingerprint')}"
             )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # NEVER FAIL SETUP OVER THIS. Registration is retried on the next run,
         # and a half-wired project is worse than an unsealed one — but say it
         # loudly, because until it succeeds this agent cannot read sealed mail.
@@ -1429,7 +1429,7 @@ def _setup_claude(args: argparse.Namespace) -> int:
                 f"skill: NOT installed (served {resp.status_code}) — "
                 "setup is incomplete without it, re-run when reachable"
             )
-    except Exception as exc:  # noqa: BLE001 - skill install is best-effort, said loudly
+    except Exception as exc:
         report.append(f"skill: NOT installed ({exc}) — re-run setup when reachable")
 
     # 8. MCP entry — wired without ever printing the secret. The first version
@@ -1577,7 +1577,7 @@ def _setup_claude(args: argparse.Namespace) -> int:
             report.append("credential scope: WARNING (inherited send-or-above credential found)")
         else:
             report.append("credential scope: ok (no inherited send-or-above credential)")
-    except Exception as exc:  # noqa: BLE001 - a warning must never fail setup
+    except Exception as exc:
         report.append(f"credential scope: not checked ({exc})")
 
     from . import ui
@@ -1756,7 +1756,7 @@ def _setup_opencode(args: argparse.Namespace) -> int:
                 report.append(f"skill: {skill_path} (current)")
         else:
             report.append(f"skill: NOT installed (served {resp.status_code})")
-    except Exception as exc:  # noqa: BLE001 - skill install is best-effort, said loudly
+    except Exception as exc:
         report.append(f"skill: NOT installed ({exc})")
 
     # 8. #64 credential-scope warning — same finding as claude: an inherited
@@ -1775,7 +1775,7 @@ def _setup_opencode(args: argparse.Namespace) -> int:
             report.append("credential scope: WARNING (inherited send-or-above credential found)")
         else:
             report.append("credential scope: ok (no inherited send-or-above credential)")
-    except Exception as exc:  # noqa: BLE001 - a warning must never fail setup
+    except Exception as exc:
         report.append(f"credential scope: not checked ({exc})")
 
     _say("agentbus setup opencode — everything wired, nothing foreign touched:")
@@ -1968,7 +1968,7 @@ def _installed_version() -> str | None:
         from . import __version__
 
         return str(__version__)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -2325,7 +2325,7 @@ def _mint_bound_key(name: str, operator: str | None, base_url: str | None) -> st
     return str(secret)
 
 
-def cmd_sibling(args: argparse.Namespace) -> int:  # noqa: ARG001 — CLI verb signature kept so the parser wiring stays; the verb only prints deprecation guidance
+def cmd_sibling(args: argparse.Namespace) -> int:
     # DEPRECATED (operator directive, 2026-08-10): the sibling machinery is the
     # wrong answer. Identity is env-var-driven — AGENTBUS_AGENT in the project's
     # .env, or exported for one command — and a customer who wants two agents on

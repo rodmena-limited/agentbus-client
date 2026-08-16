@@ -328,7 +328,7 @@ def _worktree_identity_bleed(env_agent: str) -> str | None:
             and _read_declared_agent(common_path.parent) == env_agent
         )
         return own if bleed else None
-    except Exception:  # noqa: BLE001 - identity resolution must never raise
+    except Exception:
         return None
 
 
@@ -354,7 +354,7 @@ def _agent_from_worktree() -> str | None:
             return None
         name = declared.read_text().strip()
         return name or None
-    except Exception:  # noqa: BLE001 - a bad file must not break a hook
+    except Exception:
         return None
 
 
@@ -388,7 +388,7 @@ def _repo_root() -> Path | None:
         result = Path(top) if top else None
         _REPO_ROOT_CACHE[cwd] = result
         return result
-    except Exception:  # noqa: BLE001
+    except Exception:
         _REPO_ROOT_CACHE[cwd] = None
         return None
 
@@ -415,7 +415,7 @@ def _agent_from_project_settings() -> str | None:
         data = json.loads(local.read_text())
         name = (data.get("env") or {}).get("AGENTBUS_AGENT")
         return str(name) if name else None
-    except Exception:  # noqa: BLE001 - a bad file must not break a hook
+    except Exception:
         return None
 
 
@@ -470,7 +470,7 @@ def _warn_if_shadow_queue() -> None:
                 "READING THEM. Fix that hook's environment, then delete the file.",
                 file=sys.stderr,
             )
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
@@ -546,7 +546,7 @@ def record_gate_degraded(agent: str, reason: str, detail: str) -> None:
         prior = {}
         try:
             prior = json.loads(path.read_text())
-        except Exception:  # noqa: BLE001 - a corrupt prior must not silence this one
+        except Exception:
             prior = {}
         count = int(prior.get("count") or 0) + 1
         first = prior.get("first_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -743,7 +743,7 @@ def _identity_held_live(agent: str, session: str) -> bool:
         from ..onboarding import _monitor_pids
 
         return bool(_monitor_pids(agent, session=session))
-    except Exception:  # noqa: BLE001 - a SessionStart hook must never break a session
+    except Exception:
         return False
 
 
@@ -997,7 +997,7 @@ def session_start(_: argparse.Namespace) -> int:
         wake = _wake_file(agent)
         if wake.exists():
             wake.unlink(missing_ok=True)
-    except Exception as exc:  # noqa: BLE001 - never break a session over the bus
+    except Exception as exc:
         _hook_warn("check the inbox at session start", exc)
         return 0
     return 0
@@ -1029,7 +1029,7 @@ def notify(args: argparse.Namespace) -> int:
         # Only after the wake is actually on disk. Clearing earlier would let a
         # path that did no work erase evidence of one that failed.
         clear_notify_failure(agent)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # A failed capture is a LOST wake, not a no-op: the arrival that
         # triggered this hook is now recorded nowhere.
         _hook_warn("record an arrival (this wake is lost)", exc)
@@ -1109,7 +1109,7 @@ def pending(_: argparse.Namespace) -> int:
                 unread.append(
                     f"  {message.sender}: {message.subject}  (agentbus show {message.delivery_id})"
                 )
-    except Exception as exc:  # noqa: BLE001 - a hook must never break a session,
+    except Exception as exc:
         # and a reachability failure here is not evidence of an empty inbox.
         # Fall through to the wake file rather than reporting silence — but SAY
         # the server could not be asked, or a locally-empty wake file reads as
@@ -1190,7 +1190,7 @@ def _session_id_from_stdin() -> str | None:
             return None
         value = json.loads(raw).get("session_id")
         return value if isinstance(value, str) and value else None
-    except Exception:  # noqa: BLE001 - unknown is a valid answer here
+    except Exception:
         return None
 
 
@@ -1267,7 +1267,7 @@ def session_end(_: argparse.Namespace) -> int:
             claim = _identity_claim_path(agent)
             if claim.exists() and str(json.loads(claim.read_text()).get("session")) == session:
                 claim.unlink(missing_ok=True)
-    except Exception as exc:  # noqa: BLE001 - a hook must never break a session
+    except Exception as exc:
         _hook_warn("reap this session's stream (it may be left subscribed)", exc)
     return 0
 
@@ -1544,7 +1544,7 @@ def inject(args: argparse.Namespace) -> int:
         # nothing the old always-print behaviour would have saved.
         _notify()
         return 3
-    except Exception as exc:  # noqa: BLE001 - never break a session over the bus
+    except Exception as exc:
         # Same reasoning: the write did not complete, so announce. Suppressing
         # stdout on an unknown failure is how a wake vanishes silently, which is
         # the failure mode this whole module exists to stop.
@@ -1588,7 +1588,7 @@ def _scrub(text: str) -> str:
     return _SECRET_RE.sub(lambda m: m.group(1).split("_sk_")[0] + "_sk_<redacted>", str(text))
 
 
-def pre_tool_use(_args: argparse.Namespace) -> int:  # noqa: PLR0911 - each return is a deliberate policy branch (#107 fail-open + #234 fast-fail)
+def pre_tool_use(_args: argparse.Namespace) -> int:
     """PreToolUse: ask AgentBus whether this tool call may run, BEFORE it does.
 
     THE ONLY ENFORCEMENT POINT THERE IS for an agent's own tool calls. AgentBus
@@ -1714,7 +1714,7 @@ def pre_tool_use(_args: argparse.Namespace) -> int:  # noqa: PLR0911 - each retu
 
                 data = _json.loads(local.read_text())
                 return bool((data.get("env") or {}).get("AGENTBUS_AGENT"))
-            except Exception:  # noqa: BLE001 - a bad file must not decide a gate
+            except Exception:
                 return False
 
         if _project_opted_in():
@@ -1759,7 +1759,15 @@ def pre_tool_use(_args: argparse.Namespace) -> int:  # noqa: PLR0911 - each retu
             count = int(state.get("count") or 0)
             last_at = state.get("last_at") or ""
             if count >= _FAST_FAIL_THRESHOLD and last_at:
-                last_ts = time.mktime(time.strptime(last_at, "%Y-%m-%dT%H:%M:%SZ"))
+                # REG-1 (round-3 audit): last_at is written with time.gmtime()
+                # (UTC — see record_gate_degraded), so it MUST be parsed back as
+                # UTC. time.mktime() interprets local; on BST that reads the
+                # timestamp ~1h in the past and the cooldown never trips, on
+                # US-Pacific ~8h in the future and it always trips. calendar.timegm
+                # is the timezone-safe pair for gmtime.
+                import calendar
+
+                last_ts = calendar.timegm(time.strptime(last_at, "%Y-%m-%dT%H:%M:%SZ"))
                 if (time.time() - last_ts) < _FAST_FAIL_COOLDOWN:
                     # Record this too — a fast-fail is still a degraded call.
                     with contextlib.suppress(Exception):
@@ -1771,7 +1779,7 @@ def pre_tool_use(_args: argparse.Namespace) -> int:  # noqa: PLR0911 - each retu
                         "UNVETTED — approval checking is OFF. Fix the bus or the "
                         "credential; a real verdict clears the circuit.",
                     )
-    except Exception:  # noqa: BLE001 - a bad state file MUST NOT block the gate
+    except Exception:
         pass
 
     # Timeout: 12s (previously 30) — a guard/check must be fast; a slow bus is a
@@ -1823,7 +1831,7 @@ def pre_tool_use(_args: argparse.Namespace) -> int:  # noqa: PLR0911 - each retu
                     detail = json.loads(exc.read().decode()).get("detail") or ""
                     if "retired" in detail.lower():
                         retired_detail = detail
-                except Exception:  # noqa: BLE001 - a malformed body must not hide the deny
+                except Exception:
                     pass
                 break
             # 5xx is "we could not answer"; 4xx is an answer we must not retry.
@@ -1832,7 +1840,7 @@ def pre_tool_use(_args: argparse.Namespace) -> int:  # noqa: PLR0911 - each retu
             if exc.code < 500 or attempt:
                 break
             time.sleep(0.25)
-        except Exception as exc:  # noqa: BLE001 - every failure is a deny, on purpose
+        except Exception as exc:
             last_exc = exc
             if attempt:
                 break

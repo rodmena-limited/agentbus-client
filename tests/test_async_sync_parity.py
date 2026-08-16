@@ -15,6 +15,7 @@ one side and not the other fails CI too. Drift stops being a per-release chore.
 from __future__ import annotations
 
 import inspect
+import re
 
 from agentbus_client.client import AgentBus, AsyncAgentBus
 
@@ -93,3 +94,65 @@ def test_shared_methods_have_the_same_parameter_names() -> None:
 # discipline is a separate concern; this file is about mechanical parity, and
 # adding a documentation lint would blur what its failures mean. If a docstring
 # ratchet is wanted, ticket it separately.
+
+
+# REG-4 (round-3 audit): the parity checks above catch method-name and
+# parameter-name drift, but async heartbeat shipped with a WRONG ENDPOINT
+# (POST /v1/heartbeat) while the sync one used POST /v1/agents/<agent>/heartbeat
+# — same signature, so parameter parity passed and CI stayed green. Presence
+# went silently stale for anyone using the async client. Adding an endpoint-URL
+# comparison to catch this class of drift.
+
+# The regex intentionally strips f-string interpolation braces so
+# f"/v1/agents/{agent}/heartbeat" and f"/v1/agents/{name}/heartbeat" compare
+# equal — the URL SHAPE, not the caller's local variable name, is what routes.
+_INTERP_RE = re.compile(r"\{[^{}]*\}")
+
+
+def _endpoint_urls(cls: type) -> dict[str, set[str]]:
+    """Extract HTTP URLs from every _request(...) call in every public method
+    on `cls`, keyed by method name. Returns the sync-vs-async comparable shape.
+
+    Read from the source rather than by mocking _request and calling every
+    method, because many methods require credentials / real state to run at all;
+    static extraction is enough to catch a literal string mismatch.
+    """
+    urls: dict[str, set[str]] = {}
+    for name in sorted(_public_methods(cls)):
+        try:
+            src = inspect.getsource(getattr(cls, name))
+        except (TypeError, OSError):
+            continue
+        # A URL is the second positional to _request/self._request/await ...
+        # For robustness, grab every string literal that starts with "/v1/".
+        found = set(re.findall(r'["\']((?:/v1/[^"\']*|/[a-z_]+))["\']', src))
+        # Normalise interpolation placeholders so agent-name variables do not
+        # cause spurious differences.
+        urls[name] = {_INTERP_RE.sub("{}", u) for u in found}
+    return urls
+
+
+def test_shared_methods_use_the_same_endpoints() -> None:
+    """The API URLs a sync/async twin call MUST match. This is what caught REG-4:
+    a caller who calls `bus.heartbeat()` on the async client used to silently 404
+    against /v1/heartbeat while the sync client correctly posted to
+    /v1/agents/<agent>/heartbeat. Same method name, same parameters, different
+    endpoint — a class the earlier parity checks did not cover.
+    """
+    sync_urls = _endpoint_urls(AgentBus)
+    async_urls = _endpoint_urls(AsyncAgentBus)
+    drift: list[str] = []
+    for name in sorted(set(sync_urls) & set(async_urls)):
+        # Some methods legitimately use different URLs on different code paths
+        # (e.g. reply resolves either message-id or delivery-id first) — compare
+        # AS SETS so any twin that touches the same endpoints in either order
+        # matches. What we are catching is a URL that exists on one side and
+        # not the other.
+        s, a = sync_urls[name], async_urls[name]
+        if s and a and s != a:
+            drift.append(f"  {name}:\n    sync : {sorted(s)}\n    async: {sorted(a)}")
+    assert not drift, (
+        "Endpoint drift between AgentBus and AsyncAgentBus (a twin uses a "
+        "different HTTP URL than its counterpart, so the async caller may 404 "
+        "or hit the wrong resource):\n" + "\n".join(drift)
+    )

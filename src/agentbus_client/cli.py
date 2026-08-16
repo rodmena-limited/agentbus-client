@@ -99,9 +99,19 @@ def _resolve_env_agent() -> str | None:
 
 
 def _key_for_agent(agent: str) -> str | None:
-    """The agent's own stored key, if one exists (keys/<agent>.env)."""
+    """The agent's own stored key, if one exists (keys/<agent>.env).
+
+    REG-8b (round-3.5 re-audit): the agent name is sanitized through
+    sealing.bound_env_filename before path join, so `../operator` cannot
+    reach into <config>/operator.env from an attacker-controllable source
+    ($AGENTBUS_AGENT, .agentbus/agent). This function is called from _bus()
+    on the env-reversal path — exactly the code that consumes a hostile
+    checkout's declared identity.
+    """
+    from . import sealing
+
     with contextlib.suppress(OSError, ValueError):
-        key_file = Path.home() / ".config" / "agentbus" / "keys" / f"{agent}.env"
+        key_file = Path.home() / ".config" / "agentbus" / "keys" / sealing.bound_env_filename(agent)
         if not key_file.exists():
             return None
         for raw in key_file.read_text().splitlines():
@@ -300,7 +310,15 @@ def cmd_join(args: argparse.Namespace) -> int:
     agent = (result.get("agent") or {}).get("name") or args.name
     keys_dir = _keys_dir()
     keys_dir.mkdir(parents=True, exist_ok=True)
-    key_path = keys_dir / f"{agent}.env"
+    # REG-8b (round-3.5 re-audit): sanitize the filename. `agent` here is
+    # `args.name` (unvalidated CLI arg) when the server does not echo a name
+    # back — a hostile `agentbus join <token> --name "../operator"` used to
+    # WRITE to keys/../operator.env and CLOBBER the operator credential.
+    # bound_env_filename collapses '..' and '/' to '_', so the write lands
+    # inside keys/ regardless.
+    from . import sealing as _sealing
+
+    key_path = keys_dir / _sealing.bound_env_filename(agent)
     if secret:
         # Written 0600 in the same shape `register` uses, so the monitor and the
         # shell hooks already know how to source it. The secret is returned once
@@ -365,6 +383,7 @@ def cmd_register(args: argparse.Namespace) -> int:
     # matter how correct everything else was.
     key_note = ""
     try:
+        from . import sealing as _sealing
         from .onboarding import (
             _keys_dir,
             _mint_bound_key,
@@ -372,7 +391,12 @@ def cmd_register(args: argparse.Namespace) -> int:
             _write_private,
         )
 
-        key_path = _keys_dir() / f"{agent_name}.env"
+        # REG-8b (round-3.5): sanitize agent_name. This is the setup path;
+        # agent_name derives from a user-supplied `--name` or a hostile
+        # checkout's identity resolution, so a traversal payload MUST NOT
+        # write into <config>/operator.env. bound_env_filename ensures the
+        # path always resolves inside keys/.
+        key_path = _keys_dir() / _sealing.bound_env_filename(agent_name)
         if key_path.exists():
             key_note = f"  key:      {key_path} (existing)"
         else:
@@ -1027,7 +1051,15 @@ def cmd_service(args: argparse.Namespace) -> int:
     # explicit (invalid) env var also DEFEATS the key-file resolution chain
     # added in 0.3.1. Emitting no key line at all lets resolution find the file
     # and keeps the secret out of a world-readable unit (david D8).
-    default_key_file = _cfg_dir() / "keys" / f"{agent}.env"
+    # REG-8b (round-3.5): sanitize `agent` before the path join. `agentbus
+    # service` writes the path into a systemd unit's EnvironmentFile line —
+    # a traversal payload would READ <config>/operator.env and PERSIST that
+    # path in a systemd unit, so a rogue service would auto-source the
+    # operator credential on every start. bound_env_filename ensures the
+    # generated unit only points inside keys/.
+    from . import sealing as _sealing
+
+    default_key_file = _cfg_dir() / "keys" / _sealing.bound_env_filename(agent)
     if not env_file and default_key_file.exists():
         env_file = str(default_key_file)
     if manager == "systemd":

@@ -88,6 +88,31 @@ def _agent_slug(agent: str | None) -> str:
     return slug.replace("..", "_") or "_"
 
 
+def bound_env_filename(agent: str) -> str:
+    """The traversal-safe filename for an agent's bound-key .env file.
+
+    Named and exported so every call site that resolves keys/<agent>.env can
+    share one sanitizer instead of remembering to inline _agent_slug themselves.
+
+    REG-8 (round-3 audit) fixed client._key_from_disk to route the agent name
+    through _agent_slug. Macbook's re-audit (round-3.5) found FOUR sibling
+    call sites doing the same unsanitized path build:
+      cli.py:_key_for_agent    (READ; called from _bus() on env-reversal path)
+      cli.py join --name       (WRITE; hostile --name clobbers operator.env)
+      cli.py setup             (WRITE; second onboarding path)
+      cli.py service           (READ; passes into systemd unit EnvironmentFile)
+      hooks/claude_code.py:_adopt_credential_for   (READ; MUTATES os.environ)
+    Every one of them could be reached by a hostile .agentbus/agent, a hostile
+    --name flag on `agentbus join`, or a hostile $AGENTBUS_AGENT. The correct
+    class-of-bugs fix is one shared helper, not five parallel calls. Now:
+      keys_dir / bound_env_filename(agent)     # traversal-safe
+    A slug that matches no real file returns "_.env" or similar — every read
+    path answers "no such file" and every write path lands inside keys/, so a
+    hostile name cannot escape into operator.env or /etc/passwd.
+    """
+    return f"{_agent_slug(agent)}.env"
+
+
 def key_path(agent: str | None = None) -> Path:
     """Where THIS AGENT's private key lives.
 

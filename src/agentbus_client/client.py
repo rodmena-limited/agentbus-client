@@ -452,20 +452,15 @@ def _key_from_disk(agent: str | None) -> str:
         return ""
 
     if agent:
-        # REG-8 (round-3 audit): PATH TRAVERSAL. An `agent` name reaches this
-        # function from either $AGENTBUS_AGENT, `.agentbus/agent`, or the
-        # constructor arg — the middle one is an attacker-controllable file on
-        # a hostile checkout. Passing `../operator` unchanged would resolve to
-        # `<config>/operator.env` and pivot the client onto the workspace-wide
-        # operator credential, which is exactly the escalation SEV-1-B closed
-        # for the OPERATOR.env fallback branch — this branch had its own way
-        # in. Sanitize through the same slug function `sealing.key_path` uses
-        # for the sibling keys/ paths: separators become underscores and `..`
-        # collapses to `_`, so nothing can escape the keys/ directory.
-        # A slug that matches no file falls through to _read()->OSError->""
-        # so the caller sees "no key for this agent" rather than a live one.
-        slug = sealing._agent_slug(agent)
-        return _read(os.path.join(config, "keys", f"{slug}.env"))
+        # REG-8 (round-3) + REG-8b (round-3.5 sweep): PATH TRAVERSAL / identity
+        # escalation. Round-3 sanitized this one call site; macbook's re-audit
+        # (round-3.5) found FOUR MORE sibling call sites with the same
+        # unsanitized keys/<agent>.env pattern (cli.py `_key_for_agent`, join
+        # --name, setup, service; hooks/claude_code.py `_adopt_credential_for`).
+        # ALL now route through sealing.bound_env_filename so the same
+        # sanitizer decides the filename everywhere — separators to '_',
+        # '..' to '_' — and nothing can escape keys/ into operator.env.
+        return _read(os.path.join(config, "keys", sealing.bound_env_filename(agent)))
     return _read(os.path.join(config, "operator.env"))
 
 

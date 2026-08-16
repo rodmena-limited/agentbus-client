@@ -231,9 +231,20 @@ def _adopt_credential_for(agent: str) -> None:
     noise here would put it in front of a reader who cannot act on it mid-hook.
     """
     with contextlib.suppress(OSError, ValueError):
+        from .. import sealing
         from ..identity import config_dir
 
-        f = config_dir() / "keys" / f"{agent}.env"
+        # REG-8b (round-3.5 re-audit): sanitize the filename. This is THE most
+        # dangerous of the round-3.5 sites because (a) `agent` traces back
+        # through _worktree_identity_bleed → _agent_from_worktree →
+        # _read_declared_agent, whose FIRST source is `.agentbus/agent` in the
+        # repo — the exact attacker-controllable file the REG-8 threat model
+        # names — and (b) this function is documented as SILENT AND
+        # BEST-EFFORT and MUTATES os.environ["AGENTBUS_API_KEY"] mid-hook. A
+        # hostile checkout with .agentbus/agent containing "../operator" used
+        # to swap a Claude Code hook session onto the operator credential
+        # with NO visible failure. bound_env_filename closes that side door.
+        f = config_dir() / "keys" / sealing.bound_env_filename(agent)
         if not f.exists():
             return
         for raw in f.read_text().splitlines():

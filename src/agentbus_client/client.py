@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import logging
 import mimetypes
@@ -451,7 +452,20 @@ def _key_from_disk(agent: str | None) -> str:
         return ""
 
     if agent:
-        return _read(os.path.join(config, "keys", f"{agent}.env"))
+        # REG-8 (round-3 audit): PATH TRAVERSAL. An `agent` name reaches this
+        # function from either $AGENTBUS_AGENT, `.agentbus/agent`, or the
+        # constructor arg — the middle one is an attacker-controllable file on
+        # a hostile checkout. Passing `../operator` unchanged would resolve to
+        # `<config>/operator.env` and pivot the client onto the workspace-wide
+        # operator credential, which is exactly the escalation SEV-1-B closed
+        # for the OPERATOR.env fallback branch — this branch had its own way
+        # in. Sanitize through the same slug function `sealing.key_path` uses
+        # for the sibling keys/ paths: separators become underscores and `..`
+        # collapses to `_`, so nothing can escape the keys/ directory.
+        # A slug that matches no file falls through to _read()->OSError->""
+        # so the caller sees "no key for this agent" rather than a live one.
+        slug = sealing._agent_slug(agent)
+        return _read(os.path.join(config, "keys", f"{slug}.env"))
     return _read(os.path.join(config, "operator.env"))
 
 
@@ -804,24 +818,58 @@ class AgentBus(_Base):
 
         Returns bytes rather than a decoded payload: this is the one response in
         the API that is not JSON, and `_request` would try to parse it.
+
+        REG-9 (round-3 re-audit): the response is now STREAMED via
+        `_client.stream(...) + iter_bytes()`, with an accumulator that raises
+        AgentBusError as soon as the running total exceeds
+        AGENTBUS_MAX_ATTACHMENT_BYTES (same cap that guards the send side,
+        same env override, same default 50 MB). The old code used
+        `response.content` which buffered the whole body before any check
+        could bail — a hostile server or a stale route could stream a
+        multi-GB body into RAM before we noticed. A proper streaming decrypt
+        (so plaintext and ciphertext do not coexist in RAM) needs a
+        `sealing.unseal_stream` primitive that pyage can be wrapped in; the
+        boundary cap here reduces the peak by 1/2 today (ciphertext-only
+        during read) and covers the hostile-server case in full.
         """
+        from . import sealing
+
+        # REG-9: cap the maximum ciphertext we will buffer. The armor and age
+        # framing add ~15% overhead vs the raw plaintext, so allow a small
+        # headroom over the send-side cap for legitimate large-and-sealed files.
+        cap = int(1.5 * _max_attachment_bytes())
+        content: bytes
         try:
-            response = self._client.request(
+            with self._client.stream(
                 "GET",
                 f"/v1/deliveries/{delivery_id}/attachments/{index}",
                 headers=self._headers(agent, False),
-            )
+            ) as response:
+                _raise_for(response)
+                chunks: list[bytes] = []
+                total = 0
+                for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                    total += len(chunk)
+                    if total > cap:
+                        # Refuse before we finish reading. httpx closes the
+                        # stream when we leave the `with` block.
+                        raise AgentBusError(
+                            f"attachment is over the {cap:,} byte cap "
+                            f"({total:,} bytes received so far and still coming). "
+                            "Raise AGENTBUS_MAX_ATTACHMENT_BYTES if this machine "
+                            "has the RAM budget; the client holds the ciphertext "
+                            "and the plaintext at the same time during unseal."
+                        )
+                    chunks.append(chunk)
+                content = b"".join(chunks)
         except httpx.HTTPError as exc:
             raise TransportError(str(exc)) from exc
-        _raise_for(response)
 
         # UNSEAL ON THE WAY OUT, like read() does for bodies. A caller that
         # received age armor where it expected a PNG would reasonably conclude
         # the file was corrupt — and "remember to decrypt attachments too" is
         # the kind of instruction followed for about a week.
-        from . import sealing
-
-        content = response.content
+        #
         # 64, not 32: the armor header is 34 bytes, so slicing to 32 made this
         # test never fire and every sealed attachment came back as armor. The
         # probe caught it on its first run; no unit test would have, because a
@@ -1940,22 +1988,43 @@ class AsyncAgentBus(_Base):
         transient errors (transport / 503), non-transient errors pass through
         immediately, and one Semaphore slot covers the whole retry sequence so
         N callers can never multiply their load during a bus deploy.
+
+        REG-10 (round-3 re-audit): the semaphore is keyed BY THE RUNNING EVENT
+        LOOP, not by the instance. asyncio.Semaphore binds permanently to the
+        loop it was instantiated on — a global AsyncAgentBus reused across
+        loops (uvicorn worker restart, pytest-asyncio's per-test loop, a
+        script that runs asyncio.run() twice) then raises RuntimeError on the
+        second loop. Per-loop lookup, keyed by id(loop) with weakref cleanup
+        on loop GC, means "one bulkhead PER (instance, loop) pair" and this
+        class of RuntimeError is impossible.
         """
         import asyncio
         import random
+        import weakref
 
         max_retries = int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3"))
         # Same backoff shape as the sync SafetyNet: 0.5s..8s exponential, jitter.
         base = 0.5
         cap = 8.0
-        # Lazy per-instance semaphore so importing the module does not pay for
-        # any concurrency machinery until an async request actually happens.
-        if not hasattr(self, "_async_bulkhead"):
-            self._async_bulkhead = asyncio.Semaphore(
-                int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8"))
-            )
+
+        # REG-10: fetch (or create) the semaphore for THIS loop.
+        loop = asyncio.get_running_loop()
+        bulkheads: dict[int, asyncio.Semaphore] = getattr(self, "_async_bulkheads_by_loop", None)
+        if bulkheads is None:
+            bulkheads = self._async_bulkheads_by_loop = {}
+        loop_id = id(loop)
+        sem = bulkheads.get(loop_id)
+        if sem is None:
+            sem = asyncio.Semaphore(int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8")))
+            bulkheads[loop_id] = sem
+            # When the loop is garbage-collected, drop the dead entry so a
+            # long-lived AsyncAgentBus used across many short-lived loops
+            # (per-test asyncio loops, say) does not accumulate dead sems.
+            with contextlib.suppress(TypeError):
+                weakref.finalize(loop, bulkheads.pop, loop_id, None)
+
         last_exc: BaseException | None = None
-        async with self._async_bulkhead:
+        async with sem:
             for attempt in range(max_retries + 1):
                 try:
                     return await fn()
@@ -2368,19 +2437,38 @@ class AsyncAgentBus(_Base):
 
         Unseals on the way out with any private key this machine holds, so
         `sealed_by=sender` armor never leaks to the caller as-is.
+
+        REG-9 (round-3 re-audit): stream + boundary cap, same rule as the sync
+        twin. See AgentBus.attachment for the reasoning.
         """
+        from . import sealing
+
+        cap = int(1.5 * _max_attachment_bytes())
+        content: bytes
         try:
-            response = await self._client.request(
+            async with self._client.stream(
                 "GET",
                 f"/v1/deliveries/{delivery_id}/attachments/{index}",
                 headers=self._headers(agent, False),
-            )
+            ) as response:
+                _raise_for(response)
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                    total += len(chunk)
+                    if total > cap:
+                        raise AgentBusError(
+                            f"attachment is over the {cap:,} byte cap "
+                            f"({total:,} bytes received so far and still coming). "
+                            "Raise AGENTBUS_MAX_ATTACHMENT_BYTES if this machine "
+                            "has the RAM budget; the client holds the ciphertext "
+                            "and the plaintext at the same time during unseal."
+                        )
+                    chunks.append(chunk)
+                content = b"".join(chunks)
         except httpx.HTTPError as exc:
             raise TransportError(str(exc)) from exc
-        _raise_for(response)
-        from . import sealing
 
-        content = response.content
         if content[:64].lstrip().startswith(b"-----BEGIN AGE ENCRYPTED FILE-----"):
             if not sealing.load_private_keys(self.agent):
                 raise AgentBusError(

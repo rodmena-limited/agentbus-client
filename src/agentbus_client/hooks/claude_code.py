@@ -94,7 +94,17 @@ def _hook_state_dir() -> Path:
 
 
 def _wake_file(agent: str) -> Path:
-    return _hook_state_dir() / f"wake-{agent}.jsonl"
+    # REG-8c (round-3.6 re-audit, bikeroom): sanitize the agent name before
+    # interpolating into a filename. `agent` here traces back to
+    # `.agentbus/agent` — the same attacker-controllable source REG-8/8b closed
+    # for credential filenames. Without this, `agent="../../tmp/PWNED"` yields
+    # wake-../../tmp/PWNED.jsonl which os.path.normpath collapses to
+    # /tmp/PWNED.jsonl. notify() calls this file's .parent.mkdir(parents=True)
+    # and then opens+writes JSON to it, so it is a directory-create + file-write
+    # primitive reachable from a hostile checkout, no flag required.
+    from .. import sealing
+
+    return _hook_state_dir() / f"wake-{sealing.agent_slug(agent)}.jsonl"
 
 
 # Markers that the payload on a hook's stdin is a harness-injected lifecycle
@@ -486,7 +496,12 @@ def _warn_if_shadow_queue() -> None:
 
 
 def _notify_error_file(agent: str) -> Path:
-    return _hook_state_dir() / f"notify-error-{agent}.json"
+    # REG-8c: same sanitization rule as _wake_file — record_notify_failure
+    # mkdirs the parent and writes JSON here, so a traversal payload was a
+    # directory-create + file-write primitive.
+    from .. import sealing
+
+    return _hook_state_dir() / f"notify-error-{sealing.agent_slug(agent)}.json"
 
 
 def record_notify_failure(agent: str, detail: str) -> None:
@@ -530,7 +545,13 @@ def clear_notify_failure(agent: str) -> None:
 
 
 def _gate_degraded_file(agent: str) -> Path:
-    return _hook_state_dir() / f"gate-degraded-{agent}.json"
+    # REG-8c: same sanitization as _wake_file. record_gate_degraded also
+    # mkdirs + writes JSON, and the fast-fail circuit READS this file — a
+    # traversal payload would let a hostile checkout stash content that the
+    # fast-fail circuit later reads as legitimate degraded-gate state.
+    from .. import sealing
+
+    return _hook_state_dir() / f"gate-degraded-{sealing.agent_slug(agent)}.json"
 
 
 def record_gate_degraded(agent: str, reason: str, detail: str) -> None:
@@ -663,9 +684,15 @@ def _is_self_send(sender_display: str) -> bool:
 
 
 def _identity_claim_path(agent: str) -> Path:
+    from .. import sealing
     from ..identity import config_dir
 
-    return config_dir() / f"session-claim-{agent}.json"
+    # REG-8c: same sanitization as _wake_file. The session-claim file is
+    # written on session start and unlinked on session end; a traversal
+    # payload was an arbitrary-path DELETE primitive at session end (via
+    # `state.unlink(missing_ok=True)` further down this module) reachable
+    # from a hostile `.agentbus/agent`.
+    return config_dir() / f"session-claim-{sealing.agent_slug(agent)}.json"
 
 
 def _warn_if_env_overrides_this_checkout(agent: str) -> None:
@@ -1253,9 +1280,19 @@ def session_end(_: argparse.Namespace) -> int:
         # only place that can delete exactly the right one. Scoped by the full
         # session id — never a glob over the agent, which would delete a LIVE
         # session's cursor and is the same cross-session mistake one layer down.
+        # REG-8c: sanitize BOTH agent and session before interpolating into a
+        # filename. bikeroom flagged this one as "probable not confirmed live";
+        # confirmed live on my box — a traversal payload in `agent` yielded
+        # /tmp/PWNED before normpath even had to think about it. state.unlink
+        # is an arbitrary-path DELETE primitive keyed on the two interpolated
+        # values, reachable from a hostile `.agentbus/agent`; session comes
+        # from the harness env var, less obviously attacker-controlled but
+        # sanitizing both makes the invariant local to this line.
+        from .. import sealing
+
         state = (
             Path(os.environ.get("AGENTBUS_CONFIG_DIR") or (Path.home() / ".config" / "agentbus"))
-            / f"monitor-{agent}-{session}.json"
+            / f"monitor-{sealing.agent_slug(agent)}-{sealing.agent_slug(session)}.json"
         )
         with contextlib.suppress(OSError):
             state.unlink(missing_ok=True)

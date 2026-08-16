@@ -88,6 +88,20 @@ def _agent_slug(agent: str | None) -> str:
     return slug.replace("..", "_") or "_"
 
 
+# REG-8c (round-3.6 re-audit, bikeroom): the same sanitizer that decides
+# credential filenames must also decide STATE-FILE filenames — wake, notify,
+# gate-degraded, session-claim, rewake ledger, etc. Every one of them
+# interpolates the acting agent's name into `os.path.join(dir, f"prefix-{agent}.ext")`,
+# and every one of them read from the same `.agentbus/agent` file the REG-8
+# threat model already named as attacker-controllable. Promoting the underlying
+# slug function to a PUBLIC name (no leading underscore) so every filename
+# builder in the client — credential OR state — shares one sanitizer at the
+# interpolation point. Without this, the round-3 helper `bound_env_filename`
+# was structurally .env-only, and the sibling state-file sites could not reuse
+# it — that shape mismatch is what let the class survive round-3.5.
+agent_slug = _agent_slug
+
+
 def bound_env_filename(agent: str) -> str:
     """The traversal-safe filename for an agent's bound-key .env file.
 

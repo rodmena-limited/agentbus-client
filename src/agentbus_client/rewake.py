@@ -52,7 +52,15 @@ def _ledger_path(agent: str) -> Path:
     override = os.environ.get("AGENTBUS_REWAKE_STATE")
     if override:
         return Path(override)
-    return _config_dir() / f"rewake-seen-{agent}.txt"
+    # REG-8c (round-3.6, bikeroom): sanitize agent — this is the WORSE of the
+    # state-file findings because the Stop-hook monitor calls _monitor_inner
+    # on EVERY TURN, in EVERY project, and _monitor_inner calls this. So a
+    # hostile `.agentbus/agent` on ANY checkout the operator opens is a
+    # write primitive reachable passively, without any explicit hook
+    # invocation.
+    from . import sealing
+
+    return _config_dir() / f"rewake-seen-{sealing.agent_slug(agent)}.txt"
 
 
 def _delivery_keys(text: str) -> list[str]:

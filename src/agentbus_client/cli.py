@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -2869,6 +2870,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     """
     from pathlib import Path
 
+    from ._coalesce import Coalescer
     from .watch import Watcher, append_file, notify_command, print_line
 
     bus = _bus(args)
@@ -2894,7 +2896,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     if not handlers:
         handlers.append(print_line)
 
-    def handler(message: dict[str, Any]) -> None:
+    def fanout(message: dict[str, Any]) -> None:
         # Each side-effect is isolated: a failing --exec must not swallow the
         # --append audit trail, which is often the only record of what arrived.
         for one in handlers:
@@ -2902,6 +2904,22 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 one(message)
             except Exception as exc:
                 print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
+
+    # Coalescer (issuedb #9, SPECS/0009): burst arrivals collapse into a
+    # single envelope wake. Lone messages still fire immediately with the
+    # unchanged per-message shape, so installed UserPromptSubmit hooks that
+    # grep the current fields keep working with no schema-version bump.
+    coalescer: Coalescer | None = None
+    handler: Callable[[dict[str, Any]], None]
+    if getattr(args, "no_coalesce", False):
+        handler = fanout
+    else:
+        coalescer = Coalescer(
+            fanout,
+            window_ms=int(getattr(args, "coalesce_window", 2500)),
+            quiet_ms=int(getattr(args, "coalesce_quiet", 800)),
+        )
+        handler = coalescer.handle
 
     # The cursor state MUST be scoped by workspace as well as agent. Cursors are
     # per-delivery sequences inside one workspace and mean nothing in another, but
@@ -2963,6 +2981,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
             value = getattr(args, flag, None)
             if value:
                 argv += [f"--{flag}", str(value)]
+        # Forward coalescer knobs so a daemonised watcher matches the
+        # caller's tuning (issuedb #9).
+        for flag, dest in (("coalesce-window", "coalesce_window"), ("coalesce-quiet", "coalesce_quiet")):
+            value = getattr(args, dest, None)
+            if value is not None:
+                argv += [f"--{flag}", str(value)]
+        if getattr(args, "no_coalesce", False):
+            argv += ["--no-coalesce"]
         with open(log_path, "ab", buffering=0) as log:
             proc = subprocess.Popen(
                 argv,
@@ -3023,19 +3049,26 @@ def cmd_watch(args: argparse.Namespace) -> int:
     from .watch import DeadWakeSocket as _DeadWakeSocket
 
     try:
-        Watcher(
-            bus,
-            agent,
-            on_message=handler,
-            cursor=args.cursor,
-            state_path=state,
-            workspace=workspace,
-            wake_capable=bool(args.exec),
-        ).run(once=args.once)
-    except _DeadWakeSocket as exc:
-        print(f"agentbus watch: {exc}", file=sys.stderr)
-        print("  A fresh session's monitor will re-arm the wake path.", file=sys.stderr)
-        return EXIT_DEAD_WAKE_SOCKET
+        try:
+            Watcher(
+                bus,
+                agent,
+                on_message=handler,
+                cursor=args.cursor,
+                state_path=state,
+                workspace=workspace,
+                wake_capable=bool(args.exec),
+            ).run(once=args.once)
+        except _DeadWakeSocket as exc:
+            print(f"agentbus watch: {exc}", file=sys.stderr)
+            print("  A fresh session's monitor will re-arm the wake path.", file=sys.stderr)
+            return EXIT_DEAD_WAKE_SOCKET
+    finally:
+        # Flush any buffered coalesced envelope so a graceful shutdown never
+        # eats a wake. Runs on every exit path — normal, DeadWakeSocket, or
+        # an unexpected raise higher up.
+        if coalescer is not None:
+            coalescer.close()
     return 0
 
 
@@ -3681,6 +3714,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="detach and keep running after this session ends "
         "(the wake channel is outbound SSE, so this works behind "
         "a strict inbound firewall)",
+    )
+    # Coalescer flags (issuedb #9, SPECS/0009). Bursts of arrivals — up
+    # to a hard 2500 ms window, or until 800 ms of silence — collapse
+    # into a single envelope wake carrying every buffered message.
+    # A lone delivery still fires immediately (leading edge). urgent
+    # priority always bypasses.
+    p.add_argument(
+        "--coalesce-window",
+        type=int,
+        default=2500,
+        metavar="MS",
+        dest="coalesce_window",
+        help="max milliseconds the trailing envelope can accumulate (default 2500). "
+        "Cap on how long the tail of a burst can hold; overrides quiet.",
+    )
+    p.add_argument(
+        "--coalesce-quiet",
+        type=int,
+        default=800,
+        metavar="MS",
+        dest="coalesce_quiet",
+        help="close the envelope after this many ms of silence (default 800). "
+        "Bounded above by --coalesce-window.",
+    )
+    p.add_argument(
+        "--no-coalesce",
+        action="store_true",
+        dest="no_coalesce",
+        help="disable envelope coalescing entirely; fire the wake hook once per message. "
+        "Only useful if a downstream hook is not envelope-aware.",
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_watch)

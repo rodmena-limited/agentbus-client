@@ -491,6 +491,11 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
     {agent_seq} {direction} are substituted and shell-quoted, so a hostile subject cannot
     inject a command.
 
+    A coalesced envelope (issuedb #9) exposes two extra placeholders,
+    `{envelope_count}` and `{envelope_kind}`, so a template can render
+    "N new messages" without knowing the internal shape. For a single
+    message envelope_count=1 and envelope_kind="" — backwards compatible.
+
     An UNKNOWN placeholder raises KeyError per message rather than passing the
     literal through, so a template typo would break every delivery. `agent_seq`
     was missing while print_line used it, which meant a caller mirroring the
@@ -515,6 +520,11 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
             # signed inbound HTTPS POST. `direction` alone cannot separate them
             # and the envelope was calling both of them email.
             inbound_source=shlex.quote(str(message.get("inbound_source") or "")),
+            # Coalesced-envelope placeholders (issuedb #9). For a single
+            # message, count=1 and kind="" — the template author can gate
+            # on kind to render burst summaries differently from singletons.
+            envelope_count=shlex.quote(str(message.get("count") or 1)),
+            envelope_kind=shlex.quote(str(message.get("kind") or "")),
         )
         # Justified in place: `command` is the OPERATOR'S OWN shell template, passed
         # to `agentbus watch --exec`. shell=True is the feature. Every value

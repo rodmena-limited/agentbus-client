@@ -1704,7 +1704,21 @@ class AgentBus(_Base):
         )["labels"]
 
     def thread(self, thread_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/v1/threads/{thread_id}")
+        """Read a whole conversation, unsealing each message where possible.
+
+        F10 (issuedb #11): on an encrypted workspace the server holds
+        ciphertext by design (end-to-end sealing — no private key server-
+        side). Before this fix, `agentbus thread --json` returned each
+        `text_body` as the raw age envelope, and reading N turns cost N
+        `agentbus show` round trips just to unseal them. The fix mirrors
+        what `read()` already does per delivery: iterate messages once and
+        call `unseal_message` on each, so `sealed_unreadable` appears in
+        place of a body the caller cannot open (matching `show`).
+        """
+        result = self._request("GET", f"/v1/threads/{thread_id}")
+        for msg in result.get("messages") or []:
+            self.unseal_message(msg)
+        return result
 
     def threads(self, limit: int = 50) -> list[dict[str, Any]]:
         return self._request("GET", "/v1/threads", params={"limit": limit})["threads"]
@@ -2420,7 +2434,11 @@ class AsyncAgentBus(_Base):
         return await self._request("POST", f"/v1/deliveries/{delivery_id}/ack", agent=agent)
 
     async def thread(self, thread_id: str) -> dict[str, Any]:
-        return await self._request("GET", f"/v1/threads/{thread_id}")
+        """F10 (issuedb #11): match the sync client — unseal each message."""
+        result = await self._request("GET", f"/v1/threads/{thread_id}")
+        for msg in result.get("messages") or []:
+            self.unseal_message(msg)
+        return result
 
     async def usage(self) -> dict[str, Any]:
         return await self._request("GET", "/v1/usage")

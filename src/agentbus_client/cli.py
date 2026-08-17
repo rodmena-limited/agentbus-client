@@ -1447,6 +1447,123 @@ def cmd_tag(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_send_batch(args: argparse.Namespace) -> int:
+    """F12 (issuedb #10, SPECS/0010): read JSONL from stdin and send in bulk.
+
+    Per-invocation `agentbus send` pays ~600 ms of process startup +
+    config load + key open + sealing setup before it hits the socket, so
+    a bash loop tops out at ~1.6 sends/s no matter how much burst budget
+    the server has left. This subcommand pays that setup ONCE and reuses
+    the same sealing context, the same auth resolution, and the same
+    httpx keep-alive across every send in the batch — so throughput
+    becomes bounded by network + server (~20+ sends/s under the 40-burst
+    server cap), not by fork+exec.
+
+    Input format: one JSON object per line on stdin. Fields match
+    `bus.send()` keyword args (to, subject, text, cc, priority, html,
+    attachments, payload, guarantee, derived_from, thread_id). `to` may
+    be a string or a list.
+
+    Output format: one JSON line per input line, in input order:
+      {"index": N, "ok": true,  "result": <server response>}
+      {"index": N, "ok": false, "error": {"type": "...", "message": "..."}}
+
+    A single failed send does NOT stop the batch — the point is bulk
+    throughput; pass --stop-on-error to fail fast on the first error.
+    Exit code: 0 if every send succeeded, 1 if any failed.
+    """
+    bus = _bus(args)
+    import json as _json
+
+    stream = sys.stdin
+    lines = list(stream) if not stream.isatty() else []
+    if not lines:
+        print(
+            "agentbus send-batch: no input on stdin. Pipe one JSON object per "
+            "line: {\"to\": [...], \"subject\": \"...\", \"text\": \"...\"}",
+            file=sys.stderr,
+        )
+        return 2
+
+    any_error = False
+    for index, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue  # blank line separator, tolerated
+        try:
+            item = _json.loads(line)
+        except ValueError as exc:
+            _print_batch_error(index, "input_parse_error", str(exc))
+            any_error = True
+            if args.stop_on_error:
+                return 1
+            continue
+        if not isinstance(item, dict):
+            _print_batch_error(index, "input_shape_error", "each line must be a JSON object")
+            any_error = True
+            if args.stop_on_error:
+                return 1
+            continue
+
+        to = item.get("to")
+        if to is None:
+            _print_batch_error(index, "missing_to", "each line must include a 'to' field")
+            any_error = True
+            if args.stop_on_error:
+                return 1
+            continue
+
+        try:
+            result = bus.send(
+                to,
+                subject=item.get("subject", ""),
+                text=item.get("text"),
+                cc=item.get("cc"),
+                priority=item.get("priority"),
+                html=item.get("html"),
+                thread_id=item.get("thread_id"),
+                attachments=item.get("attachments"),
+                require_available=bool(item.get("require_available", False)),
+                require_responsive=bool(item.get("require_responsive", False)),
+                payload=item.get("payload"),
+                guarantee=item.get("guarantee"),
+                derived_from=item.get("derived_from"),
+                # No idempotency_key defaulted — SDK mints one per _request.
+                # A caller doing retries should supply idempotency_key per
+                # line for stable dedup across attempts.
+                idempotency_key=item.get("idempotency_key"),
+            )
+        except AgentBusError as exc:
+            _print_batch_error(index, exc.__class__.__name__, str(exc))
+            any_error = True
+            if args.stop_on_error:
+                return 1
+            continue
+        # F13 shape-normalise for fire_and_forget so consumers get a stable
+        # {status, guarantee, ...} instead of {} — same rule as cmd_send.
+        if item.get("guarantee") == "fire_and_forget":
+            normalised = {"status": "accepted", "guarantee": "fire_and_forget"}
+            normalised.update(result or {})
+            result = normalised
+        print(_json.dumps({"index": index, "ok": True, "result": result}, default=str), flush=True)
+
+    return 1 if any_error else 0
+
+
+def _print_batch_error(index: int, err_type: str, message: str) -> None:
+    """One JSON line for a failed send in `agentbus send-batch`."""
+    print(
+        json.dumps(
+            {
+                "index": index,
+                "ok": False,
+                "error": {"type": err_type, "message": message},
+            }
+        ),
+        flush=True,
+    )
+
+
 def cmd_send(args: argparse.Namespace) -> int:
     bus = _bus(args)
     payload = None
@@ -3418,6 +3535,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_send)
+
+    p = sub.add_parser(
+        "send-batch",
+        help="pipe JSON lines from stdin and send many messages in one process "
+        "(F12, issuedb #10) — reuses sealing context + HTTP keep-alive, so "
+        "throughput is bounded by network + server (not by ~600 ms process "
+        "startup per invocation).",
+    )
+    p.add_argument(
+        "--stop-on-error",
+        dest="stop_on_error",
+        action="store_true",
+        help="fail fast on the first failed send (default: continue, emit "
+        "error lines, exit non-zero at the end)",
+    )
+    p.add_argument("--agent", help="acting agent (may also precede the subcommand)")
+    p.set_defaults(func=cmd_send_batch)
 
     p = sub.add_parser("reply", help="reply to a message")
     p.add_argument("message_id")

@@ -52,6 +52,7 @@ def _args(**over):
         "index": 0,
         "output": None,
         "force": False,
+        "all": False,
         "agent": None,
         "json": False,
     }

@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import os
+import sys
 import threading as _threading
 import uuid
 from collections.abc import Iterator, Sequence
@@ -176,6 +177,34 @@ def _max_attachment_bytes() -> int:
     except ValueError:
         return _DEFAULT_MAX_ATTACHMENT_BYTES
     return v if v > 0 else _DEFAULT_MAX_ATTACHMENT_BYTES
+
+
+#: F7 (issuedb #4): the SERVER's per-attachment ceiling, applied BEFORE any
+#: sealing or upload happens. Distinct from the RAM-safety cap above.
+#:
+#: Without this check the client streams the whole file through sealing and
+#: the network before the server returns 413. A peer's repro of an 11 MiB
+#: attachment took 53.7 s of wall time to hit the 10 MiB server ceiling —
+#: pure waste on both sides, and the caller learns nothing until the very end.
+#:
+#: The server does not yet publish this cap machine-readably (backend #249
+#: opens GET /v1/limits for it). When that lands, replace this constant with a
+#: single cached fetch at startup and delete the env override — the server is
+#: the authority. For now: hardcoded to match the documented 10 MiB value,
+#: with an env override so an operator whose own server was reconfigured up
+#: is not blocked by a stale client.
+_DEFAULT_SERVER_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MiB, per docs
+
+
+def _server_max_attachment_bytes() -> int:
+    raw = os.environ.get("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES")
+    if not raw:
+        return _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
+    try:
+        v = int(raw)
+    except ValueError:
+        return _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
+    return v if v > 0 else _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
 
 
 # ------------------------------------------------------------------ resilience
@@ -364,12 +393,27 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
     reads at the OS level (os.stat) so the refusal costs nothing.
     """
     limit = _max_attachment_bytes()
+    server_limit = _server_max_attachment_bytes()
     payload = []
     for path in paths or []:
         try:
             size = os.stat(path).st_size
         except OSError as exc:
             raise AgentBusError(f"cannot read attachment '{path}': {exc}") from exc
+        # F7 (issuedb #4): SERVER-CAP CHECK FIRST. This is the wall the user
+        # actually hits, and it fires with the exact 10 MiB number the docs
+        # promise — no confusing "50 MB client cap" for a file the server was
+        # never going to accept. Costs one os.stat per attachment.
+        if size > server_limit:
+            raise AgentBusError(
+                f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
+                f"AgentBus server rejects attachments over {server_limit:,} bytes "
+                f"(~{server_limit // (1024 * 1024)} MiB). Failing fast here — "
+                "the client would otherwise upload the whole file and wait for "
+                "the server to return 413. Split the file, or set "
+                "AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES if your server was "
+                "reconfigured with a higher ceiling."
+            )
         if size > limit:
             raise AgentBusError(
                 f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
@@ -608,9 +652,15 @@ class _Base:
         # the entire message contents (a cryptographic bypass risk).
         # We degrade to an unsigned message rather than failing.
         if payload.get("html") or payload.get("attachments") or payload.get("payload") is not None:
-            _log.warning(
+            # F9 (issuedb #3): write directly to STDERR, not via logging. The
+            # SDK does not know whether the CLI caller is emitting --json to
+            # stdout; the ambient logging config could route lastResort to
+            # stdout and poison a machine-readable pipe. Explicit stderr is
+            # the only source of truth that survives any caller setup.
+            print(
                 "agentbus: message downgraded to unsigned. agentbus-sig-v1 only "
-                "covers plain text, but html, attachments, or a payload was present."
+                "covers plain text, but html, attachments, or a payload was present.",
+                file=sys.stderr,
             )
             return payload
 

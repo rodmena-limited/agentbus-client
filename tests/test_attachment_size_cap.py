@@ -5,6 +5,12 @@ put both into the JSON body — peak ~4-5x file size for a single attachment,
 before the server even saw the request. A 500 MB video OOM'd small VMs. This
 test proves the boundary check refuses oversize files without ever reading
 them, and honours the AGENTBUS_MAX_ATTACHMENT_BYTES override.
+
+F7 (issuedb #4) added a SECOND, tighter check for the server's 10 MiB per-
+attachment cap. That check fires BEFORE the client RAM cap when both would
+refuse, so these tests raise the server cap out of the way to keep exercising
+the RAM cap specifically. The server cap has its own dedicated tests in
+test_f7_server_cap_check.py.
 """
 
 from __future__ import annotations
@@ -20,6 +26,13 @@ def _write(path, size: int) -> None:
     with open(path, "wb") as f:
         f.seek(size - 1)
         f.write(b"\0")
+
+
+# The RAM-cap tests below need the server cap out of the way so a 60 MB file
+# refusal proves the RAM cap fired, not the server cap.
+@pytest.fixture(autouse=True)
+def _server_cap_out_of_the_way(monkeypatch):
+    monkeypatch.setenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", str(1024 * 1024 * 1024))
 
 
 def test_default_50mb_cap_refuses_a_60mb_file(tmp_path, monkeypatch) -> None:

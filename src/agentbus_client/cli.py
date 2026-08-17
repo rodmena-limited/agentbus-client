@@ -1470,6 +1470,15 @@ def cmd_send(args: argparse.Namespace) -> int:
         guarantee=args.guarantee,
         derived_from=args.derived_from or None,
     )
+    # F13 (issuedb #7): a fire_and_forget send has no id, no delivery_count,
+    # and — against some server versions — an empty response body. Scripts
+    # piping this through jq crash on {}. Normalise: always give the caller
+    # a stable {status, guarantee} pair, and preserve every real field the
+    # server did return on top. Durable sends are untouched.
+    if args.guarantee == "fire_and_forget":
+        normalised = {"status": "accepted", "guarantee": "fire_and_forget"}
+        normalised.update(result or {})
+        result = normalised
     if args.json:
         _print(result, True)
     else:
@@ -1479,11 +1488,18 @@ def cmd_send(args: argparse.Namespace) -> int:
         # an hour of retractions.
         acting = bus.agent or "(key-bound agent)"
         copied = result.get("cc") or []
-        summary = f"{result['delivery_count']} recipient(s)"
-        if copied:
-            summary += f" ({len(copied)} cc: {', '.join(copied)})"
-        print(f"sent {result['id']} as {acting} to {summary}")
-        print(f"  thread: {result['thread_id']}")
+        # F13 (issuedb #7): fire_and_forget has no id, no thread, no
+        # delivery_count — server does not store it. Print an honest summary
+        # instead of KeyError-crashing on absent fields.
+        if args.guarantee == "fire_and_forget":
+            reached = result.get("reached") or result.get("live_subscribers") or 0
+            print(f"fire_and_forget accepted as {acting} — reached {reached} live subscriber(s)")
+        else:
+            summary = f"{result['delivery_count']} recipient(s)"
+            if copied:
+                summary += f" ({len(copied)} cc: {', '.join(copied)})"
+            print(f"sent {result['id']} as {acting} to {summary}")
+            print(f"  thread: {result['thread_id']}")
     return 0
 
 
@@ -1713,11 +1729,17 @@ def cmd_inbox(args: argparse.Namespace) -> int:
 
 
 def cmd_attachment(args: argparse.Namespace) -> int:
-    """Write one attachment to disk — the read half of `send -a` (#124).
+    """Write one or all attachments to disk — the read half of `send -a` (#124).
 
     Defaults to the attachment's OWN filename in the cwd, because that is what a
     recipient almost always wants and it keeps the common case to one argument.
     `-o -` writes raw bytes to stdout for piping.
+
+    F8 (issuedb #5): `--all` fetches every attachment on the delivery in one
+    invocation, writing each into the current working directory under its
+    original filename. Without it, a 10-attachment message was 10 CLI runs at
+    ~295 ms of startup each; peer measured 2.96 s for 10 x 50 KB. Farshid
+    asked for this by name.
 
     REFUSES TO OVERWRITE unless told to. An attachment arrives with a name chosen
     by the SENDER, so a careless `agentbus attachment <id>` in a working directory
@@ -1730,6 +1752,50 @@ def cmd_attachment(args: argparse.Namespace) -> int:
     if not attachments:
         print(f"delivery {args.delivery_id} has no attachments", file=sys.stderr)
         return 1
+
+    # F8: --all is mutually exclusive with -i and -o (writing multiple files to
+    # a single -o path or a single index makes no sense). Argparse enforces the
+    # -i/-o mutual-exclusion via a group below; the check here catches -o
+    # (which is not in the group so --all can still write to CWD).
+    if args.all:
+        if args.output and args.output != "-":
+            print(
+                "--all writes each attachment under its own filename; -o "
+                "picks a single destination and cannot be combined with it",
+                file=sys.stderr,
+            )
+            return 2
+        if args.output == "-":
+            print(
+                "--all writes multiple files; refusing to interleave raw bytes "
+                "for several attachments on stdout",
+                file=sys.stderr,
+            )
+            return 2
+        # First pass: check every target for pre-existing files, so we refuse
+        # BEFORE writing any of them — never a partial write of half the set.
+        targets: list[Path] = []
+        for i, item in enumerate(attachments):
+            name = item.get("filename") or f"attachment-{i}"
+            targets.append(Path(name))
+        if not args.force:
+            existing = [str(t) for t in targets if t.exists()]
+            if existing:
+                print(
+                    "refusing to overwrite existing file(s): "
+                    + ", ".join(existing)
+                    + " — pass --force to overwrite, or fetch each with -i and -o",
+                    file=sys.stderr,
+                )
+                return 1
+        # Second pass: actual fetch + write, in order.
+        for i, item in enumerate(attachments):
+            data = bus.attachment(args.delivery_id, i)
+            targets[i].write_bytes(data)
+            print(f"wrote {targets[i]} ({targets[i].stat().st_size} bytes)")
+        print(f"— {len(attachments)} attachment(s) written")
+        return 0
+
     if args.index >= len(attachments):
         print(
             f"delivery {args.delivery_id} has {len(attachments)} attachment(s); "
@@ -1814,7 +1880,14 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"\n-- payload{f' ({ref})' if ref else ''}:")
         print(json.dumps(payload, indent=2, default=str))
     for attachment in delivery.get("attachments") or []:
-        print(f"\n-- attachment: {attachment['filename']} ({attachment['size']} bytes)")
+        # F11 (issuedb #6): the size the server reports is the ON-WIRE size —
+        # bytes the store holds, including age armor + base64 inflation on an
+        # encrypted workspace. Consumers were reading this as the plaintext
+        # file size, so a 50 KB file was reported as ~69 KB. Label it
+        # truthfully; the actual plaintext byte count is what `agentbus
+        # attachment ...` prints when it writes the file to disk.
+        size_val = attachment.get("size") or 0
+        print(f"\n-- attachment: {attachment['filename']} ({size_val:,} bytes on wire)")
     # THE READY-TO-PASTE REPLY, david's ask on behalf of his operator.
     #
     # `show` already printed a thread id, which reads like the thing you act on
@@ -2641,8 +2714,15 @@ def cmd_verify_signature(args: argparse.Namespace) -> int:
     # own honestly-signed mail did not verify. A negative from a security tool
     # gets acted on; it has to be earned.
     if code == 2:
-        headline = "UNSIGNED" if result.get("verdict") == "unsigned" else "CANNOT VERIFY"
-        print(f"{headline} — {result.get('reason')}")
+        # F14 (issuedb #8): the reason string for the `unsigned` verdict is
+        # literally "unsigned", so joining `headline` and `reason` across an
+        # em-dash used to print `UNSIGNED — unsigned`, which reads as a display
+        # glitch and, worse, invites the operator to see UNSIGNED as failure.
+        # Lead with reassurance so the eye lands on the benign fact first.
+        if result.get("verdict") == "unsigned":
+            print("UNSIGNED — no signature attached to verify")
+        else:
+            print(f"CANNOT VERIFY — {result.get('reason')}")
         if result.get("platform_said"):
             print(f"  the platform said: {result.get('platform_said')}")
         print("  this is NOT a failed signature — nothing here says the sender is wrong")
@@ -3356,6 +3436,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-i", "--index", type=int, default=0, help="which attachment (default 0)")
     p.add_argument(
         "-o", "--output", help="path to write, or '-' for stdout (default: its own name)"
+    )
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="F8 (issuedb #5): fetch EVERY attachment on the delivery into the current "
+        "working directory using its original filename. Refuses to overwrite unless "
+        "--force is passed. Mutually exclusive with -i and -o.",
     )
     p.add_argument("--force", action="store_true", help="overwrite an existing file")
     p.add_argument("--agent", help="acting agent (may also precede the subcommand)")

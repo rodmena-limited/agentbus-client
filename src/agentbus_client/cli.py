@@ -756,38 +756,48 @@ def _watch_pid(agent: str, state: str | None = None) -> int | None:
 
 
 def _read_running_client_version(agent: str, state_key: str | None) -> str | None:
-    """Read the `client_version` field a running watcher persisted to its
-    state file. Returns None if unreadable or missing.
+    """Read the `client_version` a running watcher persisted to its state file.
 
     Used by watch-status to spot a stale watcher: the state file is written
     by the WATCHER process, so its `client_version` is the version of the
-    Python module that watcher process imported at start — not the version
-    of the CLI binary the operator just installed. If they differ, the
-    upgrade did not restart the watcher.
+    Python module that watcher imported at START — not the version of the
+    CLI binary the operator just installed. If they differ, the upgrade
+    did not restart the watcher.
 
-    macbook-admin-bd8e86 caught (thread 01M08ZWE0XCTPJG1R0ZBXP8K7P follow-up
-    01M0916R4XW6K2NB248RYPR4DX): the pidfile's basename and the state
-    file's basename don't share a naming scheme, so mapping one to the
-    other via string surgery was fragile and returned nothing in the wild.
-    The state file is `watch-<workspace>-<agent>.json` (see cmd_watch); the
-    pidfile is `<state-key>.pid` where state-key is a different derivation.
+    SHARES doctor's implementation rather than reimplementing it.
+    macbook-admin-bd8e86 caught two successive misses here (thread
+    01M08ZWE0XCTPJG1R0ZBXP8K7P, msgs 01M0916R4XW6K2NB248RYPR4DX and
+    01M091QDY8KFYZSJPZGTA231ZG) and named the root pattern: "wherever two
+    commands answer the same question, they should call ONE helper, not
+    two similar ones."
 
-    Simple approach: glob for any state file matching this agent and take
-    the newest by mtime. That is byte-identical to what `agentbus doctor`
-    does when it reads client_version, and doctor was already getting it
-    right — this just brings watch-status onto the same path.
+    The specific bug their second report found: my copy globbed only
+    `watch-*-<agent>.json`, which is the DEFAULT state-file name used when
+    no --state is passed. The PLUGIN MONITOR — the production config for
+    every Claude Code session — names its file `monitor-<agent>-*.json`.
+    So the copy reported correctly for ad-hoc watchers and returned None
+    for exactly the watchers that run in production. doctor's
+    `_running_watcher_version` globs BOTH patterns and was right all
+    along; this now calls it instead of paraphrasing it.
+
+    `state_key` is preferred when the caller knows the exact state path —
+    it is exact, needs no naming convention, and cannot drift again when
+    someone invents a third state-file prefix (macbook's suggestion).
     """
-    candidates = sorted(
-        _cfg_dir().glob(f"watch-*-{agent}.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    for candidate in candidates:
-        try:
-            return json.loads(candidate.read_text()).get("client_version")
-        except (OSError, ValueError, KeyError):
-            continue
-    return None
+    # 1. EXACT: the caller already identified the state file. Use it.
+    if state_key and state_key != "(legacy)":
+        candidate = _cfg_dir() / state_key.removesuffix(".pid")
+        if candidate.exists():
+            try:
+                return json.loads(candidate.read_text()).get("client_version") or None
+            except (OSError, ValueError):
+                pass  # fall through to the shared helper
+    # 2. FALLBACK: the ONE shared implementation, which globs both the
+    #    `monitor-<agent>-*.json` (plugin) and `watch-*-<agent>.json`
+    #    (default) naming schemes.
+    from . import onboarding as _onboarding
+
+    return _onboarding._running_watcher_version(agent)
 
 
 def cmd_watch_status(args: argparse.Namespace) -> int:

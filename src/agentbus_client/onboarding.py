@@ -1334,6 +1334,45 @@ def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
     return "installed", f"{len(resp.text)} bytes (fresh install)"
 
 
+def _sealing_publish_with_retry(
+    bus: Any, agent: str, public_key: str, attempts: int = 3
+) -> dict[str, Any] | None:
+    """POST the sealing pubkey with short exponential backoff.
+
+    Extracted for testability. Retries transient failures (typically a race
+    between the newly-minted bound key being usable and the server's read
+    path for that key), returns the successful registration dict or None
+    when every attempt failed.
+
+    Kept small on purpose — this is on the setup hot path and every second
+    of backoff is one an operator waits before their prompt returns. Three
+    attempts at 0 / 0.4 / 1.0 s cover the propagation window observed in
+    probe reports without adding noticeable latency to the common case
+    (attempt 0 succeeds).
+    """
+    import time as _time
+
+    # attempt 0 no wait; attempts 1 and 2 wait longer than the previous —
+    # sanity-tested by test_backoff_delays_grow so a refactor cannot flatten
+    # the wait to zero and turn the retry into a tight loop against a
+    # struggling server.
+    delays = (0.0, 0.4, 1.0)
+    for i in range(attempts):
+        wait = delays[min(i, len(delays) - 1)]
+        if wait > 0:
+            _time.sleep(wait)
+        try:
+            return bus._request(
+                "POST", f"/v1/agents/{agent}/pubkey", json={"public_key": public_key}
+            )
+        except Exception:  # noqa: BLE001 — retry every failure shape
+            continue
+    # Signal failure via return None (caller decides how loud); avoid raising
+    # here because the whole point is to keep setup running with a visible
+    # warning instead of crashing.
+    return None
+
+
 def _setup_claude(args: argparse.Namespace) -> int:
     report: list[str] = []
     base_url = args.base_url
@@ -1440,6 +1479,20 @@ def _setup_claude(args: argparse.Namespace) -> int:
     # 6b. #189 — the sealing key, when the workspace is encrypted. Placed here
     #     because the agent identity now exists, which signin cannot assume:
     #     an unbound operator key has no agent to publish a key FOR.
+    #
+    # Backend #243 diagnostic (thread 01M08QS3M10M49WKT8WVX3P2P7): the probe's
+    # ephemeral onboard-probe agents intermittently ended up with no published
+    # pubkey after setup, causing every subsequent send TO those agents to fail
+    # "cannot seal: no public key". The single POST used to catch any
+    # Exception silently and add one soft "NOT REGISTERED" report line — an
+    # operator who did not read the whole report never knew the agent was
+    # unreachable on an encrypted workspace. Two changes: retry the publish
+    # against transient failures (server propagation lag between the newly-
+    # minted bound key and the pubkey endpoint's read path is one class of
+    # them), and make a final failure LOUD enough that a scanning eye catches
+    # it. Setup still does not fail — a half-wired project remains worse than
+    # one that had a rough sealing publish — but the operator now sees the
+    # exact recovery command.
     try:
         from . import sealing as _sealing
 
@@ -1448,16 +1501,30 @@ def _setup_claude(args: argparse.Namespace) -> int:
         if _state.get("encrypted"):
             _private, _public = _sealing.ensure_keypair(name)
             del _private
-            _reg = _bus._request("POST", f"/v1/agents/{name}/pubkey", json={"public_key": _public})
-            report.append(
-                f"sealing key: {_sealing.key_path(name)} (0600) "
-                f"registered as {_reg.get('fingerprint')}"
-            )
+            _reg = _sealing_publish_with_retry(_bus, name, _public)
+            if _reg is not None:
+                report.append(
+                    f"sealing key: {_sealing.key_path(name)} (0600) "
+                    f"registered as {_reg.get('fingerprint')}"
+                )
+            else:
+                # Retries exhausted. LOUD marker so a scanning eye catches it,
+                # exact recovery command named, and — crucially — flag it
+                # visibly so ephemeral flows (CI probes, /readyz-shaped checks)
+                # can gate on the setup output.
+                report.append(
+                    f"sealing key: !!! PUBLISH FAILED after retries — "
+                    f"agent '{name}' is REGISTERED but has NO published pubkey. "
+                    f"On this encrypted workspace, peers CANNOT seal to '{name}'. "
+                    f"Recover with:  agentbus keys rotate  (regenerates + republishes)"
+                )
     except Exception as exc:
-        # NEVER FAIL SETUP OVER THIS. Registration is retried on the next run,
-        # and a half-wired project is worse than an unsealed one — but say it
-        # loudly, because until it succeeds this agent cannot read sealed mail.
-        report.append(f"sealing key: NOT REGISTERED ({exc}) — rerun `agentbus setup`")
+        # Non-publish failure (import, whoami, ensure_keypair). Same loud
+        # marker, same rerun guidance.
+        report.append(
+            f"sealing key: !!! NOT REGISTERED ({exc}) — "
+            f"rerun `agentbus setup` or `agentbus keys rotate` to recover"
+        )
 
     # 7. The skill: llms.txt calls it part of setup, so setup installs it
     #    (clean-slate finding D4). Served canonically; installed if changed.

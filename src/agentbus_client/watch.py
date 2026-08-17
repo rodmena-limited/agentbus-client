@@ -291,7 +291,14 @@ class Watcher:
                     file=sys.stderr,
                 )
             except Exception as exc:
-                print(f"agentbus watch: background drain failed: {exc}", file=sys.stderr)
+                # SEV-1 diagnostic fix (macbook-admin-bd8e86, thread
+                # 01M08ZBXDD8PQ9J70MM4VDBZR0): str(exc) is '' for some
+                # network-shaped errors — notably concurrent.futures.TimeoutError().
+                # macbook's log showed `agentbus watch: background drain failed:`
+                # with NOTHING after the colon, removing the one signal that fired
+                # during the outage. When str is empty, name the type instead.
+                tag = str(exc) or f"({type(exc).__name__})"
+                print(f"agentbus watch: background drain failed: {tag}", file=sys.stderr)
             finally:
                 # REG-3: release AFTER _drain returns, so a concurrent
                 # _backoff_and_drain() blocks until we finish.
@@ -458,27 +465,65 @@ class Watcher:
                 self._backoff_and_drain(f"stream dropped ({exc})")
 
     def _backoff_and_drain(self, reason: str, stream: Any = sys.stderr) -> None:
+        """Announce the failure, opportunistically drain HTTP, THEN back off.
+
+        SEV-1 (macbook-admin-bd8e86 thread 01M08ZBXDD8PQ9J70MM4VDBZR0): this
+        method is the reconnect handler, and it USED to crash during exactly
+        the condition it was written to handle. Two independent defects:
+
+          (1) The inner drain calls bus.inbox() — a NETWORK call — while the
+              network is down. It raised concurrent.futures.TimeoutError,
+              which on Python 3.10 is NOT an OSError subclass, so the
+              hand-written suppress(AgentBusError, OSError, httpx.HTTPError,
+              ValueError, KeyError) let it escape. The traceback propagated
+              out of run() and killed the watcher process.
+
+          (2) time.sleep(delay) sat AFTER the drain, unguarded. Any exception
+              inside the try skipped the sleep too, so even a would-be
+              catchable failure meant zero backoff.
+
+        Fix: catch BaseException from the drain (deliberate — the whole
+        point is that NOTHING here may escape upward except DeadWakeSocket,
+        which is the one signal that means "the wake target is gone, do not
+        retry"). Move the sleep into `finally` so backoff always happens.
+        Fix #1 at _run_with_resilience translates CFT to TransportError
+        upstream, so this catch-all is defense in depth, not the primary
+        gate.
+        """
         delay = RECONNECT_BACKOFF[min(self._failures, len(RECONNECT_BACKOFF) - 1)]
         self._failures += 1
         print(f"agentbus watch: {reason}; retrying in {delay}s", file=stream, flush=True)
         # Drain over HTTP while disconnected so a long outage does not mean a
-        # long silence.
+        # long silence. REG-3 (round-3 audit): serialize with any in-flight
+        # background drain via _drain_lock — otherwise both threads advance
+        # the cursor and fire on_message twice per delivery.
         try:
-            # Opportunistic: we are already in a reconnect backoff, so a
-            # failure here just means the next attempt tries again.
-            # REG-3 (round-3 audit): serialize with any in-flight background
-            # drain via _drain_lock — otherwise both threads advance the
-            # cursor and fire on_message twice per delivery.
-            with (
-                contextlib.suppress(AgentBusError, OSError, httpx.HTTPError, ValueError, KeyError),
-                self._drain_lock,
-            ):
-                self._drain()
-        except DeadWakeSocket:
-            # The socket died while we were disconnected — the session is gone.
-            # Do NOT sleep and retry a wake target that cannot come back.
-            raise
-        time.sleep(delay)
+            with self._drain_lock:
+                try:
+                    self._drain()
+                except DeadWakeSocket:
+                    # The socket died while we were disconnected — the session
+                    # is gone. Do NOT sleep and retry a wake target that
+                    # cannot come back. Re-raise (finally still runs) so
+                    # run() sees it.
+                    raise
+                except BaseException as exc:  # noqa: BLE001 — deliberate: reconnect handler MUST be total
+                    # Empty message diagnostic: some exceptions (notably
+                    # concurrent.futures.TimeoutError()) stringify to '',
+                    # which produced logs like `handler failed:` with nothing
+                    # after the colon. Name the type when the message is empty.
+                    tag = str(exc) or f"({type(exc).__name__})"
+                    print(
+                        f"agentbus watch: drain during backoff failed: {tag}; "
+                        f"stream will be re-opened on the next attempt",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+        finally:
+            # Sleep ALWAYS happens — otherwise a failing drain converted an
+            # N-second backoff into a 0-second one, hammering the server at
+            # 1Hz during multi-minute outages (macbook's secondary defect b).
+            time.sleep(delay)
 
 
 # ------------------------------------------------------------------ handlers

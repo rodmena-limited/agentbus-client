@@ -3101,12 +3101,20 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # only reason this latent crash never reached a user until the wake-socket
     # probe ran it bare.
     workspace: str | None = None
+    # SEV-1 (macbook-admin-bd8e86 thread 01M08ZBXDD8PQ9J70MM4VDBZR0): this
+    # bus.whoami() runs at startup, and its purpose is a STATE-FILE LABEL —
+    # cosmetic. On a network outage the client's fix at
+    # _run_with_resilience translates every failure shape (including
+    # concurrent.futures.TimeoutError) into TransportError, so `Exception`
+    # here is the honest catch: nothing about labelling the state file may
+    # prevent the watcher from launching and entering its backoff loop.
+    # The old hand-written tuple omitted httpx.HTTPError entirely and
+    # missed CFT on Python 3.10, so the watcher could crash on restart
+    # during exactly the outage its reconnect loop existed to survive.
     try:
         # whoami returns workspace as an OBJECT: {"id": ..., "slug": ...}.
         workspace = ((bus.whoami() or {}).get("workspace") or {}).get("slug") or None
-    except (AgentBusError, OSError, ValueError, KeyError):
-        # A name lookup failing must not stop the watcher starting; the state
-        # file simply falls back to 'unknown' until the next successful call.
+    except Exception:  # noqa: BLE001 — startup label lookup MUST NOT block launch
         workspace = None
 
     if args.state:

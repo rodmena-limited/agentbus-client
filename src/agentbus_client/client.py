@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures as _cf
 import contextlib
 import json
 import logging
@@ -11,6 +12,16 @@ import os
 import sys
 import threading as _threading
 import uuid
+
+# Named at module scope so the SEV-1 fix at _run_with_resilience below has a
+# stable import name and the regression tests can inject the exact class the
+# real network stall raises. On Python 3.10 this is a distinct exception that
+# does NOT subclass OSError; on 3.11+ it is an alias of the builtin
+# TimeoutError which IS an OSError subclass. Every downstream `except` guard
+# in this codebase was written assuming the latter, silently missing the
+# former — which is what killed watchers on the peers' 3.10 installs. See
+# thread 01M08ZBXDD8PQ9J70MM4VDBZR0 for the empirical trace.
+_ConcurrentFuturesTimeout = _cf.TimeoutError
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -363,6 +374,27 @@ def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
         raise TransportError(
             f"agentbus SDK bulkhead full ({exc}); raise AGENTBUS_SDK_MAX_CONCURRENT "
             "or AGENTBUS_SDK_MAX_QUEUE if this is a legitimate high-fan-out caller."
+        ) from exc
+    except _ConcurrentFuturesTimeout as exc:
+        # SEV-1 (macbook-admin-bd8e86 thread 01M08ZBXDD8PQ9J70MM4VDBZR0):
+        # future.result(timeout=timeout) raises concurrent.futures._base.TimeoutError
+        # when the SDK call takes longer than `timeout` — which is exactly what
+        # happens during a network outage. On Python 3.10.x that class does
+        # NOT subclass OSError (it did only in 3.11+ where CFT became an alias
+        # of the builtin TimeoutError). Every downstream `except` guard in
+        # watch.py / cli.py / onboarding.py catches OSError | httpx.HTTPError
+        # | AgentBusError | ... — none of them catch CFT on 3.10, so it
+        # escaped the whole recovery stack and killed the watcher process
+        # during the exact condition the reconnect loop existed to survive.
+        #
+        # Fix: translate at the BOUNDARY into TransportError, with the
+        # original set as __cause__. Now every existing guard catches it on
+        # every Python version, at every call site, including ones nobody
+        # audited yet. Closes the whole class rather than the one traceback.
+        raise TransportError(
+            f"agentbus SDK call did not complete within {timeout}s "
+            f"({type(exc).__name__} — likely a transient network stall). "
+            "The reconnect loop treats this as retryable."
         ) from exc
     if result.success:
         return result.result

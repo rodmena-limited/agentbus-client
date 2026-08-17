@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import random
 import shlex
 import subprocess
 import sys
@@ -32,6 +33,25 @@ import httpx
 from .client import AgentBus, AgentBusError, AuthError
 
 RECONNECT_BACKOFF = (1, 2, 5, 10, 30, 60)
+
+# SEV-1 follow-up (macbook-admin-bd8e86 fix #6, backend endorsed):
+# The old backoff had two related flaws — (a) `_failures` reset to 0 on every
+# successful stream open AND on every process restart, so an OS-supervised
+# watcher whose parent died during an outage came back and started reconnecting
+# at 1s, hammering the server; (b) no jitter, so N watchers on N boxes coming
+# back after a shared bus restart all reconnected in lockstep and started
+# tripping the bulkhead's 30 QPS shed. Both fixes here.
+#
+# `_FAILURES_TTL_SECONDS` — if the persisted `last_failure_at` is older than
+# this, `_failures` resets to 0 on load. Otherwise a watcher up for hours
+# after one early transient would start its NEXT reconnect at some high step
+# for no reason.
+_FAILURES_TTL_SECONDS = 900
+
+# Jitter — plus/minus this fraction of the current backoff step. Backend
+# recommended >= +/-10%; using 15% for a bit of headroom since the cost is
+# only latency variance.
+_BACKOFF_JITTER_FRACTION = 0.15
 
 # The exit code for a watcher whose session socket is gone. DISTINCT from every
 # existing code so a supervisor, a monitor, or `watch-status` can tell "the wake
@@ -135,8 +155,21 @@ class Watcher:
         # not carry one, and a getattr() default would have written null forever
         # while looking like it recorded something.
         self.workspace = workspace
-        self.cursor = cursor or self._load_cursor()
-        self._failures = 0
+        state = self._load_state()
+        self.cursor = cursor or int(state.get("cursor", 0) or 0)
+        # SEV-1 fix #6 (macbook): persist _failures + last_failure_at across
+        # restarts so an OS-supervisor loop cannot reset the backoff to 1s
+        # every ~second during an outage. Reset only if the persisted failure
+        # is stale (older than _FAILURES_TTL_SECONDS) — otherwise a watcher
+        # that was up for hours would start its next reconnect at some high
+        # step for no reason.
+        persisted_failures = int(state.get("failures", 0) or 0)
+        persisted_last_failure = float(state.get("last_failure_at", 0) or 0)
+        if persisted_last_failure and time.time() - persisted_last_failure < _FAILURES_TTL_SECONDS:
+            self._failures = persisted_failures
+        else:
+            self._failures = 0
+        self._last_failure_at = persisted_last_failure
         self._last_drain = time.monotonic()
         # SEV-2-I (#234): background thread for reconcile drains. When _drain
         # runs inline in the SSE iter_lines loop and the drain is deep (100
@@ -160,14 +193,28 @@ class Watcher:
     # ------------------------------------------------------------- cursor
 
     def _load_cursor(self) -> int:
-        """Resume where the last run stopped, so a restart does not replay
-        everything or — worse — skip what arrived while it was down."""
+        """Kept for backwards compatibility (existing tests import it).
+        Prefer `_load_state()` for the full record."""
+        return int(self._load_state().get("cursor", 0) or 0)
+
+    def _load_state(self) -> dict[str, Any]:
+        """Full watcher state — cursor + persisted backoff fields (macbook #6).
+
+        Resume where the last run stopped, so a restart does not replay
+        everything or — worse — skip what arrived while it was down. Also
+        surface `failures` + `last_failure_at` so the reconnect backoff can
+        pick up where the previous process crashed, instead of resetting to
+        1s every relaunch (which turned an OS-supervisor loop into a 1Hz
+        hammer during multi-minute outages).
+        """
         if self.state_path and self.state_path.exists():
             try:
-                return int(json.loads(self.state_path.read_text()).get("cursor", 0))
+                data = json.loads(self.state_path.read_text())
+                if isinstance(data, dict):
+                    return data
             except (ValueError, OSError):
-                return 0
-        return 0
+                return {}
+        return {}
 
     def _key_really_revoked(self) -> bool:
         """Second opinion before this client ever gives up for good.
@@ -238,6 +285,13 @@ class Watcher:
                         "agent": self.agent,
                         "workspace": self.workspace,
                         "client_version": _client_version(),
+                        # SEV-1 fix #6 (macbook): persist so the backoff step
+                        # survives a process restart. Without it an OS
+                        # supervisor's restart-on-crash loop reset the ladder
+                        # to 1s on every relaunch during a multi-minute
+                        # outage — 1Hz hammer against the recovering server.
+                        "failures": self._failures,
+                        "last_failure_at": self._last_failure_at,
                     }
                 )
             )
@@ -355,7 +409,13 @@ class Watcher:
             client.stream("GET", f"{self.bus.base_url}/v1/stream", headers=headers) as response,
         ):
             response.raise_for_status()
-            self._failures = 0
+            # Successful reconnect: clear the persisted backoff position too,
+            # so a subsequent process restart resumes from a clean baseline
+            # rather than reading a stale `failures=6` and starting at 60s.
+            if self._failures != 0 or self._last_failure_at:
+                self._failures = 0
+                self._last_failure_at = 0.0
+                self._save_cursor()
             for line in response.iter_lines():
                 if line.startswith("event: unauthorized"):
                     # DO NOT take this as final on the strength of one frame.
@@ -427,11 +487,40 @@ class Watcher:
         if reason:
             raise DeadWakeSocket(reason)
 
+        # SEV-1 follow-up (macbook-admin-bd8e86, blackhole test on 0.9.24
+        # against 203.0.113.1): the startup drain is a NETWORK call that
+        # used to sit OUTSIDE the reconnect envelope, so a watcher starting
+        # against a down network exited immediately (cleaner in 0.9.24 —
+        # TransportError instead of raw CFT — but still exited). The whole
+        # requirement is "a watcher must be able to start with the network
+        # down and sit in backoff until it returns", which this fixes.
+        #
+        # Also stamps client_version to disk RIGHT NOW so `doctor --wake`
+        # does not report a stale version on a quiet inbox (macbook's
+        # instrument-lag observation: state file was previously only
+        # rewritten when the cursor advanced, so the version field lagged
+        # arbitrarily on a healthy watcher with nothing arriving yet).
+        self._save_cursor()
         # REG-3 (round-3 audit): startup drain must serialize with any
         # background drain _drain_async might spawn later. The lock is idle
         # here; acquiring it is instant and keeps the invariant honest.
-        with self._drain_lock:
-            delivered = self._drain()
+        delivered = 0
+        try:
+            with self._drain_lock:
+                delivered = self._drain()
+        except DeadWakeSocket:
+            raise
+        except Exception as exc:  # noqa: BLE001 — startup drain MUST NOT block launch
+            # The reconnect envelope in the while loop below handles this
+            # exact class of failure. Defer to it — announcement is one
+            # stderr line so the operator can see the deferral happened.
+            tag = str(exc) or f"({type(exc).__name__})"
+            print(
+                f"agentbus watch: startup drain deferred ({tag}); "
+                "entering reconnect loop",
+                file=sys.stderr,
+                flush=True,
+            )
         if delivered:
             print(f"agentbus watch: {delivered} message(s) waiting at startup", file=sys.stderr)
         if once:
@@ -490,9 +579,29 @@ class Watcher:
         upstream, so this catch-all is defense in depth, not the primary
         gate.
         """
-        delay = RECONNECT_BACKOFF[min(self._failures, len(RECONNECT_BACKOFF) - 1)]
+        base_delay = RECONNECT_BACKOFF[min(self._failures, len(RECONNECT_BACKOFF) - 1)]
+        # SEV-1 fix #6 (macbook, backend endorsed >= +/-10% recommended):
+        # jitter the sleep by +/-_BACKOFF_JITTER_FRACTION so N watchers coming
+        # back after a shared bus restart do not reconnect in lockstep and
+        # trip the server's 30 QPS bulkhead. The jitter is per-call so tests
+        # can seed random themselves; here we just call random.uniform.
+        jitter = base_delay * _BACKOFF_JITTER_FRACTION
+        delay = max(0.0, base_delay + random.uniform(-jitter, jitter))
         self._failures += 1
-        print(f"agentbus watch: {reason}; retrying in {delay}s", file=stream, flush=True)
+        self._last_failure_at = time.time()
+        # Persist the new backoff position IMMEDIATELY so an OS-supervisor
+        # crash-and-restart during THIS backoff does not reset us to 1s and
+        # start hammering (macbook secondary defect c: every log line at
+        # "retrying in 1s" across a whole outage). _save_cursor is
+        # misnamed — it writes the whole state including cursor + backoff
+        # fields — but preserved for API compatibility with existing tests.
+        self._save_cursor()
+        print(
+            f"agentbus watch: {reason}; retrying in {delay:.1f}s "
+            f"(base {base_delay}s, failures={self._failures})",
+            file=stream,
+            flush=True,
+        )
         # Drain over HTTP while disconnected so a long outage does not mean a
         # long silence. REG-3 (round-3 audit): serialize with any in-flight
         # background drain via _drain_lock — otherwise both threads advance

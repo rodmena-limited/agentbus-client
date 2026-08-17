@@ -126,7 +126,8 @@ def test_backoff_and_drain_survives_cft_from_inbox(tmp_path, monkeypatch):
     # Must not raise. Must call sleep for the backoff.
     w._backoff_and_drain("stream dropped (test)")
     assert slept, "backoff sleep was skipped — the whole point of _backoff_and_drain"
-    assert slept[-1] == 1  # first backoff step is 1s
+    # First backoff step is 1s with +/-15% jitter — range [0.85, 1.15].
+    assert 0.85 <= slept[-1] <= 1.15, f"unexpected sleep with jitter: {slept[-1]}"
     # _failures was incremented so subsequent backoffs escalate.
     assert w._failures == 1
 
@@ -159,7 +160,9 @@ def test_backoff_sleep_fires_even_when_drain_raises(tmp_path, monkeypatch):
 
     w = _watcher(bus, tmp_path)
     w._backoff_and_drain("test")
-    assert slept == [1], f"expected exactly one 1s sleep, got {slept}"
+    # Exactly one sleep call for the base 1s step (jittered +/-15%).
+    assert len(slept) == 1
+    assert 0.85 <= slept[0] <= 1.15, f"unexpected jittered sleep: {slept}"
 
 
 def test_backoff_reraises_dead_wake_socket(tmp_path, monkeypatch):
@@ -179,17 +182,22 @@ def test_backoff_reraises_dead_wake_socket(tmp_path, monkeypatch):
 def test_backoff_escalates_across_repeated_failures(tmp_path, monkeypatch):
     """The RECONNECT_BACKOFF table is (1, 2, 5, 10, 30, 60). Repeated
     failures MUST walk it, not stay at 1s. macbook's log showed every line
-    at 'retrying in 1s' during a multi-minute outage — a 1Hz hammer."""
+    at 'retrying in 1s' during a multi-minute outage — a 1Hz hammer.
+
+    Pin the base ladder (jitter disabled by patching random.uniform to 0)."""
+    from agentbus_client import watch as watch_module
+
     bus = _FakeBus()
     bus.inbox_raises = concurrent.futures.TimeoutError()
     slept: list[float] = []
     monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(watch_module.random, "uniform", lambda lo, hi: 0.0)
 
     w = _watcher(bus, tmp_path)
     for _ in range(6):
         w._backoff_and_drain("test")
-    # First six failures walk (1, 2, 5, 10, 30, 60)
-    assert slept == [1, 2, 5, 10, 30, 60]
+    # First six failures walk (1, 2, 5, 10, 30, 60) with jitter disabled.
+    assert slept == [1.0, 2.0, 5.0, 10.0, 30.0, 60.0]
 
 
 # ---------------------------------------------------- Fix #7: empty-message diagnostic
@@ -215,6 +223,54 @@ def test_drain_async_diagnostic_names_type_when_str_is_empty(tmp_path, capsys):
 
 
 # ---------------------------------------------------- Fix #4: startup resilience (integration)
+
+
+def test_run_can_start_when_startup_drain_raises(tmp_path, monkeypatch):
+    """The blackhole test that caught 0.9.24 (macbook-admin-bd8e86 in
+    thread 01M08ZWE0XCTPJG1R0ZBXP8K7P): a watcher pointed at an
+    unroutable base_url MUST be able to START. Before this fix the
+    startup drain sat outside the reconnect envelope, so
+    `Watcher.run()` raised out of run() and the process exited 3
+    with the CFT-translated TransportError text — 'The reconnect
+    loop treats this as retryable' when in fact it had never been
+    reached."""
+    bus = _FakeBus()
+    bus.inbox_raises = TransportError("SDK call did not complete within 35.0s")
+
+    w = _watcher(bus, tmp_path)
+
+    # `run(once=True)` should NOT raise — startup drain deferred, loop
+    # returns 0 because once=True prevents entering the stream loop.
+    rc = w.run(once=True)
+    assert rc == 0, "run(once=True) must not raise or exit-code when startup drain fails"
+
+
+def test_run_startup_stamps_client_version_immediately(tmp_path, monkeypatch):
+    """Macbook's instrument-lag observation: `doctor --wake` used to
+    read `client_version` from the state file, but the state file was
+    only rewritten when the cursor advanced. On a healthy watcher with
+    a quiet inbox, the version field lagged arbitrarily — leading
+    doctor to report a stale watcher that was actually current.
+
+    Fix: watcher writes the state file at startup before doing anything
+    that could block. Any subsequent doctor call reads a fresh version
+    field even if no messages have arrived yet."""
+    bus = _FakeBus()
+    # Startup drain doesn't matter for THIS test — deferred handler catches.
+    bus.inbox_raises = TransportError("net down")
+
+    w = _watcher(bus, tmp_path)
+    rc = w.run(once=True)
+    assert rc == 0
+
+    # State file MUST exist and have client_version — not require a
+    # cursor advance.
+    import json
+    state_file = tmp_path / "state.json"
+    assert state_file.exists(), "startup did not write the state file"
+    data = json.loads(state_file.read_text())
+    assert "client_version" in data
+    assert data["client_version"], "client_version was empty in state file"
 
 
 def test_cmd_watch_whoami_startup_catches_any_exception():

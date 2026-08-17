@@ -755,6 +755,34 @@ def _watch_pid(agent: str, state: str | None = None) -> int | None:
     return pid
 
 
+def _read_running_client_version(agent: str, state_key: str | None) -> str | None:
+    """Read the `client_version` field a running watcher persisted to its
+    state file. Returns None if unreadable or missing.
+
+    Used by watch-status to spot a stale watcher: the state file is written
+    by the WATCHER process, so its `client_version` is the version of the
+    Python module that watcher process imported at start — not the version
+    of the CLI binary the operator just installed. If they differ, the
+    upgrade did not restart the watcher (macbook-admin-bd8e86 suggestion).
+    """
+    if state_key in (None, "(legacy)"):
+        candidate = _cfg_dir() / f"watch-unknown-{agent}.json"
+    else:
+        candidate = _cfg_dir() / state_key.replace(".pid", "")
+    if not candidate.exists():
+        # Fallback: newer state files include workspace in the name; scan.
+        for path in _cfg_dir().glob(f"watch-*-{agent}.json"):
+            if state_key is None or state_key.replace(".pid", "") in path.name:
+                candidate = path
+                break
+        else:
+            return None
+    try:
+        return json.loads(candidate.read_text()).get("client_version")
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def cmd_watch_status(args: argparse.Namespace) -> int:
     agent = args.agent or os.environ.get("AGENTBUS_AGENT") or ""
     if not agent:
@@ -839,9 +867,20 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
     if want_state:
         pids = _scope_pids_by_state(pids, agent, want_state)
     if pids:
+        # SEV-1 follow-up (macbook-admin-bd8e86): surface the running client
+        # version of THIS watcher so stale-watcher-pretending-to-be-current
+        # is visible at the first place someone would look. The version is
+        # persisted per-run in the watcher's state file (`client_version`
+        # field) and the CLI's own version is the alternative comparison
+        # anchor.
+        from . import __version__ as _cli_ver
         for st, pid in pids.items():
+            watcher_ver = _read_running_client_version(agent, st)
+            ver_note = f" running={watcher_ver}" if watcher_ver else ""
+            if watcher_ver and watcher_ver != _cli_ver:
+                ver_note += f" (CLI is {_cli_ver}; RESTART TO PICK UP THE NEW BUILD)"
             print(
-                f"watcher RUNNING for {agent} (pid {pid})"
+                f"watcher RUNNING for {agent} (pid {pid}){ver_note}"
                 + (f" [{st}]" if st != "(legacy)" else " [legacy]")
             )
         # #204: report a log only if one EXISTS, and say why when it does not.
@@ -3188,7 +3227,17 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 f"been restarted.",
                 file=sys.stderr,
             )
-    print(f"agentbus watch: {agent} on {bus.base_url} (state: {state})", file=sys.stderr)
+    # SEV-1 follow-up (macbook-admin-bd8e86 suggestion): print client_version
+    # in the startup banner so a stale watcher is self-evident in the log
+    # instead of requiring an operator to think to run `agentbus --version`
+    # against the exact interpreter the watcher runs out of. Same reason the
+    # state file records client_version — surfaces make the failure mode
+    # discoverable at the FIRST place someone would look.
+    from . import __version__ as _client_ver
+    print(
+        f"agentbus watch {_client_ver}: {agent} on {bus.base_url} (state: {state})",
+        file=sys.stderr,
+    )
     # ONLY --exec CAN START A TURN. --append files it, the default prints it to a
     # terminal that, for an unattended agent, nobody is attached to. Declaring this
     # is what lets the server stop reporting `wake_channel: true` for a recorder —

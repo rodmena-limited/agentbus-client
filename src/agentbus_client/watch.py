@@ -285,6 +285,24 @@ class Watcher:
                         "agent": self.agent,
                         "workspace": self.workspace,
                         "client_version": _client_version(),
+                        # WHICH PROCESS STAMPED THAT VERSION.
+                        #
+                        # agentbus-ui-c760a1 (thread 01M08ZWE0XCTPJG1R0ZBXP8K7P)
+                        # spotted that `client_version` alone means
+                        # "last writer's version", not "the running watcher's
+                        # version" — a short-lived `agentbus watch --once` on a
+                        # NEW cli stamps the new version and exits, while the
+                        # long-running plugin monitor carries on with OLD code.
+                        # watch-status would then compare new-vs-new and report
+                        # a match while the actual watcher was stale. That is
+                        # the same instrument-lies-about-reality class that
+                        # produced this whole incident.
+                        #
+                        # Recording the PID lets a reader verify the stamp
+                        # belongs to the process it is actually asking about,
+                        # and say "cannot confirm" instead of asserting a
+                        # match it has not earned.
+                        "pid": os.getpid(),
                         # SEV-1 fix #6 (macbook): persist so the backoff step
                         # survives a process restart. Without it an OS
                         # supervisor's restart-on-crash loop reset the ladder

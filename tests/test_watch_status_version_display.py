@@ -144,3 +144,84 @@ def test_shares_doctors_implementation_not_a_copy():
         "watch-status no longer delegates to doctor's implementation — "
         "the duplicate-and-diverge pattern macbook flagged has returned"
     )
+
+
+# ------------------------------------------------------------- PID verification
+
+
+def test_stale_stamp_from_a_different_process_is_not_trusted(tmp_path, monkeypatch):
+    """agentbus-ui-c760a1's edge case (thread 01M08ZWE0XCTPJG1R0ZBXP8K7P):
+    `client_version` alone is "last writer's version", not "this watcher's
+    version". A short-lived `agentbus watch --once` on a NEW cli stamps the
+    new version and exits, while the long-running plugin monitor carries on
+    with OLD code. Comparing that stamp would report a match the instrument
+    has not earned — the exact "instrument lies about reality" class that
+    produced this whole incident.
+
+    With the PID recorded, a stamp from a DIFFERENT process must return None
+    ("cannot confirm") rather than a false match."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cfg = tmp_path / ".config" / "agentbus"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "my-state.json").write_text(
+        json.dumps({"client_version": "0.9.27-FROM-A-DIFFERENT-PROCESS", "pid": 11111})
+    )
+
+    # Asking about pid 99999 — the stamp belongs to 11111, so we must NOT
+    # trust it.
+    got = cli_module._read_running_client_version("test-agent", "my-state.json.pid", for_pid=99999)
+    assert got is None, (
+        "a version stamped by a DIFFERENT process was reported as this "
+        "watcher's version — false match, the exact class ui flagged"
+    )
+
+
+def test_matching_pid_is_trusted(tmp_path, monkeypatch):
+    """KNOWN-POSITIVE for the guard above. Without this, a helper that
+    returned None unconditionally would satisfy the negative test and
+    silently disable the whole feature."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cfg = tmp_path / ".config" / "agentbus"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "my-state.json").write_text(
+        json.dumps({"client_version": "0.9.28", "pid": 4242})
+    )
+
+    got = cli_module._read_running_client_version("test-agent", "my-state.json.pid", for_pid=4242)
+    assert got == "0.9.28"
+
+
+def test_state_file_without_pid_still_reports_backwards_compat(tmp_path, monkeypatch):
+    """A watcher from before this release stamped no pid. Rather than
+    refusing to report anything for every pre-0.9.28 watcher, fall back to
+    reporting the version — the old behaviour, which is still better than
+    nothing and is what every existing deployment has."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cfg = tmp_path / ".config" / "agentbus"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "my-state.json").write_text(json.dumps({"client_version": "0.9.25"}))
+
+    got = cli_module._read_running_client_version("test-agent", "my-state.json.pid", for_pid=777)
+    assert got == "0.9.25"
+
+
+def test_watcher_stamps_its_own_pid(tmp_path):
+    """The write half of the contract: Watcher._save_cursor must record the
+    PID so the read half above has something to verify against."""
+    import os
+    from agentbus_client.watch import Watcher
+
+    class _Bus:
+        agent = "a"
+        base_url = "https://x"
+        api_key = "k"
+
+        def inbox(self, *a, **kw):
+            return []
+
+    state = tmp_path / "s.json"
+    w = Watcher(_Bus(), agent="a", state_path=state)
+    w._save_cursor()
+
+    data = json.loads(state.read_text())
+    assert data.get("pid") == os.getpid(), "watcher did not stamp its own pid"

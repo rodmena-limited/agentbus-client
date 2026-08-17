@@ -755,7 +755,9 @@ def _watch_pid(agent: str, state: str | None = None) -> int | None:
     return pid
 
 
-def _read_running_client_version(agent: str, state_key: str | None) -> str | None:
+def _read_running_client_version(
+    agent: str, state_key: str | None, for_pid: int | None = None
+) -> str | None:
     """Read the `client_version` a running watcher persisted to its state file.
 
     Used by watch-status to spot a stale watcher: the state file is written
@@ -789,9 +791,23 @@ def _read_running_client_version(agent: str, state_key: str | None) -> str | Non
         candidate = _cfg_dir() / state_key.removesuffix(".pid")
         if candidate.exists():
             try:
-                return json.loads(candidate.read_text()).get("client_version") or None
+                data = json.loads(candidate.read_text())
             except (OSError, ValueError):
-                pass  # fall through to the shared helper
+                data = None
+            if isinstance(data, dict):
+                # VERIFY THE STAMP BELONGS TO THE PROCESS WE ARE ASKING ABOUT.
+                #
+                # agentbus-ui-c760a1 spotted that `client_version` alone is
+                # "last writer's version", not "this watcher's version": a
+                # short-lived `agentbus watch --once` on a NEW cli stamps the
+                # new version and exits while the long-running plugin monitor
+                # carries on with OLD code. Comparing that stamp to the CLI
+                # would report a match the instrument has not earned — the
+                # exact failure class that produced this incident.
+                stamped_pid = data.get("pid")
+                if for_pid is not None and stamped_pid is not None and stamped_pid != for_pid:
+                    return None  # renders as "cannot confirm", never a false match
+                return data.get("client_version") or None
     # 2. FALLBACK: the ONE shared implementation, which globs both the
     #    `monitor-<agent>-*.json` (plugin) and `watch-*-<agent>.json`
     #    (default) naming schemes.
@@ -892,7 +908,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
         # anchor.
         from . import __version__ as _cli_ver
         for st, pid in pids.items():
-            watcher_ver = _read_running_client_version(agent, st)
+            watcher_ver = _read_running_client_version(agent, st, for_pid=pid)
             ver_note = f" running={watcher_ver}" if watcher_ver else ""
             if watcher_ver and watcher_ver != _cli_ver:
                 ver_note += f" (CLI is {_cli_ver}; RESTART TO PICK UP THE NEW BUILD)"

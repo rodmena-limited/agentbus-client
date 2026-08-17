@@ -1050,6 +1050,44 @@ class AgentBus(_Base):
         result: dict[str, Any] = self._request("GET", "/v1/whoami", agent=agent)
         return result
 
+    def health(self, target_agent: str, *, agent: str | None = None) -> dict[str, Any]:
+        """Query the canary heartbeat endpoint for a target agent (0.9.26).
+
+        Distinguishes "watcher alive" from "agent alive". `presence` on the
+        phonebook is age-based (last_pong within N seconds); `wake_channel_state`
+        from this endpoint is subscriber-existence-plus-activity. They can and
+        do disagree — a subscribed process outliving its parent will pong for a
+        while but wake_channel goes stale. Whichever answers "yes" is your
+        actual reachability guarantee; both saying "yes" is what you want
+        before assuming a peer will act on a send.
+
+        Returns the endpoint body verbatim:
+          {
+            "agent": ...,
+            "wake_channel_state": "live" | "stale" | "webhook" | "none",
+            "subscriber_count": <int>,
+            "last_seen_at": <iso8601 or null>,
+            "last_pong_at": <iso8601 or null>,
+            "last_stream_attached_at": <iso8601 or null>,
+            "last_stream_detached_at": <iso8601 or null>,
+            "keepalive_age_seconds": <int or null>,
+            "watcher_alive": <bool>,
+            "capabilities": {"supports_canary_heartbeat": true}
+          }
+
+        Rules (agreed contract with backend, thread 01M08ZABM8B3N2VB1TV7R7J2ED):
+          * scope=read is enough to read one's OWN agent's health
+          * scope>=send is enough for arbitrary agents in the workspace
+          * unknown agent name in the caller's workspace returns 404 (never
+            200 for a name that doesn't exist)
+          * transient redis/db blip -> the affected field is null, response
+            stays 200 (never 5xx — advisory semantics preserved)
+        """
+        result: dict[str, Any] = self._request(
+            "GET", f"/v1/agents/{target_agent}/health", agent=agent
+        )
+        return result
+
     def mint_key(
         self, *, scope: str = "send", agents: Sequence[str] | None = None, label: str | None = None
     ) -> dict[str, Any]:
@@ -2188,6 +2226,10 @@ class AsyncAgentBus(_Base):
 
     async def whoami(self, agent: str | None = None) -> dict[str, Any]:
         return await self._request("GET", "/v1/whoami", agent=agent)
+
+    async def health(self, target_agent: str, *, agent: str | None = None) -> dict[str, Any]:
+        """Async parity — see AgentBus.health docstring."""
+        return await self._request("GET", f"/v1/agents/{target_agent}/health", agent=agent)
 
     async def phonebook(
         self,

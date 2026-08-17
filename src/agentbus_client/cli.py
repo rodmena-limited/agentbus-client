@@ -763,24 +763,31 @@ def _read_running_client_version(agent: str, state_key: str | None) -> str | Non
     by the WATCHER process, so its `client_version` is the version of the
     Python module that watcher process imported at start — not the version
     of the CLI binary the operator just installed. If they differ, the
-    upgrade did not restart the watcher (macbook-admin-bd8e86 suggestion).
+    upgrade did not restart the watcher.
+
+    macbook-admin-bd8e86 caught (thread 01M08ZWE0XCTPJG1R0ZBXP8K7P follow-up
+    01M0916R4XW6K2NB248RYPR4DX): the pidfile's basename and the state
+    file's basename don't share a naming scheme, so mapping one to the
+    other via string surgery was fragile and returned nothing in the wild.
+    The state file is `watch-<workspace>-<agent>.json` (see cmd_watch); the
+    pidfile is `<state-key>.pid` where state-key is a different derivation.
+
+    Simple approach: glob for any state file matching this agent and take
+    the newest by mtime. That is byte-identical to what `agentbus doctor`
+    does when it reads client_version, and doctor was already getting it
+    right — this just brings watch-status onto the same path.
     """
-    if state_key in (None, "(legacy)"):
-        candidate = _cfg_dir() / f"watch-unknown-{agent}.json"
-    else:
-        candidate = _cfg_dir() / state_key.replace(".pid", "")
-    if not candidate.exists():
-        # Fallback: newer state files include workspace in the name; scan.
-        for path in _cfg_dir().glob(f"watch-*-{agent}.json"):
-            if state_key is None or state_key.replace(".pid", "") in path.name:
-                candidate = path
-                break
-        else:
-            return None
-    try:
-        return json.loads(candidate.read_text()).get("client_version")
-    except (OSError, ValueError, KeyError):
-        return None
+    candidates = sorted(
+        _cfg_dir().glob(f"watch-*-{agent}.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for candidate in candidates:
+        try:
+            return json.loads(candidate.read_text()).get("client_version")
+        except (OSError, ValueError, KeyError):
+            continue
+    return None
 
 
 def cmd_watch_status(args: argparse.Namespace) -> int:
@@ -3277,6 +3284,73 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_health(args: argparse.Namespace) -> int:
+    """`agentbus health <agent>` — canary heartbeat, is that agent's watcher
+    actually alive right now (0.9.26).
+
+    Distinguishes "watcher alive" from "agent alive". Consumes the endpoint
+    backend deployed for exactly this — GET /v1/agents/<name>/health —
+    which returns the wake_channel_state (live | stale | webhook | none)
+    plus the timestamps that computed it. Answers the sender's question
+    "if I send to this peer, will their watcher actually deliver it".
+
+    scope=read is enough to query one's own agent; scope>=send for any
+    agent in the workspace. Unknown agent name in the caller's workspace
+    returns 404 (existence undisclosed — same rule as message reads).
+    """
+    bus = _bus(args)
+    target = args.target_agent or bus.agent
+    if not target:
+        print("no target agent — pass a name or set AGENTBUS_AGENT", file=sys.stderr)
+        return 2
+    try:
+        result = bus.health(target)
+    except AgentBusError as exc:
+        if exc.status == 404:
+            print(f"unknown agent '{target}' in this workspace", file=sys.stderr)
+            return 1
+        raise
+    if args.json:
+        _print(result, True)
+        return 0
+    # Human-readable rendering. Lead with the ONE fact a sender needs:
+    # "should I trust that a send to this peer will actually be delivered?"
+    # Then the timestamps that computed it, in the order most likely to be
+    # useful for triage (subscriber_count = "is anyone even attached", then
+    # keepalive_age_seconds = "how recently did they prove it").
+    state = result.get("wake_channel_state") or "unknown"
+    subs = result.get("subscriber_count") if result.get("subscriber_count") is not None else "?"
+    keepalive = result.get("keepalive_age_seconds")
+    alive = result.get("watcher_alive")
+    print(f"agent: {target}")
+    print(f"  wake_channel_state:  {state}")
+    print(f"  watcher_alive:       {alive}")
+    print(f"  subscriber_count:    {subs}")
+    print(
+        f"  keepalive_age:       {keepalive}s"
+        if keepalive is not None
+        else "  keepalive_age:       (no data)"
+    )
+    print(f"  last_seen_at:            {result.get('last_seen_at') or '-'}")
+    print(f"  last_pong_at:            {result.get('last_pong_at') or '-'}")
+    print(f"  last_stream_attached:    {result.get('last_stream_attached_at') or '-'}")
+    print(f"  last_stream_detached:    {result.get('last_stream_detached_at') or '-'}")
+    caps = result.get("capabilities") or {}
+    if caps.get("supports_canary_heartbeat"):
+        print("  server supports canary heartbeat (state above is live)")
+    # A wake_channel_state of 'stale' or 'none' is the sender's signal that
+    # even if presence reads 'responsive', a send to this peer will be
+    # delivered into a queue nothing is draining. Say it.
+    if state in ("stale", "none"):
+        print(
+            "\n  NOTE: wake_channel is not 'live'. A send to this agent will be "
+            "stored but may not wake anyone. Use require_responsive=True to be "
+            "refused up front rather than deliver into a queue nothing drains."
+        )
+        return 1
+    return 0
+
+
 def cmd_liveness(args: argparse.Namespace) -> int:
     """Show who is genuinely responding, not merely reachable."""
     bus = _bus(args)
@@ -4029,6 +4103,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_service)
+
+    p = sub.add_parser(
+        "health",
+        help="canary heartbeat for an agent — is their watcher actually alive "
+        "right now? (0.9.26) Consumes GET /v1/agents/{name}/health. "
+        "wake_channel_state 'stale' or 'none' means a send would be stored "
+        "into a queue nothing drains, even if presence reads 'responsive'.",
+    )
+    p.add_argument(
+        "target_agent",
+        nargs="?",
+        default=None,
+        help="the agent to check (default: acting agent from --agent / $AGENTBUS_AGENT)",
+    )
+    _accept_common_flags_after_subcommand(p)
+    p.set_defaults(func=cmd_health)
 
     p = sub.add_parser("liveness", help="who is responsive, not merely reachable")
     _accept_common_flags_after_subcommand(p)

@@ -2754,6 +2754,15 @@ BE FINDABLE, then be left alone when you need to be.
   agentbus status dnd --for 3600  WITHHOLDS normal mail; urgent still lands
   agentbus status online          clears it, and releases what was held
 
+DOING MORE THAN ONE THING AT A TIME.
+
+  agentbus send-batch < file.jsonl   one JSON per line; one process, one keep-alive
+  agentbus attachment <id> --all     write every attachment on a delivery to CWD
+  agentbus watch                     coalesces bursts by default (leading-edge +
+                                     2500 ms window / 800 ms quiet); a lone
+                                     message still fires immediately, urgent
+                                     bypasses; --no-coalesce to opt out
+
 THE THREE RULES THAT CAUSE INCIDENTS
 
   1. "Delivered" means STORED, not read. A send to an agent whose session is

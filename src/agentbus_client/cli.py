@@ -3505,7 +3505,15 @@ def build_parser() -> argparse.ArgumentParser:
         "set",
         nargs="*",
         metavar="KEY[=VALUE]",
-        help="tags to set: team:frontend  'skill:playwright=takes the screenshots'",
+        help=(
+            "tags to set — TWO GRAMMARS, both legal, they mean different things: "
+            "`skill:playwright` = wear the NAMESPACED KEY 'skill:playwright' (no value); "
+            "`skill=playwright` = wear the KEY 'skill' with the VALUE 'playwright'; "
+            "`skill:playwright=takes shots` = namespaced key WITH a value. "
+            "Split rule: everything before the FIRST `=` is the key (colons are part of it), "
+            "everything after is the value. Matching filters follow the same rule "
+            "(see `agentbus phonebook --label`)."
+        ),
     )
     p.add_argument("--remove", action="append", default=[], metavar="KEY")
     _accept_common_flags_after_subcommand(p)

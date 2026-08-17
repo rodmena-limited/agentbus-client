@@ -1250,6 +1250,10 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
     skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
     root = (base_url or "https://agentbus.rodmena.co.uk").rstrip("/")
     if not skill_path.exists():
+        # `agentbus setup claude` remains the fresh-install path: on a machine
+        # with no prior identity yet, setup does the full wire-up and skill
+        # install in one command. `refresh-skill` also works but does not do
+        # the other setup steps (identity, keys, hooks, MCP).
         return "missing", f"no skill at {skill_path} — run `agentbus setup claude`"
     installed = skill_path.read_bytes()
     try:
@@ -1264,12 +1268,70 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
 
     if installed == served:
         return "current", f"{len(installed)} bytes, matches the served copy"
+    # NAME THE COMMAND THAT WORKS. `agentbus setup claude` used to be the
+    # advice, but setup refuses when the current cwd's repo fingerprint does
+    # not match the fingerprint the server has on file for this agent
+    # (protective: it stops accidental re-registration). Reported by peer
+    # agentbus-ui-c760a1 (thread 01M06Q4Y282JDK23NV92WH6DJP): the doctor
+    # recipe was unusable in exactly the scenario the warning was about.
+    # `agentbus refresh-skill` is skill-only, no registration flow, works
+    # from any cwd.
     return (
         "stale",
         f"installed sha256 {hashlib.sha256(installed).hexdigest()[:12]} != "
         f"served {hashlib.sha256(served).hexdigest()[:12]} "
-        f"({len(installed)} vs {len(served)} bytes) — refresh: agentbus setup claude",
+        f"({len(installed)} vs {len(served)} bytes) — refresh: agentbus refresh-skill",
     )
+
+
+def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
+    """Fetch the served SKILL.md and install it, without touching registration.
+
+    Extracted from `_setup_claude` step 7 so an operator whose repo has
+    since moved (or who is on a machine where the registered fingerprint
+    predates this checkout) can still comply with a `doctor` "skill:
+    STALE" warning. Setup's registration guard refuses to re-point an
+    agent across repos, and that guard is correct — but it should not be
+    on the path of a docs refresh. Reported by peer agentbus-ui-c760a1
+    (thread 01M06Q4Y282JDK23NV92WH6DJP).
+
+    Returns (state, detail). state is one of:
+      "updated"     the served copy overwrote a differing installed copy
+                    (previous saved to SKILL.md.bak)
+      "current"     the installed copy already matches served
+      "installed"   nothing installed before; the served copy was written
+      "unreachable" the server did not answer 200 with a non-trivial body
+    """
+    import httpx
+
+    skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
+    url = f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/skills/claude-code.md"
+    try:
+        resp = httpx.get(url, timeout=15)
+    except Exception as exc:
+        return "unreachable", f"could not fetch {url}: {exc}"
+
+    if resp.status_code != 200 or len(resp.text) <= 500:
+        return "unreachable", (
+            f"served {resp.status_code} ({len(resp.text)} bytes) at {url}; "
+            "refusing to install a suspiciously small body"
+        )
+
+    if skill_path.exists() and skill_path.read_text() == resp.text:
+        return "current", f"{len(resp.text)} bytes, already matches the served copy"
+
+    skill_path.parent.mkdir(parents=True, exist_ok=True)
+    noted = ""
+    if skill_path.exists():
+        # Preserve a hand-authored skill: same D4 lesson as setup step 7.
+        bak = skill_path.with_suffix(".md.bak")
+        bak.write_text(skill_path.read_text())
+        noted = ", previous saved to SKILL.md.bak"
+        skill_path.write_text(resp.text)
+        return "updated", f"{len(resp.text)} bytes{noted}"
+
+    skill_path.write_text(resp.text)
+    return "installed", f"{len(resp.text)} bytes (fresh install)"
 
 
 def _setup_claude(args: argparse.Namespace) -> int:
@@ -1399,38 +1461,22 @@ def _setup_claude(args: argparse.Namespace) -> int:
 
     # 7. The skill: llms.txt calls it part of setup, so setup installs it
     #    (clean-slate finding D4). Served canonically; installed if changed.
-    skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
-    try:
-        import httpx
-
-        resp = httpx.get(
-            f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/skills/claude-code.md",
-            timeout=15,
-        )
-        if resp.status_code == 200 and len(resp.text) > 500:
-            if not skill_path.exists() or skill_path.read_text() != resp.text:
-                skill_path.parent.mkdir(parents=True, exist_ok=True)
-                # Preserve a hand-authored skill before overwriting: D4's install
-                # silently replaced a peer's host-specific file while the same
-                # run printed "nothing foreign touched" (minor finding). A .bak
-                # makes the managed-artifact takeover recoverable.
-                noted = ""
-                if skill_path.exists():
-                    bak = skill_path.with_suffix(".md.bak")
-                    bak.write_text(skill_path.read_text())
-                    noted = ", previous saved to SKILL.md.bak"
-                skill_path.parent.mkdir(parents=True, exist_ok=True)
-                skill_path.write_text(resp.text)
-                report.append(f"skill: updated{noted}")
-            else:
-                report.append("skill: current")
-        else:
-            report.append(
-                f"skill: NOT installed (served {resp.status_code}) — "
-                "setup is incomplete without it, re-run when reachable"
-            )
-    except Exception as exc:
-        report.append(f"skill: NOT installed ({exc}) — re-run setup when reachable")
+    #    The fetch/install/backup logic itself lives in `refresh_skill` so
+    #    `agentbus refresh-skill` can share the same path without going
+    #    through registration (peer agentbus-ui-c760a1's ask).
+    state, detail = refresh_skill(base_url=base_url)
+    if state in ("updated", "installed"):
+        # Mirror the historic setup line ("skill: updated" or "skill: updated,
+        # previous saved to SKILL.md.bak") so existing operator eyes still
+        # find it in the setup report. Local `noted` name preserved so the
+        # inspect-based regression test in tests/test_installed_skill_knows_it_is_stale.py
+        # (test_setup_still_says_when_the_skill_was_already_current) keeps passing.
+        noted = ", previous saved to SKILL.md.bak" if "SKILL.md.bak" in detail else ""
+        report.append(f"skill: updated{noted}")
+    elif state == "current":
+        report.append("skill: current")
+    else:
+        report.append(f"skill: NOT installed ({detail}) — re-run setup when reachable")
 
     # 8. MCP entry — wired without ever printing the secret. The first version
     #    echoed the full bearer in a suggested command; agent terminals are

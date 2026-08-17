@@ -83,13 +83,18 @@ def test_identical_bytes_are_current(skill, monkeypatch) -> None:
 
 
 def test_different_bytes_are_stale_and_name_the_refresh_command(skill, monkeypatch) -> None:
-    """'stale' with no remedy leaves the reader knowing they have a problem and
-    not what to type."""
+    """'stale' with no remedy leaves the reader knowing they have a problem
+    and not what to type. The command NAMED must actually work in the
+    scenario the warning appears in — peer agentbus-ui-c760a1 (thread
+    01M06Q4Y282JDK23NV92WH6DJP) hit exactly the case where the old hint
+    said `agentbus setup claude` but setup refused because the operator's
+    cwd's repo fingerprint didn't match the one on file. `refresh-skill`
+    is skill-only and skips the registration guard."""
     skill.write_bytes(b"old and short")
     _serve(monkeypatch, body=b"the much longer current skill")
     state, detail = onboarding.skill_state("https://x")
     assert state == "stale"
-    assert "agentbus setup claude" in detail
+    assert "agentbus refresh-skill" in detail
     assert "13 vs 29 bytes" in detail, detail
 
 

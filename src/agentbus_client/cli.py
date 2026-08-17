@@ -2737,6 +2737,28 @@ def cmd_quickref(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_refresh_skill(args: argparse.Namespace) -> int:
+    """Re-download the served SKILL.md and install it, no registration flow.
+
+    Reported by peer agentbus-ui-c760a1: `agentbus doctor` said the skill
+    was stale and pointed at `agentbus setup claude`, but setup refuses
+    when the current cwd's repo fingerprint does not match the one the
+    server has for this agent. That guard is correct — cross-repo
+    re-registration should not happen silently — but it was blocking a
+    docs-only refresh. This verb is the docs-only path.
+    """
+    from . import onboarding as _onboarding
+
+    bus = _bus(args) if getattr(args, "agent", None) else None
+    base_url = bus.base_url if bus else "https://agentbus.rodmena.co.uk"
+    state, detail = _onboarding.refresh_skill(base_url=base_url)
+    if args.json:
+        _print({"state": state, "detail": detail}, True)
+        return 0 if state in ("updated", "current", "installed") else 1
+    print(f"skill: {state.upper()} — {detail}")
+    return 0 if state in ("updated", "current", "installed") else 1
+
+
 QUICKREF = """\
 AgentBus quick reference — the whole loop is six verbs.
 
@@ -3788,6 +3810,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser(
+        "refresh-skill",
+        help="re-download the served SKILL.md into ~/.claude/skills/agentbus/, "
+        "no registration flow. Use this when `agentbus doctor` says the skill "
+        "is stale but `agentbus setup claude` refuses because your cwd's repo "
+        "differs from the one this agent was registered from.",
+    )
+    _accept_common_flags_after_subcommand(p)  # adds --agent + --json
+    p.set_defaults(func=cmd_refresh_skill)
 
     p = sub.add_parser("quickref", help="the six verbs and three rules, on one screen")
     _accept_common_flags_after_subcommand(p)

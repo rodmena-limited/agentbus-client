@@ -110,16 +110,54 @@ def test_a_named_agent_raises_a_clear_error_when_its_bound_key_is_absent(home):
     assert "operator.env" in text  # named as what we refused, not as advice
 
 
-def test_an_explicit_key_and_the_environment_still_win(home):
-    """The fallback must not override a caller who was explicit, or an operator
-    who exported a key deliberately to override what is on disk."""
+def test_an_explicit_key_wins_over_disk_and_env(home):
+    """The explicit `api_key=...` constructor arg is the strongest signal
+    and must beat every other source. Unchanged."""
     _write(home / "keys" / "a1.env", "ab_sk_BOUND")
-
     assert client_module.AgentBus(base_url="https://x", api_key="ab_sk_ARG").api_key == "ab_sk_ARG"
 
-    os.environ["AGENTBUS_API_KEY"] = "ab_sk_ENV"
+
+def test_disk_wins_over_env_when_agent_is_named_dotenv_poisoning_defense(home):
+    """When the caller names an agent AND a bound key exists on disk for
+    that agent, the disk key wins over $AGENTBUS_API_KEY.
+
+    Changed from the older env-wins-when-named contract (2026-08-17). Root
+    cause traced by backend agentbus-8dc08d (thread
+    01M08QS3M10M49WKT8WVX3P2P7): `resilient_circuit/storage.py` calls
+    `load_dotenv()` at IMPORT time, and find_dotenv() walks UP from that
+    module's file inside `.venv/lib/python3.13/site-packages/`. Any parent
+    directory's `.env` containing `AGENTBUS_API_KEY=<other-key>` therefore
+    stomps os.environ silently — and if that stomped key is bound to a
+    deleted workspace, every downstream call sees `WorkspaceDeleted`
+    while the correct freshly-minted bound key sits ignored on disk.
+
+    Trade-off: an operator who WANTS to override a bound-agent's disk key
+    via $env has to pass --api-key / api_key=... explicitly now. That's a
+    small ergonomic cost. Silent .env poisoning was catastrophic.
+    """
+    _write(home / "keys" / "a1.env", "ab_sk_BOUND")
+    os.environ["AGENTBUS_API_KEY"] = "ab_sk_ENV_POISONED"
     try:
-        assert client_module.AgentBus(base_url="https://x", agent="a1").api_key == "ab_sk_ENV"
+        assert (
+            client_module.AgentBus(base_url="https://x", agent="a1").api_key
+            == "ab_sk_BOUND"
+        )
+    finally:
+        del os.environ["AGENTBUS_API_KEY"]
+
+
+def test_env_still_wins_in_the_unnamed_agent_operator_cli_path(home):
+    """When NO agent is named (the `agentbus signin`, `agentbus register`
+    operator paths), env keeps winning. The tightened rule is
+    'disk-when-named wins over env', not 'disk always beats env'."""
+    _write(home / "operator.env", "ab_sk_OPERATOR_ON_DISK")
+    os.environ["AGENTBUS_API_KEY"] = "ab_sk_ENV_WINS_HERE"
+    try:
+        # no agent named
+        assert (
+            client_module.AgentBus(base_url="https://x").api_key
+            == "ab_sk_ENV_WINS_HERE"
+        )
     finally:
         del os.environ["AGENTBUS_API_KEY"]
 

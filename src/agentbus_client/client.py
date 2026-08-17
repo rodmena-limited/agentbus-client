@@ -521,8 +521,26 @@ class _Base:
     ) -> None:
         # `agent` is read before base_url/self.agent below because the on-disk
         # lookup is agent-scoped: the bound key lives at keys/<agent>.env.
+        #
+        # WHEN AGENT IS EXPLICITLY NAMED, PREFER THE DISK-BOUND KEY OVER $ENV.
+        # Root-caused by agentbus-8dc08d (thread 01M08QS3M10M49WKT8WVX3P2P7):
+        # a dependency (`resilient_circuit/storage.py`) calls `load_dotenv()`
+        # at import time; find_dotenv walks UP from that module's file inside
+        # .venv/lib/python3.13/site-packages/, so any parent directory's
+        # `.env` containing `AGENTBUS_API_KEY=<some other key>` STOMPS
+        # os.environ. If that stomped key is bound to a deleted workspace,
+        # every downstream call sees WorkspaceDeleted — even though the
+        # correct freshly-minted bound key is sitting on disk at
+        # ~/.config/agentbus/keys/<agent>.env.
+        #
+        # When the caller NAMED an agent, they want THAT agent's credential.
+        # Disk wins for that case. Env still wins in the unnamed-agent path
+        # (the operator CLI: `agentbus signin`, `agentbus register`, etc.).
+        # Every legitimate agent-named use case ships the bound key on disk.
+        disk_key_for_named_agent = _key_from_disk(agent) if agent else ""
         self.api_key = (
             api_key
+            or disk_key_for_named_agent
             or os.environ.get("AGENTBUS_API_KEY", "")
             or _key_from_disk(agent or os.environ.get("AGENTBUS_AGENT"))
         )

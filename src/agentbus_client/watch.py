@@ -753,11 +753,16 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
             # on kind to render burst summaries differently from singletons.
             envelope_count=shlex.quote(str(message.get("count") or 1)),
             envelope_kind=shlex.quote(str(message.get("kind") or "")),
-            # Persona lane (SPECS/0021): the acting agent's responsibility lane,
-            # injected by cmd_watch from whoami. Empty string when no persona
-            # is declared — the template author can gate on {lane} to render
-            # a lane-specific notification, or ignore it entirely.
+            # Persona lanes (SPECS/0021, SEV-2 fix). TWO distinct fields:
+            #   {lane}    = the SENDER's persona, enriched by backend #267
+            #               ("who sent this")
+            #   {my_lane} = the ACTING AGENT's own persona, injected by
+            #               cmd_watch ("who am I / what is my lane")
+            # They are different things and must not be conflated. 0.9.34
+            # stamped my_lane onto lane, clobbering the sender's — that is
+            # the SEV-2 this separation fixes. Empty string when unset.
             lane=shlex.quote(str(message.get("lane") or "")),
+            my_lane=shlex.quote(str(message.get("my_lane") or "")),
         )
         # Justified in place: `command` is the OPERATOR'S OWN shell template, passed
         # to `agentbus watch --exec`. shell=True is the feature. Every value

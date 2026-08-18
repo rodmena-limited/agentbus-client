@@ -1546,15 +1546,20 @@ def inject(args: argparse.Namespace) -> int:
         f"Read it:  agentbus show {args.delivery}\n"
         f"Reply:    agentbus reply {args.delivery} -b '...'\n"
     )
-    # PERSONA LANE REMINDER (SPECS/0021): ONE line per wake, never per
-    # message — the coalescer and the with_lane wrapper ensure this fires
-    # once per envelope, and the inject command runs once per envelope.
-    # Absent when the agent has no persona (the majority case) and when
-    # the plugin template does not yet pass {lane} to inject.
-    lane = getattr(args, "lane", None)
-    if lane:
+    # PERSONA LANE REMINDER (SPECS/0021, SEV-2 fix): ONE line per wake,
+    # never per message. The reminder uses the RECEIVER's own lane (my_lane)
+    # — "Your lane is: backend" to a backend agent — NOT the sender's lane
+    # (the server's `lane` field). 0.9.34 used the sender's lane here, so a
+    # frontend sender messaging a backend receiver printed "Your lane is:
+    # frontend". The two are now distinct: `--lane` = sender (enriched by
+    # #267), `--my-lane` = the acting agent's own persona.
+    #
+    # Absent when the agent has no persona (majority case) or when the
+    # plugin template does not yet pass {my_lane} to inject.
+    my_lane = getattr(args, "my_lane", None)
+    if my_lane:
         body += (
-            f"Your lane is: {lane}. This message may touch other lanes — "
+            f"Your lane is: {my_lane}. This message may touch other lanes — "
             f"if it does, HAND IT OFF (agentbus send tag:persona=<other> ...) "
             f"rather than act outside your lane.\n"
         )
@@ -1966,11 +1971,16 @@ def main(argv: list[str] | None = None) -> int:
     # default=None, NOT "": absent means the monitor never told us, empty
     # means it told us the message is plain SMTP. See the envelope logic.
     p.add_argument("--inbound-source", default=None)
-    # Persona lane (SPECS/0021): the acting agent's responsibility lane.
-    # Passed by the --exec template's {lane} placeholder when the plugin
-    # template includes it. Absent on old templates (no reminder appears).
-    # Forward-compatible: the reminder lights up when the plugin updates.
+    # Persona lanes (SPECS/0021, SEV-2 fix). TWO distinct fields:
+    #   --lane    = the SENDER's persona (backend #267 enrichment)
+    #   --my-lane = the acting agent's OWN persona, used by the handoff
+    #               reminder ("Your lane is: backend"). Passed by the
+    #               --exec template's {my_lane} placeholder.
+    # 0.9.34 used --lane for the reminder, so a frontend sender messaging
+    # a backend receiver printed "Your lane is: frontend" — wrong. The
+    # reminder must always reflect the RECEIVER's lane.
     p.add_argument("--lane", default=None)
+    p.add_argument("--my-lane", default=None)
     p.set_defaults(func=inject)
 
     p = sub.add_parser("session-end")

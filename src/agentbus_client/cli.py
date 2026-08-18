@@ -3268,6 +3268,25 @@ def cmd_watch(args: argparse.Namespace) -> int:
             except Exception as exc:
                 print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
 
+    # MY-LANE INJECTION (SPECS/0021, SEV-2 fix). The acting agent's OWN
+    # persona is injected as `my_lane` into a SHALLOW COPY of every message
+    # and envelope — DISTINCT from the server's `lane` field, which is the
+    # SENDER's persona (backend #267 enrichment).
+    #
+    # SEV-2 lesson: 0.9.34 stamped the acting agent's persona onto `lane`,
+    # clobbering the sender's. Same field name, two meanings → the receiver's
+    # persona overwrote the sender's on every wake. The two concepts must
+    # have two names: `lane` = who SENT this, `my_lane` = who I am. This
+    # wrapper only ever sets `my_lane` and never touches `lane`.
+    #
+    # One `my_lane` per envelope, never per message — the coalescer already
+    # ensures one wake per burst. Absent when the acting agent has no
+    # persona (the majority case), so existing hooks are byte-identical.
+    def with_my_lane(message: dict[str, Any]) -> None:
+        if my_lane:
+            message = {**message, "my_lane": my_lane}
+        fanout(message)
+
     # Coalescer (issuedb #9, SPECS/0009): burst arrivals collapse into a
     # single envelope wake. Lone messages still fire immediately with the
     # unchanged per-message shape, so installed UserPromptSubmit hooks that
@@ -3275,10 +3294,10 @@ def cmd_watch(args: argparse.Namespace) -> int:
     coalescer: Coalescer | None = None
     handler: Callable[[dict[str, Any]], None]
     if getattr(args, "no_coalesce", False):
-        handler = fanout
+        handler = with_my_lane
     else:
         coalescer = Coalescer(
-            fanout,
+            with_my_lane,
             window_ms=int(getattr(args, "coalesce_window", 2500)),
             quiet_ms=int(getattr(args, "coalesce_quiet", 800)),
         )
@@ -3328,11 +3347,16 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # during exactly the outage its reconnect loop existed to survive.
     try:
         # whoami returns workspace as an OBJECT: {"id": ..., "slug": ...}.
-        # Zero additional network calls.
+        # my_lane = the ACTING AGENT's own persona, extracted from the SAME
+        # call that resolves the workspace label (zero additional network).
+        # DISTINCT from the server's `lane` field (sender's persona) — the
+        # SEV-2 fix, see the with_my_lane comment above.
         _who = bus.whoami() or {}
         workspace = (_who.get("workspace") or {}).get("slug") or None
+        my_lane = (_who.get("agent") or {}).get("persona") or None
     except Exception:  # noqa: BLE001 — startup label lookup MUST NOT block launch
         workspace = None
+        my_lane = None
 
     if args.state:
         state_key = Path(args.state).name

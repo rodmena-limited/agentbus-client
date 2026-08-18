@@ -209,13 +209,7 @@ def test_notify_command_substitutes_lane_placeholder():
     assert "lane=" in calls[0]  # empty, not KeyError
 
 
-def test_inject_includes_lane_reminder_when_lane_passed():
-    """The lane reminder line appears in the injected body text when
-    --lane is set, and does NOT appear when it is absent.
-
-    The body goes to the session socket, not stdout (stdout is the
-    fallback notice only). So this test mocks the socket to capture
-    the payload."""
+def _inject_body(sock_args):
     import json as _json
     import socket as _socket
     from agentbus_client.hooks import claude_code as hooks
@@ -230,29 +224,47 @@ def test_inject_includes_lane_reminder_when_lane_passed():
 
     with patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/fake"}):
         with patch.object(_socket, "socket", return_value=_FakeSock()):
-            args = argparse.Namespace(
-                subject="test", sender="peer", delivery="01D", seq="",
-                direction="bus", inbound_source=None, lane="frontend",
-            )
-            hooks.inject(args)
-
+            hooks.inject(sock_args)
     assert captured, "no payload was sent to the socket"
-    payload = _json.loads(captured[0])
-    body = payload["message"]["content"]
-    assert "Your lane is: frontend" in body
-    assert "HAND IT OFF" in body
+    return _json.loads(captured[0])["message"]["content"]
 
-    # Without lane — reminder must NOT appear.
-    captured.clear()
-    with patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/fake"}):
-        with patch.object(_socket, "socket", return_value=_FakeSock()):
-            args = argparse.Namespace(
-                subject="test", sender="peer", delivery="01D", seq="",
-                direction="bus", inbound_source=None, lane=None,
-            )
-            hooks.inject(args)
-    payload = _json.loads(captured[0])
-    body = payload["message"]["content"]
+
+def test_inject_uses_my_lane_for_the_reminder():
+    """The handoff reminder must use the RECEIVER's own lane (my_lane),
+    NOT the sender's lane — the SEV-2 fix.
+
+    0.9.34 used the sender's lane, so a frontend sender messaging a backend
+    receiver printed "Your lane is: frontend" — wrong for the receiver. The
+    reminder must always say the receiving agent's lane."""
+    args = argparse.Namespace(
+        subject="test", sender="peer", delivery="01D", seq="",
+        direction="bus", inbound_source=None, lane="frontend", my_lane="backend",
+    )
+    body = _inject_body(args)
+    assert "Your lane is: backend" in body
+    assert "HAND IT OFF" in body
+    # The sender's lane is NOT what the reminder reports.
+    assert "Your lane is: frontend" not in body
+
+
+def test_inject_sender_lane_alone_does_not_trigger_reminder():
+    """--lane (sender's persona) without --my-lane must NOT trigger the
+    receiver's reminder. They are distinct; the sender's lane is not the
+    receiver's lane."""
+    args = argparse.Namespace(
+        subject="test", sender="peer", delivery="01D", seq="",
+        direction="bus", inbound_source=None, lane="frontend", my_lane=None,
+    )
+    body = _inject_body(args)
+    assert "Your lane is" not in body
+
+
+def test_inject_no_lane_no_reminder():
+    args = argparse.Namespace(
+        subject="test", sender="peer", delivery="01D", seq="",
+        direction="bus", inbound_source=None, lane=None, my_lane=None,
+    )
+    body = _inject_body(args)
     assert "Your lane is" not in body
 
 
@@ -320,3 +332,51 @@ def test_watch_does_not_overwrite_sender_lane_with_acting_agent_persona(tmp_path
         "the acting agent's persona overwrote the sender's lane — {lane} in "
         "an --exec template (and the hook reminder) reports the WRONG agent"
     )
+
+def test_watch_injects_my_lane_without_clobbering_sender_lane(tmp_path):
+    """SEV-2 companion to the regression test: `with_my_lane` adds the
+    acting agent's OWN persona as `my_lane`, and MUST NOT touch the
+    server's `lane` (the sender's persona). Both facts must be present
+    on the delivered message — the sender's lane intact AND the
+    receiver's my_lane added."""
+    import subprocess as _subprocess
+    from agentbus_client import watch as watch_module
+
+    class MockBus:
+        agent = "me"
+        base_url = "http://test"
+        def whoami(self, agent=None):
+            return {"agent": {"name": "me", "persona": "backend"}}
+
+    captured: list[dict] = []
+
+    class FakeWatcher:
+        def __init__(self, bus, agent, *a, on_message=None, **kw):
+            self.handler = on_message
+        def run(self, once=False):
+            self.handler({"delivery_id": "01D", "lane": "frontend"})
+            return 0
+
+    def fake_notify_command(cmd):
+        def handler(message):
+            captured.append(message)
+        return handler
+
+    state = tmp_path / "watch.json"
+    args = argparse.Namespace(
+        agent="me", wait=0, no_coalesce=False, coalesce_window=2500,
+        coalesce_quiet=800, exec="echo {lane}", append=None, state=str(state),
+        once=True, daemon=False, cursor=None, persona=None,
+    )
+
+    with patch.object(cli_module, "_bus", return_value=MockBus()), \
+         patch.object(cli_module, "_watch_pidfile", return_value=tmp_path / "pid"), \
+         patch.object(watch_module, "notify_command", fake_notify_command), \
+         patch.object(watch_module, "Watcher", FakeWatcher):
+        cli_module.cmd_watch(args)
+
+    delivered = captured[0]
+    # Sender's lane (frontend) preserved — the #267 contract.
+    assert delivered.get("lane") == "frontend", "sender lane was clobbered"
+    # Receiver's own lane (backend) present as my_lane — the SEV-2 fix.
+    assert delivered.get("my_lane") == "backend", "my_lane was not injected"

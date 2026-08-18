@@ -2287,7 +2287,24 @@ def _render_thread(result: dict[str, Any], highlight_message_id: str | None = No
             ref = message.get("payload_schema_ref")
             print(f"    carries a structured payload{f' ({ref})' if ref else ''}")
         print()
-        print(message.get("text_body") or "(no text body)")
+        # A READER THAT CANNOT DECRYPT MUST SAY SO — the rule
+        # `unseal_message` states in its own docstring, and which `show`
+        # already honours (client.py checks `sealed_unreadable` before
+        # rendering a body). This sibling did not: it printed
+        # `text_body` unconditionally, which on an un-openable message is
+        # the raw age armor. An operator reading a thread got a wall of
+        # base64 with no explanation — the exact "returning ciphertext as
+        # if it were content" failure that docstring exists to prevent.
+        #
+        # Reachable in ordinary use: a thread you are a participant in can
+        # contain messages sealed only to OTHER recipients (you see the
+        # envelope, you cannot open the body). Found by reading a live
+        # 5-message thread where 3 opened and 2 did not.
+        unreadable = message.get("sealed_unreadable")
+        if unreadable:
+            print(f"(sealed — cannot read on this machine: {unreadable})")
+        else:
+            print(message.get("text_body") or "(no text body)")
 
 
 def cmd_thread(args: argparse.Namespace) -> int:

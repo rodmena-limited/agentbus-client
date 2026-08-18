@@ -160,3 +160,57 @@ def test_thread_view_states_how_many_messages_there_are(monkeypatch):
     out, _ = _run_show(monkeypatch, _delivery(), _thread(5), thread=True)
     assert "5 message(s)" in out
     assert "thread th_1" in out
+
+
+# ------------------------------------------------------- sealed body rendering
+
+
+def test_thread_render_says_so_instead_of_dumping_ciphertext():
+    """A READER THAT CANNOT DECRYPT MUST SAY SO.
+
+    `unseal_message`'s docstring states the rule and `show` honours it, but
+    `_render_thread` printed `text_body` unconditionally — which on an
+    un-openable message is the raw age armor. An operator reading a thread
+    got a wall of base64 with no explanation: the exact "returning
+    ciphertext as if it were content" failure the rule exists to prevent.
+
+    Reachable in ordinary use: a thread you participate in can contain
+    messages sealed only to OTHER recipients. Found on a live 5-message
+    thread where 3 opened and 2 did not.
+    """
+    import io
+    import contextlib
+
+    from agentbus_client import cli
+
+    armor = "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3Yx\n"
+    result = {
+        "thread": {"id": "01T", "subject": "s", "state": "open"},
+        "messages": [
+            {
+                "id": "01M1",
+                "sender_display": "peer",
+                "created_at": "2026-08-18T00:00:00Z",
+                "text_body": "readable body",
+            },
+            {
+                "id": "01M2",
+                "sender_display": "peer",
+                "created_at": "2026-08-18T00:01:00Z",
+                "text_body": armor,
+                "sealed_unreadable": "sealed to keys this machine does not hold",
+            },
+        ],
+    }
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cli._render_thread(result)
+    out = buf.getvalue()
+
+    assert "readable body" in out, "the openable message must still render"
+    assert "BEGIN AGE ENCRYPTED FILE" not in out, (
+        "raw ciphertext was dumped into the thread view instead of an explanation"
+    )
+    assert "cannot read on this machine" in out
+    assert "sealed to keys this machine does not hold" in out

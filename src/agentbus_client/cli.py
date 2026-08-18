@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -3310,6 +3311,109 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_identities(args: argparse.Namespace) -> int:
+    """`agentbus identities` — every agent identity credentialled on THIS box.
+
+    macbook-admin-bd8e86's ask #5 (thread 01M092QZXGEBD6AJ193ZKEPVZ5). The
+    motivating incident: a foreign CLI on a shared $HOME listed
+    ~/.config/agentbus/keys/, picked a peer's .env, exported it, and posted
+    as that peer. Nothing on the box made the situation VISIBLE — the
+    operator learned of it from a screenshot.
+
+    This does not close that hole and does not pretend to: a bearer
+    credential readable by its own UID is the documented model, and any
+    client-side guard is bypassed by the same process that can read the
+    file. What it does is make the state observable — which local
+    identities exist, which one THIS directory would actually act as, and
+    (with --remote) whether each is currently live somewhere, so "this
+    identity is active and it is not me" becomes answerable.
+
+    Deliberately prints NO key material — only the key_id prefix, which is
+    the non-secret half and is what the dashboard shows.
+    """
+    from . import onboarding as _onboarding
+
+    keys_dir = _onboarding._keys_dir()
+    rows: list[dict[str, Any]] = []
+    for path in sorted(keys_dir.glob("*.env")):
+        agent = path.stem
+        key_id = None
+        with contextlib.suppress(OSError, ValueError):
+            for raw in path.read_text().splitlines():
+                entry = raw.strip().removeprefix("export ")
+                name, sep, value = entry.partition("=")
+                if sep and name.strip() == "AGENTBUS_API_KEY":
+                    secret = value.strip().strip("'\"")
+                    # ab_sk_<key_id>_<secret> — the key_id half is not secret.
+                    parts = secret.split("_")
+                    key_id = "_".join(parts[:3]) if len(parts) >= 3 else None
+                    break
+        st = path.stat()
+        rows.append(
+            {
+                "agent": agent,
+                "key_id": key_id,
+                "path": str(path),
+                "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                "mode": oct(st.st_mode & 0o777),
+            }
+        )
+
+    # Which identity would THIS directory actually act as? That is the
+    # question an operator staring at N key files actually has, and it is
+    # not answerable by looking at the directory.
+    acting = None
+    with contextlib.suppress(Exception):
+        _key, acting = _onboarding.resolve_credentials()
+
+    if getattr(args, "remote", False) and rows:
+        bus = _bus(args)
+        for row in rows:
+            with contextlib.suppress(Exception):
+                health = bus.health(row["agent"])
+                row["wake_channel_state"] = health.get("wake_channel_state")
+                row["watcher_alive"] = health.get("watcher_alive")
+                row["last_seen_at"] = health.get("last_seen_at")
+
+    if args.json:
+        _print({"acting_as": acting, "identities": rows}, True)
+        return 0
+
+    if not rows:
+        print(f"no agent credentials on this machine ({keys_dir})")
+        return 0
+    width = max(len(r["agent"]) for r in rows)
+    header = f"{'AGENT':<{width}}  {'KEY ID':<26} {'STORED':<17} MODE"
+    if getattr(args, "remote", False):
+        header += "   WAKE      ALIVE  LAST SEEN"
+    print(header)
+    for r in rows:
+        line = (
+            f"{r['agent']:<{width}}  {(r['key_id'] or '(unreadable)'):<26} "
+            f"{r['mtime']:<17} {r['mode']}"
+        )
+        if getattr(args, "remote", False):
+            state = r.get("wake_channel_state") or "-"
+            alive = r.get("watcher_alive")
+            alive_s = "-" if alive is None else str(alive)
+            line += f"   {state:<9} {alive_s:<6} {r.get('last_seen_at') or '-'}"
+        print(line)
+    print()
+    print(f"this directory acts as: {acting or '(no identity — nothing would be sent)'}")
+    if len(rows) > 1:
+        print()
+        print(
+            f"NOTE: {len(rows)} agent identities are credentialled on this machine. "
+            "Every process running as this user can read all of them and act as "
+            "any of them — that is the bearer-credential model, not a defect. "
+            "If you run several AI CLIs on one box, each has full "
+            "read/impersonate access to every identity above."
+        )
+        if not getattr(args, "remote", False):
+            print("Pass --remote to see which of them are currently live somewhere.")
+    return 0
+
+
 def cmd_health(args: argparse.Namespace) -> int:
     """`agentbus health <agent>` — canary heartbeat, is that agent's watcher
     actually alive right now (0.9.26).
@@ -4145,6 +4249,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_service)
+
+    p = sub.add_parser(
+        "identities",
+        help="every agent identity credentialled on THIS machine, which one this "
+        "directory would act as, and (with --remote) whether each is live "
+        "somewhere else. Prints no key material.",
+    )
+    p.add_argument(
+        "--remote",
+        action="store_true",
+        help="also query each identity's health endpoint to show whether it is "
+        "currently live somewhere — answers 'this identity is active and it is not me'",
+    )
+    _accept_common_flags_after_subcommand(p)
+    p.set_defaults(func=cmd_identities)
 
     p = sub.add_parser(
         "health",

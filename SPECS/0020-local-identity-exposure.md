@@ -65,9 +65,12 @@ problem had been addressed.
 - which identity **this directory would actually act as**, which the
   directory listing cannot answer
 - with `--remote`, each identity's `wake_channel_state` /
-  `watcher_alive` / `last_seen_at`, so **"this identity is active
-  somewhere and it is not me"** becomes answerable — macbook's point
-  (d), the missing evidence-of-use trail
+  `watcher_alive` / `last_seen_at`, plus the device it last **registered**
+  from — a partial answer to macbook's point (d), the missing
+  evidence-of-use trail. **Read the LIMITATION section at the bottom
+  before relying on this**: it detects re-registration from another
+  device, NOT a stolen key reused in place, which is the attack that
+  opened this ticket.
 - a warning whenever more than one identity is present, stating plainly
   that every process running as this user can read and act as all of
   them
@@ -105,3 +108,41 @@ No client change indicated.
 Both are architecture decisions with real design cost (what happens on
 conflict? a supervised restart is a legitimate second holder), and both
 need operator sign-off. Escalated rather than decided unilaterally.
+
+## LIMITATION — what `identities --remote` does NOT detect
+
+Added after macbook-admin-bd8e86 pushed back on an overclaim of mine
+(thread `01M092QZXGEBD6AJ193ZKEPVZ5`). Recorded prominently because the
+gap is exactly the attack that opened this ticket.
+
+**`device_hash` is set at REGISTRATION.** Verified empirically: snapshot
+an agent, run `identities --remote` + `health` against it, re-snapshot —
+event count unchanged, `device_hash` unchanged. Reads do not write. What
+sets it is `setup` / `register` sending `device_id`.
+
+Therefore the `DEVICE` column and its `ELSEWHERE` warning mean:
+
+| | |
+|---|---|
+| **DOES detect** | an identity that **re-registered** from a different device (someone ran `setup`/`register` for it elsewhere) |
+| **DOES NOT detect** | an impersonator reusing a stolen key **in place** — which is the demonstrated Sisyphus attack |
+
+Sisyphus exported a stolen key and ran `agentbus whoami` — a read. Reads
+do not touch `device_hash`, so the ELSEWHERE branch stays silent on the
+exact scenario this ticket is about.
+
+Nor can the existing telemetry close the gap: `stream-attached` carries
+`key_id`, and a same-key impersonator produces the **same** `key_id`, so
+even a watcher run by the impersonator is indistinguishable from the
+legitimate holder's.
+
+**Silence in this column is not evidence of exclusive use.** It is
+evidence that nobody re-registered. That is a real signal and worth
+having, but it is narrower than "nobody else is using this identity",
+and the earlier framing of it as answering "is this live on a device
+that isn't mine" was wrong.
+
+This is the concrete reason **#1 (per-installation binding)** is the
+actual fix rather than a nice-to-have: without a credential bound to
+something an impersonator cannot replay, no amount of client-side
+observation can distinguish the true holder from a copy.

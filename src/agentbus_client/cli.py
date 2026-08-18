@@ -3452,11 +3452,16 @@ def cmd_identities(args: argparse.Namespace) -> int:
         if strays:
             print()
             print(
-                "WARNING: these identities are registered from a DIFFERENT device "
+                "WARNING: these identities last REGISTERED from a different device "
                 "than this one: " + ", ".join(strays) + ". You hold their credential "
-                "locally, but the live registration is somewhere else. If that is not "
-                "a machine you control, treat the credential as compromised: rotate it "
+                "locally, but the registration came from elsewhere. If that is not a "
+                "machine you control, treat the credential as compromised: rotate it "
                 "(agentbus keys rotate) and revoke the old key."
+            )
+            print(
+                "  SCOPE: this compares REGISTRATION device, not live use. An "
+                "impersonator reusing a stolen key WITHOUT re-registering leaves this "
+                "column unchanged, so silence here is not evidence of exclusive use."
             )
             return 1
     return 0
@@ -4307,8 +4312,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--remote",
         action="store_true",
-        help="also query each identity's health endpoint to show whether it is "
-        "currently live somewhere — answers 'this identity is active and it is not me'",
+        help="also query each identity's health + registration device. Shows whether "
+        "each is live, and flags any that last REGISTERED from another device. Does "
+        "NOT detect a stolen key reused in place — see SPECS/0020.",
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_identities)

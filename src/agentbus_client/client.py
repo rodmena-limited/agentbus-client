@@ -1947,6 +1947,33 @@ class AgentBus(_Base):
     def usage(self) -> dict[str, Any]:
         return self._request("GET", "/v1/usage")
 
+    def reminders_owing(self) -> list[dict[str, Any]]:
+        """Messages I sent that are still awaiting ack (ack-tracking, SPECS/0022).
+
+        The sender's view: what I'm waiting on. Backend endpoint shape
+        (thread 01M097AQA9KVBTHFJZGSM1PN88):
+
+          GET /v1/reminders/owing  -> {"owing": [ROW...], "count": int}
+          ROW: {delivery_id, subject, required_by, attempts_so_far,
+                last_attempt_at, next_attempt_at, thread_id, recipient_name}
+
+        Only UNRESOLVED rows are returned (acked/replied/expired drop off).
+        Scoped to the caller's own agent; reads only.
+        """
+        data = self._request("GET", "/v1/reminders/owing")
+        return list(data.get("owing") or [])
+
+    def reminders_owed(self) -> list[dict[str, Any]]:
+        """Messages TO me that I owe an ack on (SPECS/0022).
+
+        The recipient's view: what I'm being reminded about. Endpoint:
+          GET /v1/reminders/owed  -> {"owed": [ROW...], "count": int}
+          ROW: {delivery_id, subject, required_by, attempts_so_far,
+                last_attempt_at, next_attempt_at, thread_id, sender_name}
+        """
+        data = self._request("GET", "/v1/reminders/owed")
+        return list(data.get("owed") or [])
+
     def heartbeat_liveness(self, agent: str | None = None) -> dict[str, Any]:
         """Poll once purely to answer a challenge and learn what is waiting.
 
@@ -2624,6 +2651,16 @@ class AsyncAgentBus(_Base):
 
     async def usage(self) -> dict[str, Any]:
         return await self._request("GET", "/v1/usage")
+
+    async def reminders_owing(self) -> list[dict[str, Any]]:
+        """Async parity — see AgentBus.reminders_owing."""
+        data = await self._request("GET", "/v1/reminders/owing")
+        return list(data.get("owing") or [])
+
+    async def reminders_owed(self) -> list[dict[str, Any]]:
+        """Async parity — see AgentBus.reminders_owed."""
+        data = await self._request("GET", "/v1/reminders/owed")
+        return list(data.get("owed") or [])
 
     async def request_approval(
         self,

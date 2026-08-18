@@ -219,3 +219,122 @@ def _args_(**over):
     base = {"agent": None, "json": False, "stop_on_error": False}
     base.update(over)
     return argparse.Namespace(**base)
+
+
+# ---------------------------------------------------------------- reminders verb
+
+
+def _rem_args(**over):
+    base = {"owed": False, "agent": None, "json": False}
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+class _RemBus:
+    """Deterministic reminders bus. `rows` returned by the requested view."""
+
+    def __init__(self, owing=None, owed=None):
+        self._owing = owing or []
+        self._owed = owed or []
+
+    def reminders_owing(self):
+        return self._owing
+
+    def reminders_owed(self):
+        return self._owed
+
+
+def _render(fn, args):
+    import io
+    import contextlib
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fn(args)
+    return buf.getvalue()
+
+
+def test_reminders_owing_renders_sender_view(monkeypatch):
+    rows = [{
+        "delivery_id": "01D1", "subject": "please confirm schema",
+        "required_by": "2026-08-19T00:00:00Z", "attempts_so_far": 2,
+        "last_attempt_at": "2026-08-18T00:05:00Z",
+        "next_attempt_at": "2026-08-18T00:45:00Z", "thread_id": "01T",
+        "recipient_name": "peer-b",
+    }]
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _RemBus(owing=rows))
+    out = _render(cli_module.cmd_reminders, _rem_args(owed=False))
+    assert "owing" in out
+    assert "peer-b" in out
+    assert "please confirm schema" in out
+    assert "attempts=2" in out
+
+
+def test_reminders_owed_shows_sender(monkeypatch):
+    import io, contextlib
+    rows = [{
+        "delivery_id": "01D2", "subject": "rerun with these flags",
+        "required_by": "2026-08-19T00:00:00Z", "attempts_so_far": 0,
+        "last_attempt_at": None, "next_attempt_at": "2026-08-18T00:10:00Z",
+        "thread_id": "01T", "sender_name": "peer-a",
+    }]
+
+    class _B:
+        def reminders_owed(self): return rows
+        def reminders_owing(self): return []
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _B())
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cli_module.cmd_reminders(_rem_args(owed=True))
+    out = buf.getvalue()
+    assert "owed" in out
+    assert "peer-a" in out
+    assert "rerun with these flags" in out
+
+
+def test_reminders_json_output(monkeypatch):
+    import io, json as _json, contextlib
+    rows = [{
+        "delivery_id": "01D", "subject": "sub", "required_by": "r",
+        "attempts_so_far": 1, "last_attempt_at": None, "next_attempt_at": "n",
+        "thread_id": "t", "sender_name": "peer",
+    }]
+
+    class _B:
+        def reminders_owed(self): return rows
+        def reminders_owing(self): return []
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _B())
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cli_module.cmd_reminders(_rem_args(owed=True, json=True))
+    data = _json.loads(buf.getvalue())
+    assert data["count"] == 1
+    assert data["owed"][0]["subject"] == "sub"
+
+
+def test_reminders_404_graceful(monkeypatch, capsys):
+    from agentbus_client.client import AgentBusError
+
+    class _B:
+        def reminders_owing(self):
+            raise AgentBusError("not found", status=404, code="not_found")
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _B())
+    rc = cli_module.cmd_reminders(_rem_args(owed=False))
+    assert rc == 1
+    assert "not enabled on this server yet" in capsys.readouterr().err
+
+
+def test_reminders_sdk_methods_hit_right_endpoints():
+    from agentbus_client.client import AgentBus
+
+    bus = AgentBus(api_key="ab_sk_test_test", agent="me")
+    with patch.object(bus, "_request", return_value={"owing": [{"delivery_id": "x"}]}) as m:
+        bus.reminders_owing()
+    m.assert_called_once_with("GET", "/v1/reminders/owing")
+
+    with patch.object(bus, "_request", return_value={"owed": [{"delivery_id": "x"}]}) as m:
+        bus.reminders_owed()
+    m.assert_called_once_with("GET", "/v1/reminders/owed")

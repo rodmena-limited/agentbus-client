@@ -3153,6 +3153,66 @@ def cmd_usage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reminders(args: argparse.Namespace) -> int:
+    """`agentbus reminders` — ack-tracking visibility (SPECS/0022).
+
+    Two views, mirroring the phrase that names them:
+      --owing  what I sent and am still waiting to be acked
+      --owed   what was sent TO me that I still owe an ack on
+
+    Both list only UNRESOLVED rows (acked/replied/expired drop off), oldest
+    first. Reads only, scoped to the caller's own agent.
+
+    Forward-compatible: against a server without the reminders endpoints,
+    the verb prints "not enabled on this server yet" and exits 1 rather
+    than a traceback.
+    """
+    bus = _bus(args)
+    try:
+        if getattr(args, "owed", False):
+            rows = bus.reminders_owed()
+            kind = "owed"
+            other = "sender"
+        else:
+            rows = bus.reminders_owing()
+            kind = "owing"
+            other = "recipient"
+    except AgentBusError as exc:
+        if exc.status in (404, 405, 501):
+            print(
+                f"ack-tracking not enabled on this server yet ({exc.code}) — "
+                "the delivery_reminders endpoints are not deployed here.",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+
+    if args.json:
+        _print({kind: rows, "count": len(rows)}, True)
+        return 0
+
+    if not rows:
+        print(f"no {kind} reminders — {len(rows)}")
+        return 0
+
+    # Header + rows. The ROW shape differs slightly between the two views:
+    #   owing -> recipient_name (who I sent it to and am waiting on)
+    #   owed  -> sender_name    (who sent it to me)
+    peer_key = "recipient_name" if not getattr(args, "owed", False) else "sender_name"
+    for row in rows:
+        subj = row.get("subject") or "(no subject)"
+        required = row.get("required_by") or "?"
+        attempts = row.get("attempts_so_far") or 0
+        next_at = row.get("next_attempt_at") or "-"
+        peer = row.get(peer_key) or "?"
+        print(
+            f"{kind:<6} {peer:<24} {subj[:40]:<40} "
+            f"required_by={required} attempts={attempts} next={next_at}"
+        )
+    print(f"\n{len(rows)} reminder(s)")
+    return 0
+
+
 def cmd_approve(args: argparse.Namespace) -> int:
     bus = _bus(args)
     result = bus.request_approval(args.title, kind=args.kind, summary=args.summary)
@@ -4332,6 +4392,27 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("usage", help="show quota usage")
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_usage)
+
+    p = sub.add_parser(
+        "reminders",
+        help="ack-tracking visibility (SPECS/0022). Defaults to --owing: what "
+        "you sent and are still waiting on. --owed shows what was sent TO you "
+        "that you owe an ack on. Reads only, scoped to your own agent.",
+    )
+    grp = p.add_mutually_exclusive_group()
+    grp.add_argument(
+        "--owed",
+        action="store_true",
+        help="show messages TO me that I owe an ack on (the recipient view)",
+    )
+    grp.add_argument(
+        "--owing",
+        action="store_true",
+        help="show messages I sent that I'm still waiting to be acked "
+        "(the sender view; the default)",
+    )
+    _accept_common_flags_after_subcommand(p)
+    p.set_defaults(func=cmd_reminders)
 
     p = sub.add_parser("approve", help="ask a human to approve something")
     p.add_argument("title")

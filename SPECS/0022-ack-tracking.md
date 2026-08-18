@@ -44,3 +44,32 @@ The client sends `require_ack: true` and `ack_window_seconds: <int>` in
 the message payload. Backend: please confirm this matches what your
 delivery_reminders table expects, or flag the correction before the
 matched drop.
+
+## Wire-format confirmation (backend, thread 01M097AQA9KVBTHFJZGSM1PN88)
+
+Backend flagged a mismatch: client sent `ack_window_seconds` but backend
+originally read `ack_window_hours`. Resolution: BACKEND adapted to the
+client's shape (seconds is finer). `require_ack` (bool) matches.
+`ack_window_seconds` (int) clamp [60s, 604800s=168h], default 86400s.
+Backend redeploy pending "live + verified" confirmation before relying on
+the matched drop.
+
+## Reminders verb (added 0.9.36)
+
+Backend endpoint shape (thread 01M097AQA9KVBTHFJZGSM1PN88):
+  GET /v1/reminders/owing  -> {"owing": [ROW...], "count": int}
+  GET /v1/reminders/owed   -> {"owed":  [ROW...], "count": int}
+  ROW (owing):  {delivery_id, subject, required_by, attempts_so_far,
+                 last_attempt_at, next_attempt_at, thread_id, recipient_name}
+  ROW (owed):   {delivery_id, subject, required_by, attempts_so_far,
+                 last_attempt_at, next_attempt_at, thread_id, sender_name}
+  Only UNRESOLVED rows (acked/replied/expired drop off). Reads only, scoped
+  to caller's own agent.
+
+Client:
+  SDK: bus.reminders_owing() / bus.reminders_owed() sync + async
+  CLI: agentbus reminders [--owed | --owing]  (default --owing)
+       --owed  = the recipient view, what I owe an ack on
+       --owing = the sender view, what I sent and am waiting on
+  Forward-compatible: 404/405/501 from a server without the endpoints prints
+  "ack-tracking not enabled on this server yet" and exits 1.

@@ -275,7 +275,42 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
             # error to surface. The next interval tries again; the wall-clock
             # deadline still bounds the whole thing.
             return ""
-        except ConnectionError:
+        except BaseException as exc:  # noqa: BLE001 — deliberate, see below
+            # MAKE THE DOCUMENTED GUARANTEE REAL.
+            #
+            # `poll()`'s call site carries the comment `# already
+            # retried/broken/failsafed; "" on any failure`. It was not true.
+            # This used to catch only ConnectionError, and `raw()` above only
+            # converts to ConnectionError when the exception's TYPE NAME
+            # contains one of ("timeout","connect","transport","network",
+            # "socket","ssl","dns"). Classifying by name substring means every
+            # TYPED api error slips through:
+            #
+            #   ServiceUnavailable (503), QuotaExceeded / RateLimited (429),
+            #   NotFoundError (404), ValidationError (422), and a BARE
+            #   AgentBusError — which is what 500/502/504 become, since they
+            #   are absent from client._ERRORS.
+            #
+            # Any one of those escaped resilient() -> escaped poll() -> left
+            # the `while True` -> unwound _monitor_inner -> hit monitor()'s
+            # blanket handler, which prints one line to a stderr nobody reads
+            # in a background Stop hook and returns 0.
+            #
+            # Net effect: A SINGLE 502 ABANDONED THE ENTIRE 600-SECOND RE-WAKE
+            # WINDOW. The session went un-rewoken for the rest of the turn
+            # boundary and the operator saw nothing — the same silent-wake-death
+            # class as the watcher SEV-1, one layer over.
+            #
+            # This poll is opportunistic and bounded by a wall-clock deadline,
+            # so the correct behaviour for EVERY failure is the same: yield
+            # nothing this tick and let the next interval try. Classify by
+            # what we should DO, not by what the exception is called.
+            tag = str(exc) or f"({type(exc).__name__})"
+            print(
+                f"agentbus rewake: poll failed ({tag}); will retry on the next interval",
+                file=sys.stderr,
+                flush=True,
+            )
             return ""
 
     return resilient

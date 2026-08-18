@@ -103,10 +103,10 @@ def test_cli_health_live_prints_and_exits_zero(monkeypatch, capsys):
     rc = cli_module.cmd_health(_args())
     assert rc == 0
     out = capsys.readouterr().out
-    assert "wake_channel_state:  live" in out
-    assert "watcher_alive:       True" in out
-    assert "subscriber_count:    1" in out
-    assert "keepalive_age:       4s" in out
+    assert "wake_channel_state:       live" in out
+    assert "watcher_alive:            True" in out
+    assert "subscriber_count:         1" in out
+    assert "keepalive_age_seconds:    4" in out
     assert "server supports canary heartbeat" in out
 
 
@@ -119,7 +119,7 @@ def test_cli_health_stale_prints_note_and_exits_nonzero(monkeypatch, capsys):
     rc = cli_module.cmd_health(_args())
     assert rc == 1
     out = capsys.readouterr().out
-    assert "wake_channel_state:  stale" in out
+    assert "wake_channel_state:       stale" in out
     assert "require_responsive" in out  # actionable hint present
 
 

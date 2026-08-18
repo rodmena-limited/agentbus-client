@@ -589,7 +589,35 @@ def _session_identity() -> str | None:
 
 
 def _agent_key(agent: str) -> str | None:
-    path = _keys_dir() / f"{agent}.env"
+    """The agent's own stored key, if one exists (keys/<agent>.env).
+
+    REG-8d: THE SITE REG-8b MISSED. That sweep sanitized four sibling
+    call sites through `sealing.bound_env_filename` and enumerated them in
+    that helper's docstring — cli._key_for_agent, cli join/setup/service,
+    hooks._adopt_credential_for. This function was not on the list and kept
+    building `keys/{agent}.env` by raw f-string.
+
+    It is the WORST of the family to have missed, because it is the one on
+    the `resolve_credentials` path: `_session_identity` reads the agent name
+    out of the project's own `.claude/settings.local.json`, so the value is
+    controlled by whatever checkout the operator happens to `cd` into.
+
+    Reproduced before fixing, with AGENTBUS_CONFIG_DIR=/tmp/trav/cfg and a
+    hostile `.claude/settings.local.json` containing
+    {"env": {"AGENTBUS_AGENT": "../operator"}}:
+
+        _agent_key("../operator")  -> 'ab_sk_OPERATOR_SECRET...'
+        resolve_credentials()      -> ('ab_sk_OPERATOR_SECRET...', '../operator')
+
+    i.e. a hostile repo escalated an ordinary CLI verb from its own bound
+    `send` key to the workspace OPERATOR credential — the one this codebase
+    elsewhere labels "can MINT — never auto-inherit it". Sanitizing here
+    makes the traversal resolve to `keys/__operator.env`, which does not
+    exist, so the lookup returns None exactly as the siblings do.
+    """
+    from . import sealing
+
+    path = _keys_dir() / sealing.bound_env_filename(agent)
     if not path.exists():
         return None
     return _key_from_env_file(path)
@@ -2316,7 +2344,25 @@ def doctor_wake(args: argparse.Namespace) -> int:
         # left alone.
         import tempfile
 
-        prod_ledger = _config_dir() / f"rewake-seen-{name}.txt"
+        from . import rewake as _rewake
+
+        # ASK THE RE-WAKER WHERE ITS LEDGER IS — do not rebuild the path here.
+        #
+        # This line used to be `_config_dir() / f"rewake-seen-{name}.txt"`,
+        # which diverged from `rewake._ledger_path()` in THREE ways:
+        #   * rewake honours $AGENTBUS_REWAKE_STATE; this ignored it
+        #   * rewake's dir comes from $AGENTBUS_WAKE_DIR, this one from
+        #     $AGENTBUS_CONFIG_DIR — different env vars entirely
+        #   * rewake sanitizes the agent through sealing.agent_slug (REG-8c);
+        #     this did not
+        #
+        # Whenever any of those diverged, `prod_before`/`prod_after` sampled a
+        # file the re-waker never writes, so the "production wake-ledger
+        # untouched (isolation verified)" assertion below could only ever go
+        # GREEN. A check that cannot go red is not evidence — and this one is
+        # load-bearing: it is what proves `doctor --wake` did not eat the
+        # operator's real pending wakes.
+        prod_ledger = _rewake._ledger_path(name)
         prod_before = prod_ledger.read_text() if prod_ledger.exists() else ""
 
         bus = AgentBus(api_key=key, base_url=args.base_url, agent=name)

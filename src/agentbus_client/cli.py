@@ -3348,19 +3348,35 @@ def cmd_health(args: argparse.Namespace) -> int:
     subs = result.get("subscriber_count") if result.get("subscriber_count") is not None else "?"
     keepalive = result.get("keepalive_age_seconds")
     alive = result.get("watcher_alive")
+    # EVERY LABEL IS THE REAL JSON FIELD NAME.
+    #
+    # macbook-admin-bd8e86 and bikeroom independently filed "--json returns
+    # keepalive_age=null" (thread 01M092KV92N679PTAZFR0R45FE). The --json
+    # path is verbatim passthrough and was correct; there is no
+    # `keepalive_age` key at all, so `d.get("keepalive_age")` returned None
+    # for ABSENCE. What manufactured the false report was THIS renderer
+    # printing the label `keepalive_age:` while the field is
+    # `keepalive_age_seconds` — two readers reasonably inferred the JSON
+    # field name from the human label.
+    #
+    # Farshid's standing rule names the trap exactly: "d.get('x') returning
+    # None means 'no such key' as often as 'no such value'". A label that
+    # does not match its field invites that inference. So labels are now
+    # the field names verbatim, and the unit suffix moves into the VALUE
+    # where it cannot be mistaken for part of the key.
     print(f"agent: {target}")
-    print(f"  wake_channel_state:  {state}")
-    print(f"  watcher_alive:       {alive}")
-    print(f"  subscriber_count:    {subs}")
+    print(f"  wake_channel_state:       {state}")
+    print(f"  watcher_alive:            {alive}")
+    print(f"  subscriber_count:         {subs}")
     print(
-        f"  keepalive_age:       {keepalive}s"
+        f"  keepalive_age_seconds:    {keepalive}"
         if keepalive is not None
-        else "  keepalive_age:       (no data)"
+        else "  keepalive_age_seconds:    (no data)"
     )
-    print(f"  last_seen_at:            {result.get('last_seen_at') or '-'}")
-    print(f"  last_pong_at:            {result.get('last_pong_at') or '-'}")
-    print(f"  last_stream_attached:    {result.get('last_stream_attached_at') or '-'}")
-    print(f"  last_stream_detached:    {result.get('last_stream_detached_at') or '-'}")
+    print(f"  last_seen_at:             {result.get('last_seen_at') or '-'}")
+    print(f"  last_pong_at:             {result.get('last_pong_at') or '-'}")
+    print(f"  last_stream_attached_at:  {result.get('last_stream_attached_at') or '-'}")
+    print(f"  last_stream_detached_at:  {result.get('last_stream_detached_at') or '-'}")
     caps = result.get("capabilities") or {}
     if caps.get("supports_canary_heartbeat"):
         print("  server supports canary heartbeat (state above is live)")

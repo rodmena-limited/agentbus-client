@@ -53,6 +53,18 @@ _FAILURES_TTL_SECONDS = 900
 # only latency variance.
 _BACKOFF_JITTER_FRACTION = 0.15
 
+# How long the reconnect handler will wait for an in-flight background drain
+# before giving up on the opportunistic drain and backing off anyway.
+#
+# The recovery path must never wait forever on the failing path. A background
+# drain can legitimately run for minutes (bus.inbox under SDK retries, then up
+# to 100 messages x on_message, where notify_command allows
+# AGENTBUS_EXEC_TIMEOUT seconds each). An unbounded acquire here stalled the
+# reconnect for that whole time with no backoff sleep and no log line. The
+# drain is opportunistic — skipping it costs a little latency; blocking on it
+# costs the reconnect.
+_DRAIN_LOCK_TIMEOUT_SECONDS = 10.0
+
 # The exit code for a watcher whose session socket is gone. DISTINCT from every
 # existing code so a supervisor, a monitor, or `watch-status` can tell "the wake
 # target died" from "the stream dropped" or "the key was revoked".
@@ -376,10 +388,32 @@ class Watcher:
                 # _backoff_and_drain() blocks until we finish.
                 self._drain_lock.release()
 
-        self._drain_thread = threading.Thread(
-            target=_run, name=f"agentbus-drain-{self.agent}", daemon=True
-        )
-        self._drain_thread.start()
+        # THE LOCK IS ALREADY HELD (line above). If the thread never starts,
+        # `_run` never runs, its `finally` never fires, and the lock is held
+        # forever by nobody — after which `_drain_async` is a permanent no-op
+        # and `_backoff_and_drain`'s acquire blocks for the life of the
+        # process. Watcher alive, answering nothing, exiting nothing: the
+        # silent total wake-death this module exists to prevent, and the shape
+        # `watch-status` still reports as RUNNING.
+        #
+        # `Thread.start()` raises RuntimeError("can't start new thread") under
+        # thread/FD exhaustion and MemoryError under pressure — both plausible
+        # on a loaded box running many watchers. Release on any failure so the
+        # next arrival or reconcile tick can retry.
+        try:
+            self._drain_thread = threading.Thread(
+                target=_run, name=f"agentbus-drain-{self.agent}", daemon=True
+            )
+            self._drain_thread.start()
+        except BaseException as exc:  # noqa: BLE001 — must not strand the lock
+            self._drain_lock.release()
+            tag = str(exc) or f"({type(exc).__name__})"
+            print(
+                f"agentbus watch: could not start background drain thread: {tag}; "
+                "will retry on the next arrival",
+                file=sys.stderr,
+                flush=True,
+            )
 
     def _drain(self) -> int:
         """Deliver everything after the cursor. Used at startup and after every
@@ -624,8 +658,26 @@ class Watcher:
         # long silence. REG-3 (round-3 audit): serialize with any in-flight
         # background drain via _drain_lock — otherwise both threads advance
         # the cursor and fire on_message twice per delivery.
+        # BOUNDED ACQUIRE — the recovery path must never wait forever on the
+        # failing path. A background drain can legitimately run for minutes
+        # (bus.inbox under SDK retries, then up to 100 messages x on_message,
+        # where notify_command allows AGENTBUS_EXEC_TIMEOUT seconds each), and
+        # an unbounded `with self._drain_lock:` here stalled the reconnect for
+        # that entire time with no backoff sleep and no log line explaining
+        # the gap. The drain below is OPPORTUNISTIC — its whole purpose is to
+        # surface mail early during an outage — so skipping it costs nothing
+        # but a little latency, while blocking on it costs the reconnect.
+        got_lock = self._drain_lock.acquire(timeout=_DRAIN_LOCK_TIMEOUT_SECONDS)
         try:
-            with self._drain_lock:
+            if not got_lock:
+                print(
+                    f"agentbus watch: a drain is still in flight after "
+                    f"{_DRAIN_LOCK_TIMEOUT_SECONDS:.0f}s; skipping the opportunistic "
+                    "drain and backing off anyway",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
                 try:
                     self._drain()
                 except DeadWakeSocket:
@@ -647,6 +699,10 @@ class Watcher:
                         flush=True,
                     )
         finally:
+            # Release only what we actually took — a bounded acquire that
+            # timed out holds nothing, and releasing an unheld lock raises.
+            if got_lock:
+                self._drain_lock.release()
             # Sleep ALWAYS happens — otherwise a failing drain converted an
             # N-second backoff into a 0-second one, hammering the server at
             # 1Hz during multi-minute outages (macbook's secondary defect b).

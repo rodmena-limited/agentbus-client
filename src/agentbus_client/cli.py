@@ -357,6 +357,7 @@ def cmd_register(args: argparse.Namespace) -> int:
         labels=labels or None,
         unlisted=args.unlisted,
         ephemeral=True if getattr(args, "ephemeral", False) else None,
+        persona=getattr(args, "persona", None),
     )
     agent_name = result["agent"]["name"]
 
@@ -1346,6 +1347,12 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         tags = _format_tags((result.get("agent") or {}).get("labels"), limit=60)
         if tags:
             print(f"tags:      {tags}")
+        # Persona (POLICY): the server-assigned lane. Displayed when the
+        # server returns it; absent silently when it does not (old server
+        # before the column migration). Forward-compatible.
+        persona = (result.get("agent") or {}).get("persona")
+        if persona:
+            print(f"persona:   {persona}")
         # The API returns `unread` and this printer dropped it — the exact
         # "fixed on one surface, left the other" shape this whole episode was
         # about. An agent running `agentbus whoami` to check its identity should
@@ -1456,6 +1463,11 @@ def cmd_phonebook(args: argparse.Namespace) -> int:
     TAG_CAP = 40
     width = max(len(a["name"]) for a in agents)
     presence_width = max(len(a["presence"]) for a in agents)
+    # Persona column: only shown when at least one agent HAS one. Forward-
+    # compatible — old servers don't return the field, so the column does
+    # not appear and the layout is byte-identical to pre-persona output.
+    has_persona = any(a.get("persona") for a in agents)
+    persona_width = max((len(a.get("persona") or "") for a in agents), default=0) if has_persona else 0
     rendered = [(a, _format_tags(a.get("labels"), limit=TAG_CAP)) for a in agents]
     tag_width = min(max((len(t) for _a, t in rendered), default=0), TAG_CAP)
     elided = 0
@@ -1466,6 +1478,8 @@ def cmd_phonebook(args: argparse.Namespace) -> int:
             f"{agent['name']:<{width}}  {agent['presence']:<{presence_width}}  "
             f"{cell:<{tag_width + 2}}  {agent['address']}"
         )
+        if has_persona:
+            line += f"  {(agent.get('persona') or '-'):<{persona_width}}"
         if caps:
             line += f"  {caps}"
         if "more" in tags:
@@ -3143,6 +3157,21 @@ def cmd_watch(args: argparse.Namespace) -> int:
             except Exception as exc:
                 print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
 
+    # PERSONA LANE INJECTION (SPECS/0021): the acting agent's lane is looked
+    # up ONCE at startup (from the same whoami call that resolves workspace),
+    # then injected into a SHALLOW COPY of every message and envelope before
+    # the sub-handlers see it. One `lane` per envelope, never per message —
+    # the coalescer already ensures one wake per burst, so fifty copies would
+    # undo the burst-absorption work and bury the message list.
+    #
+    # The copy is shallow and additive: the raw API response is never mutated,
+    # and `lane` is absent when the agent has no persona (the majority case),
+    # so existing hooks that do not know about personas are byte-identical.
+    def with_lane(message: dict[str, Any]) -> None:
+        if lane:
+            message = {**message, "lane": lane}
+        fanout(message)
+
     # Coalescer (issuedb #9, SPECS/0009): burst arrivals collapse into a
     # single envelope wake. Lone messages still fire immediately with the
     # unchanged per-message shape, so installed UserPromptSubmit hooks that
@@ -3150,10 +3179,10 @@ def cmd_watch(args: argparse.Namespace) -> int:
     coalescer: Coalescer | None = None
     handler: Callable[[dict[str, Any]], None]
     if getattr(args, "no_coalesce", False):
-        handler = fanout
+        handler = with_lane
     else:
         coalescer = Coalescer(
-            fanout,
+            with_lane,
             window_ms=int(getattr(args, "coalesce_window", 2500)),
             quiet_ms=int(getattr(args, "coalesce_quiet", 800)),
         )
@@ -3203,9 +3232,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # during exactly the outage its reconnect loop existed to survive.
     try:
         # whoami returns workspace as an OBJECT: {"id": ..., "slug": ...}.
-        workspace = ((bus.whoami() or {}).get("workspace") or {}).get("slug") or None
+        # Persona comes from the same call's agent record (when the server
+        # has the column). Zero additional network calls.
+        _who = bus.whoami() or {}
+        workspace = (_who.get("workspace") or {}).get("slug") or None
+        lane = (_who.get("agent") or {}).get("persona") or None
     except Exception:  # noqa: BLE001 — startup label lookup MUST NOT block launch
         workspace = None
+        lane = None
 
     if args.state:
         state_key = Path(args.state).name
@@ -3235,6 +3269,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 argv += [f"--{flag}", str(value)]
         if getattr(args, "no_coalesce", False):
             argv += ["--no-coalesce"]
+        if getattr(args, "persona", None):
+            argv += ["--persona", str(args.persona)]
         with open(log_path, "ab", buffering=0) as log:
             proc = subprocess.Popen(
                 argv,
@@ -3804,6 +3840,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo-remote", default=None, help="defaults to this repo's git origin")
     p.add_argument("--capability", action="append", default=[])
     p.add_argument("--unlisted", action="store_true")
+    p.add_argument(
+        "--persona",
+        default=None,
+        metavar="LANE",
+        help="declare this agent's responsibility lane (policy: the server validates "
+        "against the workspace vocabulary and an admin can override). Starter "
+        "vocabulary: legal, privacy, security, audit, compliance, frontend, "
+        "backend, database, mobile, data-engineering, data-quality, ml, infra, "
+        "ops, docs, product, orchestrator, generic. Workspaces can extend.",
+    )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_register)
 
@@ -4378,6 +4424,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="mint a new agent even though one exists for this role+repo "
         "under a different device-id (reinstall guard override)",
+    )
+    p.add_argument(
+        "--persona",
+        default=None,
+        metavar="LANE",
+        help="declare this agent's responsibility lane (e.g. backend, frontend, "
+        "legal). The server validates against the workspace vocabulary under the "
+        "POLICY model. Forward-compatible: ignored by servers that predate the "
+        "persona column, so this flag is safe to pass before the migration lands.",
     )
     p.set_defaults(func=_onboarding.cmd_setup)
 

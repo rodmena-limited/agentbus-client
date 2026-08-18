@@ -1148,6 +1148,7 @@ def _provision_project_agent(
             workdir=str(Path.cwd()),
             repo_remote=_git_remote_or_none(),
             ephemeral=True if ephemeral else None,
+            persona=getattr(args, "persona", None),
         )
     except AgentBusError as exc:
         _say(f"registration failed: {exc}")

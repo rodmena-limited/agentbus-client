@@ -1,0 +1,256 @@
+"""Personas client surface (SPECS/0021).
+
+Three-way agreed design (client + backend + ui, thread
+01M093JGVWQ2HXT3G6KJRG40T3). Farshid chose POLICY: the server enforces
+the vocabulary and admin authority is required to assign a lane.
+
+Backend shipped the column (commit e8f9cf7, migration
+01M0982RBKD6M7J9ESTGYWA5RK). These tests pin the client surface that
+consumes it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from unittest.mock import patch
+
+import pytest
+
+from agentbus_client import cli as cli_module
+from agentbus_client.client import AgentBus, AsyncAgentBus
+
+
+# --------------------------------------------------------------- SDK register
+
+
+def test_sdk_register_passes_persona_in_payload():
+    bus = AgentBus(api_key="ab_sk_test_test", agent="me")
+    captured: dict = {}
+
+    def fake_request(method, path, json=None, **kw):
+        captured.update(json or {})
+        return {"agent": {"name": "test-agent"}}
+
+    with patch.object(bus, "_request", side_effect=fake_request):
+        bus.register("test-agent", persona="backend")
+
+    assert captured.get("persona") == "backend"
+
+
+def test_sdk_register_omits_persona_when_not_provided():
+    """Absence is not the same as empty string. A None persona must NOT
+    appear in the payload at all — the server treats a missing field and
+    an empty field differently (missing = 'don't change', empty = 'clear
+    it')."""
+    bus = AgentBus(api_key="ab_sk_test_test", agent="me")
+    captured: dict = {}
+
+    def fake_request(method, path, json=None, **kw):
+        captured.update(json or {})
+        return {"agent": {"name": "test-agent"}}
+
+    with patch.object(bus, "_request", side_async=fake_request) if False else patch.object(bus, "_request", side_effect=fake_request):
+        bus.register("test-agent")
+
+    assert "persona" not in captured
+
+
+async def test_async_register_passes_persona():
+    bus = AsyncAgentBus(api_key="ab_sk_test_test", agent="me")
+    captured: dict = {}
+
+    async def fake_request(method, path, json=None, **kw):
+        captured.update(json or {})
+        return {"agent": {"name": "test-agent"}}
+
+    with patch.object(bus, "_request", side_effect=fake_request):
+        await bus.register("test-agent", persona="legal")
+    assert captured.get("persona") == "legal"
+
+
+# --------------------------------------------------------------- CLI register
+
+
+def _register_args(**over):
+    base = {
+        "name": None, "label": None, "role": None, "workdir": None,
+        "ephemeral": False, "repo_remote": None, "capability": [],
+        "unlisted": False, "persona": None, "agent": None, "json": False,
+        "api_key": None, "base_url": None,
+    }
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def test_cli_register_argparse_has_persona_flag():
+    """The --persona flag is registered on the register subparser.
+    Without this, the flag is unreachable from the CLI even though the
+    SDK accepts it."""
+    import inspect
+    src = inspect.getsource(cli_module)
+    assert '"--persona"' in src
+    assert "metavar=\"LANE\"" in src or "metavar='LANE'" in src
+
+
+def test_cli_setup_argparse_has_persona_flag():
+    """Same for the setup subparser — the primary onboarding path."""
+    import inspect
+    src = inspect.getsource(cli_module)
+    # setup's --persona is in a different block from register's
+    assert src.count('"--persona"') >= 2
+
+
+# --------------------------------------------------------------- whoami display
+
+
+def test_whoami_displays_persona_when_present(monkeypatch, capsys):
+    class _Bus:
+        def whoami(self, agent=None):
+            return {
+                "workspace": {"slug": "test-ws"},
+                "agent": {"name": "me", "persona": "backend"},
+                "address": "me@x",
+                "unread": {},
+            }
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    cli_module.cmd_whoami(argparse.Namespace(json=False, qr=False, agent=None, api_key=None, base_url=None))
+    out = capsys.readouterr().out
+    assert "persona:   backend" in out
+
+
+def test_whoami_silent_when_persona_absent(monkeypatch, capsys):
+    """Forward-compatible: old server returns no persona field. The line
+    must not appear so the output is byte-identical to pre-persona."""
+    class _Bus:
+        def whoami(self, agent=None):
+            return {
+                "workspace": {"slug": "test-ws"},
+                "agent": {"name": "me"},
+                "address": "me@x",
+                "unread": {},
+            }
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    cli_module.cmd_whoami(argparse.Namespace(json=False, qr=False, agent=None, api_key=None, base_url=None))
+    out = capsys.readouterr().out
+    assert "persona" not in out
+
+
+# --------------------------------------------------------------- phonebook display
+
+
+def test_phonebook_shows_persona_column_when_any_agent_has_one(monkeypatch, capsys):
+    class _Bus:
+        def phonebook(self, *a, **kw):
+            return [
+                {"name": "alice", "presence": "responsive", "address": "a@x",
+                 "capabilities": [], "labels": {}, "persona": "backend"},
+                {"name": "bob", "presence": "idle", "address": "b@x",
+                 "capabilities": [], "labels": {}, "persona": None},
+            ]
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    cli_module.cmd_phonebook(argparse.Namespace(query=None, capability=None, label=None,
+                                                 json=False, agent=None, api_key=None, base_url=None))
+    out = capsys.readouterr().out
+    assert "backend" in out
+    # Bob has no persona — shows '-' not empty.
+    lines = [l for l in out.splitlines() if "bob" in l.lower()]
+    assert any("-" in l for l in lines)
+
+
+def test_phonebook_no_persona_column_when_nobody_has_one(monkeypatch, capsys):
+    """Forward-compatible: old server returns no persona for anyone. The
+    column must not appear, so the layout is byte-identical to pre-persona."""
+    class _Bus:
+        def phonebook(self, *a, **kw):
+            return [
+                {"name": "alice", "presence": "responsive", "address": "a@x",
+                 "capabilities": [], "labels": {}, "persona": None},
+            ]
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    cli_module.cmd_phonebook(argparse.Namespace(query=None, capability=None, label=None,
+                                                 json=False, agent=None, api_key=None, base_url=None))
+    out = capsys.readouterr().out
+    # The persona column header would show "backend" or similar; its absence
+    # means no column was added. Verify by checking the line doesn't have
+    # a trailing persona field (the address should be the last significant field).
+    assert "persona" not in out.lower()
+
+
+# --------------------------------------------------------------- lane in hook payload
+
+
+def test_notify_command_substitutes_lane_placeholder():
+    """The {lane} template placeholder must substitute. An empty lane
+    (no persona) produces an empty string, not a KeyError."""
+    import subprocess
+    import unittest.mock as mock
+
+    from agentbus_client import watch as watch_module
+
+    calls: list[str] = []
+    handler = watch_module.notify_command('echo "lane={lane}"')
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(args=command, returncode=0)
+
+    with mock.patch.object(subprocess, "run", side_effect=fake_run):
+        handler({"subject": "s", "sender_display": "p", "lane": "backend"})
+    assert "lane=backend" in calls[0]
+
+    calls.clear()
+    with mock.patch.object(subprocess, "run", side_effect=fake_run):
+        handler({"subject": "s", "sender_display": "p"})  # no lane key
+    assert "lane=" in calls[0]  # empty, not KeyError
+
+
+def test_inject_includes_lane_reminder_when_lane_passed():
+    """The lane reminder line appears in the injected body text when
+    --lane is set, and does NOT appear when it is absent.
+
+    The body goes to the session socket, not stdout (stdout is the
+    fallback notice only). So this test mocks the socket to capture
+    the payload."""
+    import json as _json
+    import socket as _socket
+    from agentbus_client.hooks import claude_code as hooks
+
+    captured: list[bytes] = []
+
+    class _FakeSock:
+        def settimeout(self, s): pass
+        def connect(self, addr): pass
+        def sendall(self, data): captured.append(data)
+        def close(self): pass
+
+    with patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/fake"}):
+        with patch.object(_socket, "socket", return_value=_FakeSock()):
+            args = argparse.Namespace(
+                subject="test", sender="peer", delivery="01D", seq="",
+                direction="bus", inbound_source=None, lane="frontend",
+            )
+            hooks.inject(args)
+
+    assert captured, "no payload was sent to the socket"
+    payload = _json.loads(captured[0])
+    body = payload["message"]["content"]
+    assert "Your lane is: frontend" in body
+    assert "HAND IT OFF" in body
+
+    # Without lane — reminder must NOT appear.
+    captured.clear()
+    with patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/fake"}):
+        with patch.object(_socket, "socket", return_value=_FakeSock()):
+            args = argparse.Namespace(
+                subject="test", sender="peer", delivery="01D", seq="",
+                direction="bus", inbound_source=None, lane=None,
+            )
+            hooks.inject(args)
+    payload = _json.loads(captured[0])
+    body = payload["message"]["content"]
+    assert "Your lane is" not in body

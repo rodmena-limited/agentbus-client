@@ -753,6 +753,11 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
             # on kind to render burst summaries differently from singletons.
             envelope_count=shlex.quote(str(message.get("count") or 1)),
             envelope_kind=shlex.quote(str(message.get("kind") or "")),
+            # Persona lane (SPECS/0021): the acting agent's responsibility lane,
+            # injected by cmd_watch from whoami. Empty string when no persona
+            # is declared — the template author can gate on {lane} to render
+            # a lane-specific notification, or ignore it entirely.
+            lane=shlex.quote(str(message.get("lane") or "")),
         )
         # Justified in place: `command` is the OPERATOR'S OWN shell template, passed
         # to `agentbus watch --exec`. shell=True is the feature. Every value

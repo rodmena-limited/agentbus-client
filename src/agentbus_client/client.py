@@ -1009,6 +1009,7 @@ class AgentBus(_Base):
         labels: dict[str, str] | None = None,
         unlisted: bool = False,
         ephemeral: bool | None = None,
+        persona: str | None = None,
     ) -> dict[str, Any]:
         """Register (idempotently) and remember the name for later calls.
 
@@ -1022,6 +1023,13 @@ class AgentBus(_Base):
 
         Everything else is discovered locally: the device id, the git remote,
         the working directory, and whether this is a throwaway CI environment.
+
+        ``persona`` declares this agent's RESPONSIBILITY LANE (legal,
+        frontend, backend, ...). POLICY enforcement lives on the server: an
+        admin assigns the lane, and an agent cannot lie about which lane it
+        holds. The server validates against the workspace vocabulary and
+        refuses unknown values. A server that does not yet have the persona
+        column silently ignores this field (forward-compatible).
         """
         from . import identity
 
@@ -1031,6 +1039,8 @@ class AgentBus(_Base):
             "labels": labels or {},
             "unlisted": unlisted,
         }
+        if persona:
+            payload["persona"] = persona
         if role:
             env = identity.describe(workdir)
             payload.update(
@@ -2199,6 +2209,7 @@ class AsyncAgentBus(_Base):
         labels: dict[str, str] | None = None,
         unlisted: bool = False,
         ephemeral: bool | None = None,
+        persona: str | None = None,
     ) -> dict[str, Any]:
         """Async mirror of AgentBus.register. Prefer `role` over `name`."""
         from . import identity
@@ -2209,6 +2220,8 @@ class AsyncAgentBus(_Base):
             "labels": labels or {},
             "unlisted": unlisted,
         }
+        if persona:
+            payload["persona"] = persona
         if role:
             env = identity.describe(workdir)
             payload.update(

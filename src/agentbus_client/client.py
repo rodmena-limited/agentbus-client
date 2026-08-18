@@ -854,10 +854,31 @@ class _Base:
         for item in sealed.get("attachments") or []:
             raw = _b64.b64decode(item["content_base64"])
             armored = sealing.seal_for_bytes(raw, keys)
+            wire = _b64.b64encode(armored).decode()
+            # POST-SEAL SIZE CHECK (F7 follow-up). On an ENCRYPTED workspace,
+            # the server sees the SEALED base64, which is larger than the raw
+            # file (age armor + base64 ~1.4x). The pre-seal check in
+            # _encode_attachments compares the RAW file against the 10 MiB cap,
+            # so a 9 MiB raw file passed but the sealed bytes exceeded the
+            # server cap and the upload was rejected AFTER the whole body
+            # arrived. Caught by an AT-CAP test on the encrypted workspace:
+            # 7 MiB succeeded, 8.5 MiB rejected.
+            #
+            # Check what the server will actually see: the wire base64 length.
+            # This is exact, no inflation heuristic needed.
+            if len(wire) > _server_max_attachment_bytes():
+                raise AgentBusError(
+                    f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw, "
+                    f"but on this ENCRYPTED workspace sealing inflates it to "
+                    f"{len(wire):,} wire bytes, which exceeds the server's "
+                    f"{_server_max_attachment_bytes():,}-byte cap. Split the file or "
+                    "use a smaller attachment — the effective encrypted limit is "
+                    "well under the documented 10 MiB."
+                )
             resealed.append(
                 {
                     **item,
-                    "content_base64": _b64.b64encode(armored).decode(),
+                    "content_base64": wire,
                     # The stored type is what it now IS, not what it was. A
                     # sniffing server that saw 'image/png' on age ciphertext
                     # would reject the mismatch at egress.

@@ -115,3 +115,53 @@ def test_the_oversize_check_does_not_open_the_file(tmp_path, monkeypatch) -> Non
         client_module._encode_attachments([str(big)])
     # The refusal must have happened BEFORE any open() call touched the file.
     assert str(big) not in opened, f"cap check opened the file it was about to refuse: {opened}"
+
+
+# ------------------------------------------------------ post-seal inflation (F7 follow-up)
+
+
+def test_encrypted_seal_inflation_is_caught_before_upload(monkeypatch):
+    """On an ENCRYPTED workspace, the server sees the SEALED base64, which is
+    larger than the raw file (age armor + base64 ~1.4x). A raw file under the
+    10 MiB cap can therefore exceed the server cap after sealing — caught by
+    an AT-CAP live test: 7 MiB succeeded, 8.5 MiB rejected.
+
+    The pre-seal check compares RAW size; this checks the WIRE base64 length,
+    which is exactly what the server sees. No inflation heuristic needed."""
+    import base64 as _b64
+
+    from agentbus_client.client import AgentBus, AgentBusError
+    from agentbus_client import client as _client
+
+    bus = AgentBus(api_key="ab_sk_test_test", agent="me")
+
+    # Patch seal_for_bytes to inflate ~1.4x (like real age armor + base64).
+    def inflating_seal(raw, keys):
+        return b"A" * int(len(raw) * 1.4)
+
+    # A raw attachment just under the server cap — would inflate past it.
+    cap = _client._server_max_attachment_bytes()
+    raw_payload = {
+        "attachments": [{
+            "filename": "near-cap.bin",
+            "content_base64": _b64.b64encode(b"X" * (cap - 1000)).decode(),
+            "content_type": "application/octet-stream",
+        }],
+    }
+    resolved = {
+        "encrypted": True,
+        "keys": {"me": [{"public_key": "age17vr4laelz5d2x3m6rv0g0nua7g0yx9qty5tjlgw0xq0rcxryuglq4xd3fz"}]},
+        "external": False,
+        "missing_keys": [],
+    }
+
+    with monkeypatch.context() as m:
+        m.setattr(_client.sealing, "seal_for_bytes", inflating_seal)
+        with pytest.raises(AgentBusError) as exc:
+            bus._apply_seal(raw_payload, resolved)
+
+    msg = str(exc.value)
+    assert "ENCRYPTED" in msg
+    assert "sealing inflates" in msg
+    assert "server's" in msg
+    assert "near-cap.bin" in msg

@@ -3268,21 +3268,6 @@ def cmd_watch(args: argparse.Namespace) -> int:
             except Exception as exc:
                 print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
 
-    # PERSONA LANE INJECTION (SPECS/0021): the acting agent's lane is looked
-    # up ONCE at startup (from the same whoami call that resolves workspace),
-    # then injected into a SHALLOW COPY of every message and envelope before
-    # the sub-handlers see it. One `lane` per envelope, never per message —
-    # the coalescer already ensures one wake per burst, so fifty copies would
-    # undo the burst-absorption work and bury the message list.
-    #
-    # The copy is shallow and additive: the raw API response is never mutated,
-    # and `lane` is absent when the agent has no persona (the majority case),
-    # so existing hooks that do not know about personas are byte-identical.
-    def with_lane(message: dict[str, Any]) -> None:
-        if lane:
-            message = {**message, "lane": lane}
-        fanout(message)
-
     # Coalescer (issuedb #9, SPECS/0009): burst arrivals collapse into a
     # single envelope wake. Lone messages still fire immediately with the
     # unchanged per-message shape, so installed UserPromptSubmit hooks that
@@ -3290,10 +3275,10 @@ def cmd_watch(args: argparse.Namespace) -> int:
     coalescer: Coalescer | None = None
     handler: Callable[[dict[str, Any]], None]
     if getattr(args, "no_coalesce", False):
-        handler = with_lane
+        handler = fanout
     else:
         coalescer = Coalescer(
-            with_lane,
+            fanout,
             window_ms=int(getattr(args, "coalesce_window", 2500)),
             quiet_ms=int(getattr(args, "coalesce_quiet", 800)),
         )
@@ -3343,14 +3328,11 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # during exactly the outage its reconnect loop existed to survive.
     try:
         # whoami returns workspace as an OBJECT: {"id": ..., "slug": ...}.
-        # Persona comes from the same call's agent record (when the server
-        # has the column). Zero additional network calls.
+        # Zero additional network calls.
         _who = bus.whoami() or {}
         workspace = (_who.get("workspace") or {}).get("slug") or None
-        lane = (_who.get("agent") or {}).get("persona") or None
     except Exception:  # noqa: BLE001 — startup label lookup MUST NOT block launch
         workspace = None
-        lane = None
 
     if args.state:
         state_key = Path(args.state).name

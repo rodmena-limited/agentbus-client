@@ -254,3 +254,69 @@ def test_inject_includes_lane_reminder_when_lane_passed():
     payload = _json.loads(captured[0])
     body = payload["message"]["content"]
     assert "Your lane is" not in body
+
+
+# --------------------------------------------------------------- lane collision
+
+
+def test_watch_does_not_overwrite_sender_lane_with_acting_agent_persona(tmp_path):
+    """cmd_watch must NOT clobber the server's `lane` (the SENDER's persona,
+    #267) with the acting agent's own persona.
+
+    Backend #267 enriched the wake/delivery with the SENDER's persona as a
+    top-level `lane`. The 0.9.34 with_lane wrapper stamped the ACTING agent's
+    persona from whoami() on top of it, so `{lane}` in an --exec template —
+    and the hook's "Your lane is: ..." reminder — reported the receiver's
+    lane instead of whoever actually wrote. Same field, two meanings.
+
+    Known-positive control: the acting agent has persona "backend"; the
+    message arrives carrying lane "frontend" (a frontend sender). The handler
+    must deliver lane "frontend" unchanged."""
+    import subprocess as _subprocess
+
+    from agentbus_client._coalesce import Coalescer
+    from agentbus_client import watch as watch_module
+
+    class MockBus:
+        agent = "me"
+        base_url = "http://test"
+        def whoami(self, agent=None):
+            # The acting agent's OWN persona — the value that used to win.
+            return {"agent": {"name": "me", "persona": "backend"}}
+
+    captured: list[dict] = []
+
+    class FakeWatcher:
+        def __init__(self, bus, agent, *args, on_message=None, **kwargs):
+            self.handler = on_message
+        def run(self, once=False):
+            # A message arrives whose sender is a frontend-persona agent.
+            self.handler({"delivery_id": "01D", "lane": "frontend"})
+            return 0
+
+    def fake_notify_command(cmd):
+        def handler(message):
+            captured.append(message)
+        return handler
+
+    state = tmp_path / "watch.json"
+    args = argparse.Namespace(
+        agent="me", wait=0, no_coalesce=False, coalesce_window=2500,
+        coalesce_quiet=800, exec="echo {lane}", append=None, state=str(state),
+        once=True, daemon=False, cursor=None, persona=None,
+    )
+
+    with patch.object(cli_module, "_bus", return_value=MockBus()), \
+         patch.object(cli_module, "_watch_pidfile", return_value=tmp_path / "pid"), \
+         patch.object(watch_module, "notify_command", fake_notify_command), \
+         patch.object(watch_module, "Watcher", FakeWatcher):
+        cli_module.cmd_watch(args)
+
+    assert captured, "the wake handler never delivered the message"
+    delivered = captured[0]
+    # The acting agent is a backend persona; the sender is frontend. `lane`
+    # must report the SENDER, never the receiver — the #267 contract.
+    assert delivered.get("lane") == "frontend", (
+        "the acting agent's persona overwrote the sender's lane — {lane} in "
+        "an --exec template (and the hook reminder) reports the WRONG agent"
+    )

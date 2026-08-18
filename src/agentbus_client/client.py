@@ -206,6 +206,19 @@ def _max_attachment_bytes() -> int:
 #: is not blocked by a stale client.
 _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MiB, per docs
 
+#: Encrypted-workspace attachment inflation. On an ENCRYPTED workspace the
+#: server sees base64(age_armor(raw)) — double base64 (age armor, then JSON
+#: transport), i.e. ~1.333^2 = 1.806x. Measured byte-exact on two seats
+#: (macbook, ui; thread 01M0BGFKX4EE8WV6T68BTARGTE): 7,340,032 raw ->
+#: 13,256,496 wire = 1.806x, 9,961,472 -> 17,990,808 = 1.806x. Deterministic
+#: (age armor + base64 are both fixed-ratio), not content-dependent.
+#:
+#: So the effective encrypted per-attachment limit is ~10 MiB / 1.806 = 5.5 MiB
+#: raw, NOT the documented 10 MiB. The pre-seal fast-reject uses this factor to
+#: skip the expensive seal when the raw is clearly over; the post-seal exact
+#: check is the authoritative backstop.
+_SEAL_INFLATION_FACTOR = 1.806
+
 
 def _server_max_attachment_bytes() -> int:
     raw = os.environ.get("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES")
@@ -853,19 +866,30 @@ class _Base:
         resealed = []
         for item in sealed.get("attachments") or []:
             raw = _b64.b64decode(item["content_base64"])
+            # FAST PRE-SEAL REJECT (follow-up A). On an encrypted workspace
+            # the wire bytes = base64(age_armor(raw)) which inflates at a
+            # DETERMINISTIC ~1.806x (age armor base64, then base64-again for
+            # JSON transport — double base64, 1.333^2). Sealing is CPU-heavy
+            # (~1-2 MB/s), so the post-seal exact check can take 7-50s before
+            # rejecting. Skip the seal entirely when the raw is CLEARLY over:
+            # if raw * 1.806 is already past the cap, the sealed wire cannot
+            # fit, so reject instantly. The post-seal exact check below stays
+            # as the backstop for the borderline band.
+            if int(len(raw) * _SEAL_INFLATION_FACTOR) > _server_max_attachment_bytes():
+                raise AgentBusError(
+                    f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw; "
+                    f"on this ENCRYPTED workspace that inflates to roughly "
+                    f"{int(len(raw) * _SEAL_INFLATION_FACTOR):,} wire bytes "
+                    f"(age seal x{_SEAL_INFLATION_FACTOR:.3f}), already over the "
+                    f"server's {_server_max_attachment_bytes():,}-byte cap. Split the "
+                    "file or use a smaller attachment — the effective encrypted "
+                    "limit is ~5.5 MiB raw, well under the documented 10 MiB."
+                )
             armored = sealing.seal_for_bytes(raw, keys)
             wire = _b64.b64encode(armored).decode()
-            # POST-SEAL SIZE CHECK (F7 follow-up). On an ENCRYPTED workspace,
-            # the server sees the SEALED base64, which is larger than the raw
-            # file (age armor + base64 ~1.4x). The pre-seal check in
-            # _encode_attachments compares the RAW file against the 10 MiB cap,
-            # so a 9 MiB raw file passed but the sealed bytes exceeded the
-            # server cap and the upload was rejected AFTER the whole body
-            # arrived. Caught by an AT-CAP test on the encrypted workspace:
-            # 7 MiB succeeded, 8.5 MiB rejected.
-            #
-            # Check what the server will actually see: the wire base64 length.
-            # This is exact, no inflation heuristic needed.
+            # POST-SEAL EXACT CHECK (F7 follow-up). The server sees exactly
+            # `wire`; verify it fits. This is the authoritative backstop — the
+            # pre-seal estimate above is the fast reject, this is the exact one.
             if len(wire) > _server_max_attachment_bytes():
                 raise AgentBusError(
                     f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw, "

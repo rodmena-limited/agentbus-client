@@ -162,3 +162,94 @@ def test_a_corrupt_key_file_does_not_crash_the_inventory(tmp_path, monkeypatch, 
     assert "good-agent" in out
     assert "broken" in out
     assert "(unreadable)" in out
+
+
+# ------------------------------------------------------- device correlation
+
+
+class _DevBus:
+    """Phonebook + health doubles. `stray` is registered from a different
+    device_hash than the acting agent — the compromise signal."""
+
+    def __init__(self, acting="peer-a", stray=None):
+        self.agent = acting
+        self._stray = stray
+
+    def phonebook(self, *a, **kw):
+        rows = [{"name": "peer-a", "device_hash": "aaaa" * 16}]
+        rows.append(
+            {
+                "name": "peer-b",
+                "device_hash": ("bbbb" * 16) if self._stray == "peer-b" else ("aaaa" * 16),
+            }
+        )
+        return rows
+
+    def health(self, target):
+        return {"wake_channel_state": "live", "watcher_alive": True, "last_seen_at": "2026-08-18T00:00:00Z"}
+
+
+def test_elsewhere_fires_when_an_identity_lives_on_another_device(tmp_path, monkeypatch, capsys):
+    """THE KNOWN-POSITIVE. macbook's SEV-1 asked for an evidence-of-use
+    trail: 'is one of my stored identities being used somewhere I do not
+    expect'. wake_channel answers 'is it live', not 'live WHERE'. This is
+    the WHERE.
+
+    Without this test the ELSEWHERE branch would be a check that has never
+    gone green — and this session has repeatedly shown that such a check
+    cannot be trusted to go red either."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    _seed(tmp_path, ["peer-a", "peer-b"])
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _DevBus(stray="peer-b"))
+    from agentbus_client import onboarding
+
+    monkeypatch.setattr(onboarding, "resolve_credentials", lambda: ("k", "peer-a"))
+
+    rc = cli_module.cmd_identities(_args(remote=True))
+    out = capsys.readouterr().out
+
+    assert "ELSEWHERE" in out, "the stray-device marker never fired"
+    assert "peer-b" in out
+    assert "treat the credential as compromised" in out
+    assert rc == 1, "a stray identity must exit non-zero so scripts can gate on it"
+
+
+def test_no_warning_when_every_identity_is_on_this_device(tmp_path, monkeypatch, capsys):
+    """KNOWN-NEGATIVE. The ordinary case — several identities provisioned on
+    one box, all local — must stay quiet and exit 0, or the warning becomes
+    noise that gets ignored on the day it matters."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    _seed(tmp_path, ["peer-a", "peer-b"])
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _DevBus(stray=None))
+    from agentbus_client import onboarding
+
+    monkeypatch.setattr(onboarding, "resolve_credentials", lambda: ("k", "peer-a"))
+
+    rc = cli_module.cmd_identities(_args(remote=True))
+    out = capsys.readouterr().out
+    assert "ELSEWHERE" not in out
+    assert "compromised" not in out
+    assert rc == 0
+
+
+def test_missing_device_hash_is_never_reported_as_elsewhere(tmp_path, monkeypatch, capsys):
+    """Absence of data must not become an accusation. An older server, or a
+    phonebook call that failed, yields no device_hash — that is 'cannot
+    tell', not 'compromised'. Crying wolf on missing data is how a real
+    warning gets tuned out."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    _seed(tmp_path, ["peer-a", "peer-b"])
+
+    class _NoDev(_DevBus):
+        def phonebook(self, *a, **kw):
+            return [{"name": "peer-a"}, {"name": "peer-b"}]  # no device_hash at all
+
+    monkeypatch.setattr(cli_module, "_bus", lambda _a: _NoDev())
+    from agentbus_client import onboarding
+
+    monkeypatch.setattr(onboarding, "resolve_credentials", lambda: ("k", "peer-a"))
+
+    rc = cli_module.cmd_identities(_args(remote=True))
+    out = capsys.readouterr().out
+    assert "ELSEWHERE" not in out
+    assert rc == 0

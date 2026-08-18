@@ -3368,12 +3368,42 @@ def cmd_identities(args: argparse.Namespace) -> int:
 
     if getattr(args, "remote", False) and rows:
         bus = _bus(args)
+        # WHICH DEVICE IS EACH IDENTITY ACTUALLY LIVE ON?
+        #
+        # macbook's SEV-1 asked for an evidence-of-use trail. `wake_channel`
+        # answers "is this identity live"; it does NOT answer "live WHERE",
+        # and the second question is the one that distinguishes "my own
+        # watcher" from "somebody else holding my credential".
+        #
+        # ui-c760a1 suggested the agent events endpoint carries device_hash.
+        # Checked: it does not — stream-attached details are
+        # {key_id, wake_capable} and no event type carries a device field.
+        # The PHONEBOOK does carry device_hash per agent, so that is the
+        # source used here.
+        #
+        # The reference point is THIS agent's own device_hash: every identity
+        # credentialled on this machine and used from this machine reports
+        # the same one. A row whose hash differs is registered from another
+        # device — which is exactly the signal the SEV-1 wanted surfaced.
+        by_name: dict[str, dict[str, Any]] = {}
+        with contextlib.suppress(Exception):
+            for entry in bus.phonebook():
+                by_name[entry.get("name")] = entry
+        this_device = None
+        if acting and acting in by_name:
+            this_device = by_name[acting].get("device_hash")
         for row in rows:
             with contextlib.suppress(Exception):
                 health = bus.health(row["agent"])
                 row["wake_channel_state"] = health.get("wake_channel_state")
                 row["watcher_alive"] = health.get("watcher_alive")
                 row["last_seen_at"] = health.get("last_seen_at")
+            entry = by_name.get(row["agent"]) or {}
+            dev = entry.get("device_hash")
+            row["device_hash"] = dev
+            # None on either side means "cannot tell" — never assert a match
+            # we have not earned, and never cry elsewhere on missing data.
+            row["elsewhere"] = bool(dev and this_device and dev != this_device)
 
     if args.json:
         _print({"acting_as": acting, "identities": rows}, True)
@@ -3385,7 +3415,7 @@ def cmd_identities(args: argparse.Namespace) -> int:
     width = max(len(r["agent"]) for r in rows)
     header = f"{'AGENT':<{width}}  {'KEY ID':<26} {'STORED':<17} MODE"
     if getattr(args, "remote", False):
-        header += "   WAKE      ALIVE  LAST SEEN"
+        header += "   WAKE      ALIVE  DEVICE            LAST SEEN"
     print(header)
     for r in rows:
         line = (
@@ -3396,7 +3426,13 @@ def cmd_identities(args: argparse.Namespace) -> int:
             state = r.get("wake_channel_state") or "-"
             alive = r.get("watcher_alive")
             alive_s = "-" if alive is None else str(alive)
-            line += f"   {state:<9} {alive_s:<6} {r.get('last_seen_at') or '-'}"
+            dev = r.get("device_hash")
+            # Mark the rows that matter. A short hash is enough to eyeball
+            # "these are all the same box"; ELSEWHERE is the actionable bit.
+            dev_s = (dev[:16] if dev else "-")
+            if r.get("elsewhere"):
+                dev_s += " ELSEWHERE"
+            line += f"   {state:<9} {alive_s:<6} {dev_s:<17} {r.get('last_seen_at') or '-'}"
         print(line)
     print()
     print(f"this directory acts as: {acting or '(no identity — nothing would be sent)'}")
@@ -3411,6 +3447,18 @@ def cmd_identities(args: argparse.Namespace) -> int:
         )
         if not getattr(args, "remote", False):
             print("Pass --remote to see which of them are currently live somewhere.")
+    if getattr(args, "remote", False):
+        strays = [r["agent"] for r in rows if r.get("elsewhere")]
+        if strays:
+            print()
+            print(
+                "WARNING: these identities are registered from a DIFFERENT device "
+                "than this one: " + ", ".join(strays) + ". You hold their credential "
+                "locally, but the live registration is somewhere else. If that is not "
+                "a machine you control, treat the credential as compromised: rotate it "
+                "(agentbus keys rotate) and revoke the old key."
+            )
+            return 1
     return 0
 
 

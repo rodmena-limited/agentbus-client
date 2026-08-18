@@ -218,6 +218,51 @@ def _server_max_attachment_bytes() -> int:
     return v if v > 0 else _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
 
 
+# Ack-tracking (SPECS/0022): the ack-window cap the server enforces. The
+# client enforces the same bound locally so a caller learns the limit fast
+# rather than getting a 422 back from the server. Mirrors the agreed spec:
+# "--ack-window MUST be bounded; server refuses > 168h (7 days)".
+_ACK_WINDOW_MAX_SECONDS = 168 * 3600  # 7 days
+_ACK_WINDOW_DEFAULT_SECONDS = 24 * 3600  # 24h, applied when require_ack is set
+
+
+def _ack_window_seconds(ack_window: Any, *, default_when_set: bool) -> int | None:
+    """Normalise an ack-window argument to seconds, or None when absent.
+
+    Accepts a `datetime.timedelta` (the SDK's documented type) or an int
+    (seconds). Returns None when the caller supplied neither — the caller
+    then decides whether to apply the default (it does, when require_ack
+    is set).
+
+    The 168h server cap is enforced HERE too, so a caller gets a fast
+    local error instead of a round-trip 422. The error names the cap in
+    seconds and days, matching the spec's wording.
+    """
+    import datetime as _dt
+
+    if ack_window is None:
+        return _ACK_WINDOW_DEFAULT_SECONDS if default_when_set else None
+    if isinstance(ack_window, _dt.timedelta):
+        seconds = int(ack_window.total_seconds())
+    elif isinstance(ack_window, bool):  # bool is an int subclass; refuse it
+        raise ValueError("ack_window must be a timedelta or seconds, not a bool")
+    elif isinstance(ack_window, int):
+        seconds = ack_window
+    else:
+        raise ValueError(
+            f"ack_window must be a datetime.timedelta or int seconds, got {type(ack_window).__name__}"
+        )
+    if seconds <= 0:
+        raise ValueError("ack_window must be positive")
+    if seconds > _ACK_WINDOW_MAX_SECONDS:
+        raise ValueError(
+            f"ack_window of {seconds}s exceeds the server cap of "
+            f"{_ACK_WINDOW_MAX_SECONDS}s ({_ACK_WINDOW_MAX_SECONDS // 3600}h / 7 days); "
+            "after that the sender should just re-send if it still matters"
+        )
+    return seconds
+
+
 # ------------------------------------------------------------------ resilience
 #
 # REG-7 (round-3 audit): the SDK is the largest surface every caller touches,
@@ -1234,9 +1279,27 @@ class AgentBus(_Base):
         # not retry, unsafe for one that does. Named explicitly so the option is
         # discoverable and the failure mode is documented.
         idempotency_key: str | None = None,
+        # Ack-tracking (SPECS/0022): require the recipient to ack, with
+        # exponential-backoff reminders until they do or the window elapses.
+        #
+        #   require_ack: bool  — "this message carries an ask; I want to know
+        #                        it was answered, not just delivered"
+        #   ack_window: timedelta | int | None — how long to keep reminding
+        #                        (default 24h when require_ack is set). The
+        #                        server caps at 168h (7 days).
+        #
+        # FORWARD-COMPATIBLE: a server that predates the delivery_reminders
+        # table ignores these fields, so this flag is safe to pass before the
+        # backend ships. The reminders light up when the table lands.
+        #
+        # TO ONLY, NEVER CC: a cc recipient is copied for information and is
+        # never obligated to ack (Farshid's decision, locked in the spec).
+        require_ack: bool = False,
+        ack_window: Any = None,
     ) -> dict[str, Any]:
         recipients = [to] if isinstance(to, str) else list(to)
         copied = [cc] if isinstance(cc, str) else list(cc or [])
+        ack_window_seconds = _ack_window_seconds(ack_window, default_when_set=require_ack)
         body = {
             "to": recipients,
             "cc": copied,
@@ -1252,6 +1315,10 @@ class AgentBus(_Base):
             "guarantee": guarantee,
             "derived_from": list(derived_from) if derived_from else None,
         }
+        if require_ack:
+            body["require_ack"] = True
+            if ack_window_seconds is not None:
+                body["ack_window_seconds"] = ack_window_seconds
         body, resolved = self._seal_if_needed(body, agent)
         # AFTER SEALING, DELIBERATELY. The canonical form hashes the STORED
         # body, so on an encrypted workspace the signature covers the
@@ -2405,9 +2472,15 @@ class AsyncAgentBus(_Base):
         agent: str | None = None,
         # SEV-2-D (#234): stable key for retry safety; see AgentBus.send().
         idempotency_key: str | None = None,
+        # Ack-tracking (SPECS/0022): PARITY with AgentBus.send. Same rules:
+        # require_ack binds TO only, never CC; forward-compatible with
+        # servers that predate the delivery_reminders table.
+        require_ack: bool = False,
+        ack_window: Any = None,
     ) -> dict[str, Any]:
         recipients = [to] if isinstance(to, str) else list(to)
         copied = [cc] if isinstance(cc, str) else list(cc or [])
+        ack_window_seconds = _ack_window_seconds(ack_window, default_when_set=require_ack)
         body = {
             "to": recipients,
             "cc": copied,
@@ -2423,6 +2496,10 @@ class AsyncAgentBus(_Base):
             "guarantee": guarantee,
             "derived_from": list(derived_from) if derived_from else None,
         }
+        if require_ack:
+            body["require_ack"] = True
+            if ack_window_seconds is not None:
+                body["ack_window_seconds"] = ack_window_seconds
         body, resolved = await self._seal_if_needed(body, agent)
         # #220: SIGNED TOO. This surface signed nothing at all — `send` on the
         # sync client was the only one of the four that ever did. Same ordering

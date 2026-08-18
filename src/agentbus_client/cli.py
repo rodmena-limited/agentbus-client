@@ -20,6 +20,33 @@ from . import _signing, sealing
 from .client import AgentBus, AgentBusError, AuthError, QuotaExceeded, ServiceUnavailable
 
 
+def _parse_duration(value: str) -> Any:
+    """Parse a human duration like `24h`, `90m`, `2d`, or bare seconds into
+    a timedelta.
+
+    Accepts an integer (seconds), or a string of `<number><unit>` where unit
+    is s/m/h/d (seconds/minutes/hours/days). Used for --ack-window. Raises a
+    clear error on anything unparseable so a typo is caught locally, not by a
+    confusing server 422.
+    """
+    import datetime as _dt
+    import re as _re
+
+    if value is None:
+        raise ValueError("empty duration")
+    v = str(value).strip().lower()
+    m = _re.fullmatch(r"(\d+)(s|m|h|d)?", v)
+    if not m:
+        raise ValueError(
+            f"invalid duration '{value}' — use seconds, or <number><unit> "
+            "where unit is s/m/h/d (e.g. 90m, 2h, 3d, 3600)"
+        )
+    num = int(m.group(1))
+    unit = m.group(2) or "s"
+    seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit] * num
+    return _dt.timedelta(seconds=seconds)
+
+
 def _read_body(value: str | None) -> str | None:
     """Support `@file` and `@-` bodies.
 
@@ -1619,6 +1646,15 @@ def cmd_send_batch(args: argparse.Namespace) -> int:
                 # A caller doing retries should supply idempotency_key per
                 # line for stable dedup across attempts.
                 idempotency_key=item.get("idempotency_key"),
+                # Ack-tracking (SPECS/0022): parity with cmd_send.
+                # require_ack per line, ack_window accepts a duration string
+                # (parsed by _parse_duration) or seconds.
+                require_ack=bool(item.get("require_ack", False)),
+                ack_window=(
+                    _parse_duration(item["ack_window"])
+                    if item.get("ack_window")
+                    else None
+                ),
             )
         except AgentBusError as exc:
             _print_batch_error(index, exc.__class__.__name__, str(exc))
@@ -1663,6 +1699,19 @@ def cmd_send(args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(f"--payload is not valid JSON: {exc}", file=sys.stderr)
             return 2
+    # Ack-tracking (SPECS/0022): --require-ack marks a message that carries
+    # an ASK the recipient must answer, and the server sends exponential
+    # reminders until ack or the window elapses. --ack-window defaults to
+    # 24h when --require-ack is set. TO only, never CC.
+    ack_window = None
+    if getattr(args, "require_ack", False):
+        import datetime as _dt
+
+        raw = getattr(args, "ack_window", None)
+        if raw:
+            ack_window = _parse_duration(raw)
+        else:
+            ack_window = _dt.timedelta(hours=24)
     result = bus.send(
         args.to,
         cc=args.cc or None,
@@ -1674,6 +1723,8 @@ def cmd_send(args: argparse.Namespace) -> int:
         payload=payload,
         guarantee=args.guarantee,
         derived_from=args.derived_from or None,
+        require_ack=bool(getattr(args, "require_ack", False)),
+        ack_window=ack_window,
     )
     # F13 (issuedb #7): a fire_and_forget send has no id, no delivery_count,
     # and — against some server versions — an empty response body. Scripts
@@ -3964,6 +4015,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="fire_and_forget trades durability for cost: not stored, not ackable, "
         "never redelivered (#172). Right for a heartbeat, wrong for anything "
         "you would miss. Default durable.",
+    )
+    p.add_argument(
+        "--require-ack",
+        action="store_true",
+        help="this message carries an ASK the recipient must answer; the server "
+        "sends exponential reminders until they ack or the window elapses "
+        "(SPECS/0022). TO only, never CC. Use for messages with a decision, "
+        "question, or task — NOT for updates, FYIs, or discussions, or reminders "
+        "become wallpaper. Forward-compatible: safe against servers that predate "
+        "ack-tracking.",
+    )
+    p.add_argument(
+        "--ack-window",
+        default=None,
+        metavar="DURATION",
+        help="how long to keep reminding (default 24h when --require-ack is set). "
+        "Accepts 90m, 2h, 3d, or bare seconds. Server caps at 7 days (168h).",
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_send)

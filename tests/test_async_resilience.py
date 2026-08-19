@@ -35,8 +35,8 @@ from agentbus_client.client import _AsyncCircuitBreaker
 def _isolate_breaker(monkeypatch):
     """Give every test a fresh, controlled breaker; restore the real singleton."""
     fresh = _AsyncCircuitBreaker()
-    monkeypatch.setattr(client_module, "_async_circuit_breaker", lambda: fresh)
-    monkeypatch.setattr(client_module, "_ASYNC_CIRCUIT_BREAKER", None)
+    monkeypatch.setattr(client_module.async_client, "_async_circuit_breaker", lambda: fresh)
+    monkeypatch.setattr(client_module.resilience, "_ASYNC_CIRCUIT_BREAKER", None)
     return fresh
 
 
@@ -71,8 +71,8 @@ def bus(monkeypatch):
     """An AsyncAgentBus whose transport is a controllable stub."""
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
     monkeypatch.setattr(b, "_client", _stub_client([]))
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "1")
     monkeypatch.setenv("AGENTBUS_SDK_MAX_RETRIES", "3")
     return b
@@ -100,14 +100,14 @@ def test_breaker_opens_then_calls_fail_fast(monkeypatch):
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
     monkeypatch.setattr(b, "_client", _Flaky())
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "1")
     monkeypatch.setenv("AGENTBUS_SDK_MAX_RETRIES", "3")  # 1 call + 3 retries = 4 attempts
 
     fresh = _AsyncCircuitBreaker(failure_limit=3, success_limit=2, cooldown=60.0)
-    monkeypatch.setattr(client_module, "_async_circuit_breaker", lambda: fresh)
-    monkeypatch.setattr(client_module, "_ASYNC_CIRCUIT_BREAKER", None)
+    monkeypatch.setattr(client_module.async_client, "_async_circuit_breaker", lambda: fresh)
+    monkeypatch.setattr(client_module.resilience, "_ASYNC_CIRCUIT_BREAKER", None)
 
     # Each _request runs 1 real call + 3 retries = 4 transport attempts before
     # exhausting, and records ONE failing sequence against the breaker. So 3
@@ -159,15 +159,15 @@ def test_breaker_closes_after_clean_successes(monkeypatch):
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
     monkeypatch.setattr(b, "_client", _Flip())
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "1")
     monkeypatch.setenv("AGENTBUS_SDK_MAX_RETRIES", "0")  # 1 attempt, no retry
 
     # Open the breaker quickly: failure_limit=1 trips it after ONE sequence.
     fresh = _AsyncCircuitBreaker(failure_limit=1, success_limit=1, cooldown=0.05)
-    monkeypatch.setattr(client_module, "_async_circuit_breaker", lambda: fresh)
-    monkeypatch.setattr(client_module, "_ASYNC_CIRCUIT_BREAKER", None)
+    monkeypatch.setattr(client_module.async_client, "_async_circuit_breaker", lambda: fresh)
+    monkeypatch.setattr(client_module.resilience, "_ASYNC_CIRCUIT_BREAKER", None)
 
     with pytest.raises(TransportError):
         asyncio.run(b._request("GET", "/v1/whoami"))
@@ -216,16 +216,16 @@ def test_half_open_probe_failure_reopens_immediately(monkeypatch):
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
     monkeypatch.setattr(b, "_client", _Down())
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "1")
     monkeypatch.setenv("AGENTBUS_SDK_MAX_RETRIES", "0")  # 1 attempt, no retry
 
     # failure_limit=5 to isolate: a half-open probe failure must re-open even
     # though only ONE post-cooldown failure has occurred.
     fresh = _AsyncCircuitBreaker(failure_limit=5, success_limit=2, cooldown=0.05)
-    monkeypatch.setattr(client_module, "_async_circuit_breaker", lambda: fresh)
-    monkeypatch.setattr(client_module, "_ASYNC_CIRCUIT_BREAKER", None)
+    monkeypatch.setattr(client_module.async_client, "_async_circuit_breaker", lambda: fresh)
+    monkeypatch.setattr(client_module.resilience, "_ASYNC_CIRCUIT_BREAKER", None)
 
     # Prime open: 5 failing sequences (failure_limit=5 -> opens).
     for _ in range(5):
@@ -298,13 +298,13 @@ def test_resilience_disable_skips_breaker_and_deadline(monkeypatch):
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
     monkeypatch.setattr(b, "_client", _Slow())
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "0")
 
     fresh = _AsyncCircuitBreaker(failure_limit=1, success_limit=1, cooldown=60.0)
-    monkeypatch.setattr(client_module, "_async_circuit_breaker", lambda: fresh)
-    monkeypatch.setattr(client_module, "_ASYNC_CIRCUIT_BREAKER", None)
+    monkeypatch.setattr(client_module.async_client, "_async_circuit_breaker", lambda: fresh)
+    monkeypatch.setattr(client_module.resilience, "_ASYNC_CIRCUIT_BREAKER", None)
     # A tiny self.timeout so call_timeout+5 would be small IF the deadline were
     # engaged — but with resilience off it must be ignored.
     b.timeout = 0.01
@@ -337,8 +337,8 @@ def test_non_transient_error_passes_through_without_tripping_breaker(bus, monkey
     b = bus
     monkeypatch.setattr(b, "_client", _Deny())
     fresh = _AsyncCircuitBreaker(failure_limit=1, success_limit=1, cooldown=60.0)
-    monkeypatch.setattr(client_module, "_async_circuit_breaker", lambda: fresh)
-    monkeypatch.setattr(client_module, "_ASYNC_CIRCUIT_BREAKER", None)
+    monkeypatch.setattr(client_module.async_client, "_async_circuit_breaker", lambda: fresh)
+    monkeypatch.setattr(client_module.resilience, "_ASYNC_CIRCUIT_BREAKER", None)
 
     with pytest.raises(client_module.AuthError):
         asyncio.run(b._request("GET", "/v1/whoami"))

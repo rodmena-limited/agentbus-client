@@ -1144,7 +1144,7 @@ wheels = [
 
 [[package]]
 name = "rodmena-agentbus"
-version = "0.9.36"
+version = "0.9.41"
 source = { editable = "." }
 dependencies = [
     { name = "bulkman" },

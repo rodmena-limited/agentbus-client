@@ -113,7 +113,7 @@ def test_the_oversize_check_does_not_open_the_file(tmp_path, monkeypatch) -> Non
     # Patch builtins.open only within client_module's namespace so the test
     # framework itself keeps using the real open. Since _encode_attachments
     # calls `open(...)` as a bare builtin, we patch the module's __builtins__.
-    monkeypatch.setattr(client_module, "open", tracking_open, raising=False)
+    monkeypatch.setattr(client_module.resilience, "open", tracking_open, raising=False)
 
     with pytest.raises(AgentBusError):
         client_module._encode_attachments([str(big)])
@@ -207,7 +207,8 @@ def test_encrypted_fast_pre_seal_reject_skips_the_seal(monkeypatch):
         raise AssertionError("the expensive seal ran despite the fast pre-seal reject")
 
     with monkeypatch.context() as m:
-        m.setattr(_client.sealing, "seal_for_bytes", seal_should_never_run)
+        m.setattr("agentbus_client.sealing.seal_for_bytes", seal_should_never_run)
+        
         with pytest.raises(AgentBusError) as exc:
             bus._apply_seal(raw_payload, resolved)
 

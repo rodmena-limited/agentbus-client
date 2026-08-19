@@ -47,8 +47,8 @@ def bus(monkeypatch):
     """A single AsyncAgentBus instance we can reuse across event loops."""
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="test-agent")
     monkeypatch.setattr(b, "_client", _StubAsyncClient())
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     # Disable the retry stack for this test — we care about the SEMAPHORE
     # rebinding, not the retry policy.
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "1")
@@ -124,8 +124,8 @@ def test_transient_errors_still_retry_across_loops(monkeypatch) -> None:
         async def aclose(self):  # pragma: no cover
             pass
 
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "1")
     monkeypatch.setenv("AGENTBUS_SDK_MAX_RETRIES", "3")
 

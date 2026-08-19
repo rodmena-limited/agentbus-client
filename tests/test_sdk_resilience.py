@@ -98,8 +98,8 @@ def _make_bus(client: _StubClient, monkeypatch) -> AgentBus:
     monkeypatch.setattr(bus, "_client", client)
     # Reset the module-level bulkhead + safety-net across tests so the
     # breaker's cross-test state does not leak. Setting to None re-lazies.
-    monkeypatch.setattr(client_module, "_SDK_BULKHEAD", None)
-    monkeypatch.setattr(client_module, "_SDK_SAFETY_NET", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)
+    monkeypatch.setattr(client_module.resilience, "_SDK_SAFETY_NET", None)
     return bus
 
 

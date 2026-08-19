@@ -64,8 +64,8 @@ def test_run_with_resilience_translates_cft_to_transport_error():
             return _FakeFuture()
 
     with (
-        patch.object(client_module, "_sdk_bulkhead", lambda: _FakeBulkhead()),
-        patch.object(client_module, "_sdk_safety_net", lambda: lambda f: f),
+        patch.object(client_module.resilience, "_sdk_bulkhead", lambda: _FakeBulkhead()),
+        patch.object(client_module.resilience, "_sdk_safety_net", lambda: lambda f: f),
     ):
         with pytest.raises(TransportError) as exc:
             client_module._run_with_resilience(timing_out_call, timeout=0.01)

@@ -59,8 +59,18 @@ HARNESSES = ("claude", "opencode", "codex", "agy")
 _MARKER_HOOK = "agentbus-hook"
 _MARKER_REWAKE = "stop-rewake.sh"
 
+# REG-8d SHELL SIBLING (audit 0.9.40): the agent name is interpolated into a
+# shell path below. A hostile `.claude/settings.local.json` or `.agentbus/agent`
+# can set AGENTBUS_AGENT to `../operator`, which would source
+# $HOME/.config/agentbus/operator.env — the OPERATOR key that can MINT a bound
+# key for any agent. The Python-side `_agent_key` was sanitized through
+# bound_env_filename (REG-8d); this shell hook path was NOT and is the same
+# escalation, running on EVERY session start. Guard: reject any agent name
+# containing a character outside [a-zA-Z0-9._-] (the same set bound_env_filename
+# allows). Anything else — `/`, `..`, `$`, backticks — exits 0 (no key sourced).
 _SESSION_START_CMD = (
     '[ -n "${AGENTBUS_AGENT:-}" ] || exit 0; '
+    'case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) exit 0;; esac; '
     '[ -n "${AGENTBUS_API_KEY:-}" ] || { set -a; '
     '[ -f "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env" ] && . "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env" 2>/dev/null; set +a; } || true; '
     "agentbus-hook session-start || true"
@@ -125,7 +135,11 @@ STOP_REWAKE_SH = r"""#!/bin/sh
 # re-wake the session; exit 0 = nothing, stay idle. It never exits non-zero for
 # any other reason, so it cannot break a session.
 set -u
-if [ -n "${AGENTBUS_AGENT:-}" ] && [ -r "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env" ]; then
+# REG-8d SHELL SIBLING (audit 0.9.40): same guard as _SESSION_START_CMD. A
+# hostile AGENTBUS_AGENT (from .claude/settings.local.json or .agentbus/agent)
+# must not be able to source $HOME/.config/agentbus/operator.env via `../operator`
+# traversal. Reject any name with a character outside [a-zA-Z0-9._-].
+if [ -n "${AGENTBUS_AGENT:-}" ] && case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) false;; *) true;; esac && [ -r "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env" ]; then
     set -a
     . "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env"
     set +a

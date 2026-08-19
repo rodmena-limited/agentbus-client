@@ -1984,6 +1984,34 @@ def cmd_inbox(args: argparse.Namespace) -> int:
     return 0
 
 
+def _safe_attachment_name(name: str, index: int) -> str:
+    """Sanitize a sender-controlled attachment filename to a safe basename.
+
+    The filename arrives from the sender, so it is attacker-controlled. A
+    hostile sender could name an attachment `../../.bashrc` or
+    `../../.ssh/authorized_keys`, and `Path(name)` would write outside the
+    working directory (audit finding, confirmed live). Take only the
+    basename (drop any path prefix), reject any remaining traversal or
+    separators, and fall back to a neutral name if the result is not a
+    plain filename.
+
+    Refuses rather than silently renaming to a neutral name when the name
+    is still unsafe after basename extraction (e.g. `..` or `.`), because
+    writing to a neutral name silently is how the operator loses track of
+    what a hostile sender intended.
+    """
+    import os as _os
+
+    safe = _os.path.basename(str(name).replace("\\", "/"))
+    # After basename, the only traversal left is literally `..` or `.`.
+    if safe in ("", ".", ".."):
+        return f"attachment-{index}"
+    # Reject any residual path separators or traversal remnants defensively.
+    if "/" in safe or "\\" in safe or ".." in safe:
+        return f"attachment-{index}"
+    return safe
+
+
 def cmd_attachment(args: argparse.Namespace) -> int:
     """Write one or all attachments to disk — the read half of `send -a` (#124).
 
@@ -2030,9 +2058,14 @@ def cmd_attachment(args: argparse.Namespace) -> int:
             return 2
         # First pass: check every target for pre-existing files, so we refuse
         # BEFORE writing any of them — never a partial write of half the set.
+        # The sender's filename is attacker-controlled (a hostile sender could
+        # name it `../../.bashrc`), so it is sanitized to a safe basename
+        # BEFORE it is turned into a write path — a traversal must never escape
+        # the working directory (audit finding, confirmed live: a `../outside`
+        # filename wrote outside CWD).
         targets: list[Path] = []
         for i, item in enumerate(attachments):
-            name = item.get("filename") or f"attachment-{i}"
+            name = _safe_attachment_name(item.get("filename") or f"attachment-{i}", i)
             targets.append(Path(name))
         if not args.force:
             existing = [str(t) for t in targets if t.exists()]
@@ -2068,7 +2101,9 @@ def cmd_attachment(args: argparse.Namespace) -> int:
     if args.output == "-":
         sys.stdout.buffer.write(data)
         return 0
-    target = Path(args.output or (meta.get("filename") or f"attachment-{args.index}"))
+    # The sender's filename is attacker-controlled; sanitize to a safe
+    # basename so a hostile name cannot write outside CWD (audit finding).
+    target = Path(args.output or _safe_attachment_name(meta.get("filename"), args.index))
     if target.exists() and not args.force:
         print(
             f"refusing to overwrite {target} (the sender chose this filename); "

@@ -1,18 +1,15 @@
-#!/usr/bin/env bash
-# AgentBus client production-readiness audit — live probe harness.
-# Runs the SAFE set (no network writes, no destruction) and reports PASS/FAIL.
-# Exits non-zero on any FAIL.
-set -u
+#!/bin/sh
+# Run all safe audit probes. Exit non-zero on any FAIL.
+set -eu
 cd "$(dirname "$0")"
-fail=0
+ok=1
 for probe in probe_*.py; do
-  [ -e "$probe" ] || continue
-  echo "== $probe =="
-  if uv run python3 "$probe"; then
-    echo "PASS $probe"
-  else
-    echo "FAIL $probe"
-    fail=1
-  fi
+    if python3 "$probe"; then
+        echo "[PASS] $probe"
+    else
+        echo "[FAIL] $probe"
+        ok=0
+    fi
 done
-exit $fail
+[ "$ok" = "1" ] || { echo "AUDIT PROBES FAILED"; exit 1; }
+echo "ALL AUDIT PROBES PASS"

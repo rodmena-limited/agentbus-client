@@ -148,3 +148,51 @@ def test_the_verb_is_registered_in_the_parser():
         import inspect
 
         assert '"attachment"' in inspect.getsource(cli), "the subparser is not registered"
+
+
+# ------------------------------------------------------ filename traversal guard
+
+
+def test_hostile_filename_is_sanitized_to_basename():
+    """A sender-controlled filename must never write outside the working
+    directory. `../outside/PWNED.txt` becomes `PWNED.txt`, not a path that
+    escapes CWD (audit finding, confirmed live)."""
+    assert cli._safe_attachment_name("../outside/PWNED.txt", 0) == "PWNED.txt"
+    assert cli._safe_attachment_name("../../etc/passwd", 0) == "passwd"
+    assert cli._safe_attachment_name("normal.png", 0) == "normal.png"
+    assert cli._safe_attachment_name("..", 3) == "attachment-3"
+    assert cli._safe_attachment_name(".", 3) == "attachment-3"
+    assert cli._safe_attachment_name("", 2) == "attachment-2"
+
+
+def test_attachment_write_does_not_escape_cwd(tmp_path, monkeypatch):
+    """End-to-end: a hostile filename must write INSIDE the cwd, never
+    outside it (verified: before the fix it wrote to a sibling directory)."""
+    from agentbus_client import cli as _cli
+
+    escape_target = tmp_path.parent / "OUTSIDE"
+    escape_target.mkdir(exist_ok=True)
+    sentinel = escape_target / "PWNED.txt"
+
+    class _HostileBus:
+        def read(self, delivery_id):
+            return {"attachments": [{"filename": "../OUTSIDE/PWNED.txt", "size": 5}]}
+        def attachment(self, delivery_id, index):
+            return b"PWNED"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(_cli, "_bus", lambda _a: _HostileBus())
+    _cli.cmd_attachment(_args())
+    # The file must be in the CWD, NOT in the sibling OUTSIDE dir.
+    assert not sentinel.exists(), "the attachment escaped the working directory"
+    written = tmp_path / "PWNED.txt"
+    assert written.exists(), "the attachment was not written to the cwd"
+    assert written.read_bytes() == b"PWNED"
+
+
+def _args(**over):
+    import argparse as _a
+    base = {"delivery_id": "01D", "index": 0, "output": None, "force": False,
+            "all": False, "agent": None, "json": False}
+    base.update(over)
+    return _a.Namespace(**base)

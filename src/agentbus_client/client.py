@@ -11,6 +11,7 @@ import mimetypes
 import os
 import sys
 import threading as _threading
+import time
 import uuid
 
 # Named at module scope so the SEV-1 fix at _run_with_resilience below has a
@@ -2168,6 +2169,87 @@ class AgentBus(_Base):
         return sent
 
 
+class _AsyncCircuitBreaker:
+    """Minimal per-process breaker for the async client (REG-7 follow-up).
+
+    resilient_circuit — the sync breaker — is sync-only, so the async path
+    hand-rolls one. Semantics mirror the sync CircuitProtector *as it is
+    paired with RetryWithBackoff*: the breaker sees POST-RETRY outcomes, so a
+    whole failing retry-sequence counts as ONE failure, not N attempts. After
+    `failure_limit` consecutive failing sequences the breaker opens for
+    `cooldown` seconds; while open, calls fail fast (no retry, no bulkhead
+    slot) instead of hammering a bus that is demonstrably down. When the
+    cooldown lapses the breaker is half-open and allows a probe; a failing
+    probe re-opens it IMMEDIATELY (one failure, not `failure_limit`), while
+    `success_limit` clean probes close it fully — the standard CQ cycle, so a
+    sustained outage costs one probe burst per cooldown, not N.
+
+    State is only monotonic timestamps and counters — no asyncio primitive —
+    so it has no event-loop affinity and can be a module-level singleton
+    shared across every AsyncAgentBus and every loop in the process (the same
+    way the sync breaker is module-level). Mutations are non-awaiting, so
+    within single-threaded async they are atomic per coroutine step.
+    """
+
+    def __init__(self, failure_limit: int = 5, success_limit: int = 2, cooldown: float = 30.0):
+        self.failure_limit = failure_limit
+        self.success_limit = success_limit
+        self.cooldown = cooldown
+        self._open_until = 0.0
+        self._half_open = False
+        self._failures = 0
+        self._successes = 0
+        self._last_error: BaseException | None = None
+
+    def is_open(self) -> bool:
+        return time.monotonic() < self._open_until
+
+    def last_error(self) -> BaseException | None:
+        return self._last_error
+
+    def on_success(self) -> None:
+        self._failures = 0
+        self._successes += 1
+        if self._successes >= self.success_limit:
+            self._open_until = 0.0
+            self._half_open = False
+            self._successes = 0
+
+    def on_failure(self, exc: BaseException) -> None:
+        self._successes = 0
+        self._last_error = exc
+        if self._half_open:
+            # A failed half-open probe re-opens immediately — do not require
+            # failure_limit more failures to admit the bus is still down.
+            self._open_until = time.monotonic() + self.cooldown
+            self._failures = 0
+            return
+        self._failures += 1
+        if self._failures >= self.failure_limit:
+            self._open_until = time.monotonic() + self.cooldown
+            self._half_open = True
+            self._failures = 0
+
+
+_ASYNC_CIRCUIT_BREAKER: _AsyncCircuitBreaker | None = None
+
+
+def _async_circuit_breaker() -> _AsyncCircuitBreaker:
+    """Lazy per-process singleton — one async breaker for every client.
+
+    Mirrors `_sdk_safety_net`: one breaker state means one down bus fails fast
+    for ALL async clients in the process, not once per instance.
+    """
+    global _ASYNC_CIRCUIT_BREAKER
+    if _ASYNC_CIRCUIT_BREAKER is None:
+        _ASYNC_CIRCUIT_BREAKER = _AsyncCircuitBreaker(
+            failure_limit=int(os.environ.get("AGENTBUS_SDK_CB_FAILURE_LIMIT", "5")),
+            success_limit=int(os.environ.get("AGENTBUS_SDK_CB_SUCCESS_LIMIT", "2")),
+            cooldown=float(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30")),
+        )
+    return _ASYNC_CIRCUIT_BREAKER
+
+
 class AsyncAgentBus(_Base):
     """Async mirror of :class:`AgentBus`."""
 
@@ -2275,15 +2357,36 @@ class AsyncAgentBus(_Base):
         # (so N failing callers don't multiply their load).
         if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
             return await _do_request()
-        return await self._run_with_resilience_async(_do_request)
+        # Mirror the sync call_timeout + 5 headroom: the outer deadline bounds
+        # the whole retry sequence (plus the bulkhead wait), so a choked call
+        # cannot retry behind the caller's own timeout forever.
+        call_timeout = kwargs.get("timeout") or self.timeout
+        return await self._run_with_resilience_async(_do_request, deadline=call_timeout + 5)
 
-    async def _run_with_resilience_async(self, fn: Any) -> Any:
-        """Retry-with-backoff + async bulkhead for async _request (REG-7).
+    async def _run_with_resilience_async(
+        self, fn: Any, *, deadline: float | None = None
+    ) -> Any:
+        """Retry-with-backoff + async bulkhead + breaker for async _request.
 
         Semantics mirror the sync `_run_with_resilience`: retries only fire for
         transient errors (transport / 503), non-transient errors pass through
         immediately, and one Semaphore slot covers the whole retry sequence so
-        N callers can never multiply their load during a bus deploy.
+        N callers never multiply their load during a bus deploy.
+
+        Two additions close the async/sync gap (ticket #18):
+
+        - CIRCUIT BREAKER. resilient_circuit (the sync breaker) is sync-only,
+          so a hand-rolled per-process breaker lives here. It sees POST-RETRY
+          outcomes (a whole failing retry-sequence counts as one failure);
+          after `failure_limit` consecutive failing sequences it opens, and
+          calls then FAIL FAST with no retry and no bulkhead slot until the
+          cooldown lapses. Without it, a sustained outage left every async
+          call retrying at full concurrency forever, with no memory that the
+          bus was already down — unlike the sync client.
+        - OUTER DEADLINE. `deadline` (call_timeout + 5, mirrored from the sync
+          call site) bounds the whole retry sequence plus the bulkhead wait via
+          asyncio.wait_for, so a choked call cannot retry behind the caller's
+          own timeout indefinitely; it surfaces as a TransportError.
 
         REG-10 (round-3 re-audit): the semaphore is keyed BY THE RUNNING EVENT
         LOOP, not by the instance. asyncio.Semaphore binds permanently to the
@@ -2303,6 +2406,8 @@ class AsyncAgentBus(_Base):
         base = 0.5
         cap = 8.0
 
+        breaker = _async_circuit_breaker()
+
         # REG-10: fetch (or create) the semaphore for THIS loop.
         loop = asyncio.get_running_loop()
         bulkheads: dict[int, asyncio.Semaphore] = getattr(self, "_async_bulkheads_by_loop", None)
@@ -2319,23 +2424,54 @@ class AsyncAgentBus(_Base):
             with contextlib.suppress(TypeError):
                 weakref.finalize(loop, bulkheads.pop, loop_id, None)
 
-        last_exc: BaseException | None = None
-        async with sem:
-            for attempt in range(max_retries + 1):
-                try:
-                    return await fn()
-                except BaseException as exc:
-                    if not _is_transient_sdk_error(exc):
-                        # 4xx, quota, etc. — pass through unchanged.
-                        raise
-                    last_exc = exc
-                    if attempt == max_retries:
-                        break
-                    delay = min(cap, base * (2**attempt))
-                    delay *= 1 + random.uniform(-0.2, 0.2)
-                    await asyncio.sleep(delay)
-        assert last_exc is not None
-        raise last_exc
+        if breaker.is_open():
+            # Fail fast — the bus has demonstrably been failing; do not burn
+            # retries or a bulkhead slot on it. Mirror the sync breaker-open
+            # behaviour, surfacing the last observed error.
+            last = breaker.last_error()
+            if last is not None:
+                raise last
+            raise TransportError(
+                "agentbus SDK async breaker is open — the bus is failing; "
+                "failing fast instead of retrying at full rate. Retry after "
+                "the cooldown, or set AGENTBUS_SDK_RESILIENCE=0 to disable."
+            )
+
+        async def _sequence() -> Any:
+            last_exc: BaseException | None = None
+            async with sem:
+                for attempt in range(max_retries + 1):
+                    try:
+                        result = await fn()
+                    except BaseException as exc:
+                        if not _is_transient_sdk_error(exc):
+                            # 4xx, quota, etc. — pass through unchanged.
+                            raise
+                        last_exc = exc
+                        if attempt == max_retries:
+                            break
+                        delay = min(cap, base * (2**attempt))
+                        delay *= 1 + random.uniform(-0.2, 0.2)
+                        await asyncio.sleep(delay)
+                    else:
+                        breaker.on_success()
+                        return result
+            assert last_exc is not None
+            # The whole retry sequence failed transiently — record it against
+            # the breaker so a sustained outage opens it and later calls fail fast.
+            breaker.on_failure(last_exc)
+            raise last_exc
+
+        if deadline is not None:
+            try:
+                return await asyncio.wait_for(_sequence(), timeout=deadline)
+            except asyncio.TimeoutError as exc:
+                raise TransportError(
+                    f"agentbus SDK call did not complete within {deadline}s "
+                    "(deadline = caller timeout + 5s; likely a transient "
+                    "network stall)."
+                ) from exc
+        return await _sequence()
 
     async def register(
         self,

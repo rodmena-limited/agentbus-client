@@ -54,3 +54,16 @@ breaker can't be shared directly.)
 ## Tests
 
 See `tests/test_async_resilience.py`.
+
+## Addendum — knob parity, 0.9.43 (reliability audit follow-up)
+
+- `AGENTBUS_SDK_CB_FAILURE_LIMIT` / `AGENTBUS_SDK_CB_SUCCESS_LIMIT` are now
+  read by BOTH breakers via the shared `_sdk_cb_limits()` (resilience.py). They
+  were previously honored only by the async breaker; the sync breaker hardcoded
+  5/5 and 2/2 (A1). One operator setting now tunes both surfaces.
+- `AGENTBUS_SDK_MAX_QUEUE` applies to the SYNC bulkhead (bulkman queue) only.
+  The async client has NO queue by design: its concurrency is a blocking
+  `asyncio.Semaphore` bounded by `AGENTBUS_SDK_MAX_CONCURRENT`, so callers
+  beyond the cap wait for a slot (bounded by the outer deadline) rather than
+  queuing (A2, documented divergence, not a gap). Operators of the async SDK
+  bound fan-out with `AGENTBUS_SDK_MAX_CONCURRENT`, not `_MAX_QUEUE`.

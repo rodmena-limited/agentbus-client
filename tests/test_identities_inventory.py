@@ -98,8 +98,7 @@ def test_reports_which_identity_this_directory_acts_as(tmp_path, monkeypatch, ca
     one the directory listing cannot answer."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _seed(tmp_path, ["peer-a", "peer-b"])
-    monkeypatch.setattr(
-        cli_module, "_bus", lambda _a: pytest.fail("must not need a bus without --remote")
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: pytest.fail("must not need a bus without --remote")
     )
     from agentbus_client import onboarding
 
@@ -143,7 +142,7 @@ def test_remote_flag_surfaces_live_elsewhere(tmp_path, monkeypatch, capsys):
                 "last_seen_at": "2026-08-18T00:11:01Z",
             }
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
     assert cli_module.cmd_identities(_args(remote=True)) == 0
     out = capsys.readouterr().out
     assert "WAKE" in out and "ALIVE" in out
@@ -200,7 +199,7 @@ def test_elsewhere_fires_when_an_identity_lives_on_another_device(tmp_path, monk
     cannot be trusted to go red either."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _seed(tmp_path, ["peer-a", "peer-b"])
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _DevBus(stray="peer-b"))
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _DevBus(stray="peer-b"))
     from agentbus_client import onboarding
 
     monkeypatch.setattr(onboarding, "resolve_credentials", lambda: ("k", "peer-a"))
@@ -220,7 +219,7 @@ def test_no_warning_when_every_identity_is_on_this_device(tmp_path, monkeypatch,
     noise that gets ignored on the day it matters."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _seed(tmp_path, ["peer-a", "peer-b"])
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _DevBus(stray=None))
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _DevBus(stray=None))
     from agentbus_client import onboarding
 
     monkeypatch.setattr(onboarding, "resolve_credentials", lambda: ("k", "peer-a"))
@@ -244,7 +243,7 @@ def test_missing_device_hash_is_never_reported_as_elsewhere(tmp_path, monkeypatc
         def phonebook(self, *a, **kw):
             return [{"name": "peer-a"}, {"name": "peer-b"}]  # no device_hash at all
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _NoDev())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _NoDev())
     from agentbus_client import onboarding
 
     monkeypatch.setattr(onboarding, "resolve_credentials", lambda: ("k", "peer-a"))

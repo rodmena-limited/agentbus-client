@@ -162,8 +162,8 @@ def test_cli_send_require_ack_passes_through(monkeypatch, capsys):
             captured.update(kw)
             return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
-    monkeypatch.setattr(cli_module, "_read_body", lambda b: b or "")
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_read_body", lambda b: b or "")
     cli_module.cmd_send(_send_args(require_ack=True, ack_window="2h"))
 
     assert captured.get("require_ack") is True
@@ -184,8 +184,8 @@ def test_cli_send_no_require_ack_is_clean(monkeypatch):
             captured.update(kw)
             return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
-    monkeypatch.setattr(cli_module, "_read_body", lambda b: b or "")
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_read_body", lambda b: b or "")
     cli_module.cmd_send(_send_args())
 
     assert captured.get("require_ack") is False
@@ -202,7 +202,7 @@ def test_cli_send_batch_require_ack_per_item(monkeypatch, capsys):
 
     import io
     import sys as _sys
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
     monkeypatch.setattr(_sys, "stdin", io.StringIO(
         '{"to": "a", "subject": "x", "text": "y", "require_ack": true}\n'
         '{"to": "b", "subject": "x", "text": "y", "require_ack": true, "ack_window": "90m"}\n'
@@ -262,7 +262,7 @@ def test_reminders_owing_renders_sender_view(monkeypatch):
         "next_attempt_at": "2026-08-18T00:45:00Z", "thread_id": "01T",
         "recipient_name": "peer-b",
     }]
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _RemBus(owing=rows))
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _RemBus(owing=rows))
     out = _render(cli_module.cmd_reminders, _rem_args(owed=False))
     assert "owing" in out
     assert "peer-b" in out
@@ -283,7 +283,7 @@ def test_reminders_owed_shows_sender(monkeypatch):
         def reminders_owed(self): return rows
         def reminders_owing(self): return []
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _B())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         cli_module.cmd_reminders(_rem_args(owed=True))
@@ -305,7 +305,7 @@ def test_reminders_json_output(monkeypatch):
         def reminders_owed(self): return rows
         def reminders_owing(self): return []
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _B())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         cli_module.cmd_reminders(_rem_args(owed=True, json=True))
@@ -321,7 +321,7 @@ def test_reminders_404_graceful(monkeypatch, capsys):
         def reminders_owing(self):
             raise AgentBusError("not found", status=404, code="not_found")
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _B())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
     rc = cli_module.cmd_reminders(_rem_args(owed=False))
     assert rc == 1
     assert "not enabled on this server yet" in capsys.readouterr().err

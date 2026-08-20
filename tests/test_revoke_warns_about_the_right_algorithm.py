@@ -66,8 +66,8 @@ def test_revoking_a_signing_key_does_not_talk_about_sealing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The bug, exactly."""
-    monkeypatch.setattr(cli, "_local_signing_fingerprint", lambda _agent: None)
-    monkeypatch.setattr(cli, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: None)
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
 
     out = _revoke(_Bus(), _Bus.SIGNING)
 
@@ -90,13 +90,13 @@ def test_the_locality_line_is_true_for_a_signing_key_held_here(
     NOT held here, otherwise this passes against a version that hardcodes one
     answer — which is how the original bug behaved.
     """
-    monkeypatch.setattr(cli, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
 
-    monkeypatch.setattr(cli, "_local_signing_fingerprint", lambda _agent: _Bus.SIGNING)
+    monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: _Bus.SIGNING)
     held = _revoke(_Bus(), _Bus.SIGNING)
     assert "private half IS still on this machine" in held
 
-    monkeypatch.setattr(cli, "_local_signing_fingerprint", lambda _agent: "something-else")
+    monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: "something-else")
     absent = _revoke(_Bus(), _Bus.SIGNING)
     assert "private half IS still on this machine" not in absent
     assert "not in this agent's signing key file" in absent
@@ -106,8 +106,8 @@ def test_revoking_a_sealing_key_still_says_what_it_always_said(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The regression guard. The sealing wording was correct and must survive."""
-    monkeypatch.setattr(cli, "_local_signing_fingerprint", lambda _agent: None)
-    monkeypatch.setattr(cli, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: None)
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
 
     out = _revoke(_Bus(), _Bus.SEALING)
 
@@ -124,8 +124,8 @@ def test_an_unknown_fingerprint_claims_nothing_about_either_algorithm(
     Guessing here is what the original code did in effect. Claiming no
     consequence is the only honest answer when the algorithm is unestablished.
     """
-    monkeypatch.setattr(cli, "_local_signing_fingerprint", lambda _agent: None)
-    monkeypatch.setattr(cli, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: None)
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
 
     out = _revoke(_Bus(), "cccccccccccccccc")
 

@@ -76,14 +76,14 @@ def _register_args(**over):
 
 def test_namespaced_key_no_value_stores_as_key_only(monkeypatch):
     bus = _CapturingBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     cli.cmd_tag(_tag_args("skill:playwright"))
     assert bus.tag_called_with == {"skill:playwright": ""}
 
 
 def test_key_equals_value_stores_as_key_value(monkeypatch):
     bus = _CapturingBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     cli.cmd_tag(_tag_args("skill=playwright"))
     assert bus.tag_called_with == {"skill": "playwright"}
 
@@ -94,7 +94,7 @@ def test_namespaced_key_with_value_stores_as_compound_key_and_value(monkeypatch)
     the key. This is the shape the peer's bikeroom agent had, and it is
     what the current parse produces on every run."""
     bus = _CapturingBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     cli.cmd_tag(_tag_args("skill:playwright=takes shots"))
     assert bus.tag_called_with == {"skill:playwright": "takes shots"}
 
@@ -104,7 +104,7 @@ def test_multiple_equals_signs_only_split_on_the_first(monkeypatch):
     A URL as a value must survive: `link=https://x=y` is a value with
     `=` in it, NOT a triple-key key=key=value."""
     bus = _CapturingBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     cli.cmd_tag(_tag_args("link=https://x?a=b"))
     assert bus.tag_called_with == {"link": "https://x?a=b"}
 
@@ -114,7 +114,7 @@ def test_the_two_grammars_produce_different_shapes(monkeypatch):
     `skill=playwright` mean DIFFERENT things — a matching-filter that
     treats one as the other will silently miss the agent."""
     bus = _CapturingBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
 
     cli.cmd_tag(_tag_args("skill:playwright"))
     a = dict(bus.tag_called_with)
@@ -136,7 +136,7 @@ def test_cmd_tag_and_cmd_register_produce_identical_shape(monkeypatch, tmp_path)
     cmd_register(--label X=Y) MUST produce the same labels dict for the
     same input."""
     bus = _CapturingBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
 
     same_inputs = ["skill:playwright", "skill=playwright", "team:frontend=takes shots"]
 
@@ -168,7 +168,7 @@ def test_colon_alone_is_NOT_treated_as_a_key_value_separator(monkeypatch):
     regression guard: input WITHOUT `=` produces a bare key with empty
     value, NEVER a key=value from colon-splitting."""
     bus = _CapturingBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     cli.cmd_tag(_tag_args("skill:playwright"))
     # This shape is FORBIDDEN — if it ever appears, the parser has drifted.
     assert bus.tag_called_with != {"skill": "playwright"}

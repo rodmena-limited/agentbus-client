@@ -51,7 +51,7 @@ def _render(monkeypatch, capsys, deliveries):
         def inbox(self, *_a, **_k):
             return deliveries
 
-    monkeypatch.setattr(cli, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _Bus())
     args = argparse.Namespace(
         cursor=None, limit=50, label=None, wait=0, unread=False, json=False, agent=None
     )

@@ -88,7 +88,7 @@ def test_cli_register_argparse_has_persona_flag():
     Without this, the flag is unreachable from the CLI even though the
     SDK accepts it."""
     import inspect
-    src = inspect.getsource(cli_module)
+    src = _cli_source()
     assert '"--persona"' in src
     assert "metavar=\"LANE\"" in src or "metavar='LANE'" in src
 
@@ -96,7 +96,7 @@ def test_cli_register_argparse_has_persona_flag():
 def test_cli_setup_argparse_has_persona_flag():
     """Same for the setup subparser — the primary onboarding path."""
     import inspect
-    src = inspect.getsource(cli_module)
+    src = _cli_source()
     # setup's --persona is in a different block from register's
     assert src.count('"--persona"') >= 2
 
@@ -114,7 +114,7 @@ def test_whoami_displays_persona_when_present(monkeypatch, capsys):
                 "unread": {},
             }
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
     cli_module.cmd_whoami(argparse.Namespace(json=False, qr=False, agent=None, api_key=None, base_url=None))
     out = capsys.readouterr().out
     assert "persona:   backend" in out
@@ -132,7 +132,7 @@ def test_whoami_silent_when_persona_absent(monkeypatch, capsys):
                 "unread": {},
             }
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
     cli_module.cmd_whoami(argparse.Namespace(json=False, qr=False, agent=None, api_key=None, base_url=None))
     out = capsys.readouterr().out
     assert "persona" not in out
@@ -151,7 +151,7 @@ def test_phonebook_shows_persona_column_when_any_agent_has_one(monkeypatch, caps
                  "capabilities": [], "labels": {}, "persona": None},
             ]
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
     cli_module.cmd_phonebook(argparse.Namespace(query=None, capability=None, label=None,
                                                  json=False, agent=None, api_key=None, base_url=None))
     out = capsys.readouterr().out
@@ -171,7 +171,7 @@ def test_phonebook_no_persona_column_when_nobody_has_one(monkeypatch, capsys):
                  "capabilities": [], "labels": {}, "persona": None},
             ]
 
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _Bus())
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
     cli_module.cmd_phonebook(argparse.Namespace(query=None, capability=None, label=None,
                                                  json=False, agent=None, api_key=None, base_url=None))
     out = capsys.readouterr().out
@@ -318,7 +318,7 @@ def test_watch_does_not_overwrite_sender_lane_with_acting_agent_persona(tmp_path
         once=True, daemon=False, cursor=None, persona=None,
     )
 
-    with patch.object(cli_module, "_bus", return_value=MockBus()), \
+    with patch.object(cli_module._common, "_bus", return_value=MockBus()), \
          patch.object(cli_module, "_watch_pidfile", return_value=tmp_path / "pid"), \
          patch.object(watch_module, "notify_command", fake_notify_command), \
          patch.object(watch_module, "Watcher", FakeWatcher):
@@ -369,7 +369,7 @@ def test_watch_injects_my_lane_without_clobbering_sender_lane(tmp_path):
         once=True, daemon=False, cursor=None, persona=None,
     )
 
-    with patch.object(cli_module, "_bus", return_value=MockBus()), \
+    with patch.object(cli_module._common, "_bus", return_value=MockBus()), \
          patch.object(cli_module, "_watch_pidfile", return_value=tmp_path / "pid"), \
          patch.object(watch_module, "notify_command", fake_notify_command), \
          patch.object(watch_module, "Watcher", FakeWatcher):
@@ -380,3 +380,10 @@ def test_watch_injects_my_lane_without_clobbering_sender_lane(tmp_path):
     assert delivered.get("lane") == "frontend", "sender lane was clobbered"
     # Receiver's own lane (backend) present as my_lane — the SEV-2 fix.
     assert delivered.get("my_lane") == "backend", "my_lane was not injected"
+
+
+def _cli_source() -> str:
+    """The CLI is a package now (one module per command family): read all of it."""
+    from pathlib import Path as _P
+
+    return "".join(f.read_text() for f in sorted(_P(cli_module.__file__).parent.glob("*.py")))

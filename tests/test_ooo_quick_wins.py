@@ -65,7 +65,7 @@ def _attach_args(**over):
 def test_all_flag_fetches_every_attachment(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     bus = _MultiBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
 
     assert cli.cmd_attachment(_attach_args(all=True)) == 0
 
@@ -85,7 +85,7 @@ def test_all_refuses_when_any_target_already_exists(tmp_path, monkeypatch, capsy
     monkeypatch.chdir(tmp_path)
     (tmp_path / "b.bin").write_bytes(b"local file")
     bus = _MultiBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
 
     assert cli.cmd_attachment(_attach_args(all=True)) == 1
     # Nothing was fetched or written — the pre-check must fail FIRST.
@@ -102,7 +102,7 @@ def test_all_with_force_overwrites_every_conflict(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "a.bin").write_bytes(b"old")
     (tmp_path / "c.bin").write_bytes(b"old")
-    monkeypatch.setattr(cli, "_bus", lambda _a: _MultiBus())
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _MultiBus())
 
     assert cli.cmd_attachment(_attach_args(all=True, force=True)) == 0
     assert (tmp_path / "a.bin").read_bytes() == PAYLOADS[0]
@@ -112,7 +112,7 @@ def test_all_with_force_overwrites_every_conflict(tmp_path, monkeypatch):
 
 def test_all_refuses_output_flag_because_they_are_mutually_exclusive(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "_bus", lambda _a: _MultiBus())
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _MultiBus())
 
     assert cli.cmd_attachment(_attach_args(all=True, output="somewhere")) == 2
     assert "-o" in capsys.readouterr().err
@@ -120,7 +120,7 @@ def test_all_refuses_output_flag_because_they_are_mutually_exclusive(tmp_path, m
 
 def test_all_refuses_stdout_because_bytes_would_interleave(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "_bus", lambda _a: _MultiBus())
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _MultiBus())
 
     assert cli.cmd_attachment(_attach_args(all=True, output="-")) == 2
     assert "interleave" in capsys.readouterr().err
@@ -144,9 +144,7 @@ class _VerifyBus:
 
 
 def test_unsigned_verdict_does_not_repeat_the_word(monkeypatch, capsys):
-    monkeypatch.setattr(
-        cli,
-        "_bus",
+    monkeypatch.setattr(cli._common, "_bus",
         lambda _a: _VerifyBus(
             {
                 "verified": False,
@@ -168,9 +166,7 @@ def test_unsigned_verdict_does_not_repeat_the_word(monkeypatch, capsys):
 def test_cannot_verify_still_carries_the_reason(monkeypatch, capsys):
     """Regression: the CANNOT VERIFY branch used the same headline+reason
     pattern; make sure it still names why the tool could not check."""
-    monkeypatch.setattr(
-        cli,
-        "_bus",
+    monkeypatch.setattr(cli._common, "_bus",
         lambda _a: _VerifyBus(
             {
                 "verified": False,
@@ -215,7 +211,7 @@ def test_show_labels_attachment_size_as_on_wire(monkeypatch, capsys):
         "attachments": [{"filename": "shot.png", "size": 69675}],
         "message_id": "01M",
     }
-    monkeypatch.setattr(cli, "_bus", lambda _a: _ShowBus(delivery))
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _ShowBus(delivery))
     assert cli.cmd_show(_show_args()) == 0
     out = capsys.readouterr().out
     assert "-- attachment: shot.png" in out
@@ -258,8 +254,8 @@ def _send_args(**over):
 
 def test_fire_and_forget_json_is_never_empty(monkeypatch, capsys):
     """A jq consumer must never crash on {}."""
-    monkeypatch.setattr(cli, "_bus", lambda _a: _SendBus({}))
-    monkeypatch.setattr(cli, "_read_body", lambda body: body or "")
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _SendBus({}))
+    monkeypatch.setattr(cli._common, "_read_body", lambda body: body or "")
 
     assert cli.cmd_send(_send_args()) == 0
     out = capsys.readouterr().out
@@ -279,8 +275,8 @@ def test_fire_and_forget_json_preserves_real_server_fields(monkeypatch, capsys):
         "not_listening": [],
         "meaning": "delivered to live subscribers; nothing stored",
     }
-    monkeypatch.setattr(cli, "_bus", lambda _a: _SendBus(server_body))
-    monkeypatch.setattr(cli, "_read_body", lambda body: body or "")
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _SendBus(server_body))
+    monkeypatch.setattr(cli._common, "_read_body", lambda body: body or "")
 
     assert cli.cmd_send(_send_args()) == 0
     data = json.loads(capsys.readouterr().out)
@@ -293,9 +289,7 @@ def test_fire_and_forget_json_preserves_real_server_fields(monkeypatch, capsys):
 def test_durable_send_is_unchanged(monkeypatch, capsys):
     """Guarantee=durable (or None) must not get the fire_and_forget status
     marker glued on."""
-    monkeypatch.setattr(
-        cli,
-        "_bus",
+    monkeypatch.setattr(cli._common, "_bus",
         lambda _a: _SendBus(
             {
                 "id": "01M",
@@ -305,7 +299,7 @@ def test_durable_send_is_unchanged(monkeypatch, capsys):
             }
         ),
     )
-    monkeypatch.setattr(cli, "_read_body", lambda body: body or "")
+    monkeypatch.setattr(cli._common, "_read_body", lambda body: body or "")
     args = _send_args(guarantee="durable")
     assert cli.cmd_send(args) == 0
     data = json.loads(capsys.readouterr().out)
@@ -317,8 +311,8 @@ def test_durable_send_is_unchanged(monkeypatch, capsys):
 def test_fire_and_forget_text_summary_does_not_keyerror(monkeypatch, capsys):
     """The non-JSON receipt used to read `result['id']`, `['delivery_count']`,
     `['thread_id']` — all absent on fire_and_forget."""
-    monkeypatch.setattr(cli, "_bus", lambda _a: _SendBus({"reached": 3}))
-    monkeypatch.setattr(cli, "_read_body", lambda body: body or "")
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _SendBus({"reached": 3}))
+    monkeypatch.setattr(cli._common, "_read_body", lambda body: body or "")
     args = _send_args(json=False)
     assert cli.cmd_send(args) == 0
     out = capsys.readouterr().out

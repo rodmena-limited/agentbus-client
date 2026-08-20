@@ -63,7 +63,7 @@ def _args(**over):
 @pytest.fixture
 def bus(monkeypatch):
     b = _Bus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: b)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: b)
     return b
 
 
@@ -122,7 +122,7 @@ def test_explicit_output_path_is_honoured(tmp_path, monkeypatch):
 
 def test_no_attachments_is_an_error_not_an_empty_file(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "_bus", lambda _a: _Bus(attachments=[]))
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _Bus(attachments=[]))
 
     assert cli.cmd_attachment(_args()) == 1
     assert "no attachments" in capsys.readouterr().err
@@ -133,7 +133,7 @@ def test_out_of_range_index_lists_what_is_actually_there(monkeypatch, tmp_path, 
     """An index error that does not say what the valid indexes are makes the
     caller guess."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "_bus", lambda _a: _Bus(attachments=[META]))
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: _Bus(attachments=[META]))
 
     assert cli.cmd_attachment(_args(index=5)) == 1
     err = capsys.readouterr().err
@@ -147,7 +147,7 @@ def test_the_verb_is_registered_in_the_parser():
     if parser is None:
         import inspect
 
-        assert '"attachment"' in inspect.getsource(cli), "the subparser is not registered"
+        assert '"attachment"' in _cli_source(), "the subparser is not registered"
 
 
 # ------------------------------------------------------ filename traversal guard
@@ -181,7 +181,7 @@ def test_attachment_write_does_not_escape_cwd(tmp_path, monkeypatch):
             return b"PWNED"
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(_cli, "_bus", lambda _a: _HostileBus())
+    monkeypatch.setattr(_cli._common, "_bus", lambda _a: _HostileBus())
     _cli.cmd_attachment(_args())
     # The file must be in the CWD, NOT in the sibling OUTSIDE dir.
     assert not sentinel.exists(), "the attachment escaped the working directory"
@@ -196,3 +196,10 @@ def _args(**over):
             "all": False, "agent": None, "json": False}
     base.update(over)
     return _a.Namespace(**base)
+
+
+def _cli_source() -> str:
+    """The CLI is a package now (one module per command family): read all of it."""
+    from pathlib import Path as _P
+
+    return "".join(f.read_text() for f in sorted(_P(cli.__file__).parent.glob("*.py")))

@@ -59,7 +59,7 @@ def test_both_output_modes_return_the_same_code(
         def verify(self, _delivery_id: str) -> dict[str, Any]:
             return result
 
-    monkeypatch.setattr(cli, "_bus", lambda _args: _Bus())
+    monkeypatch.setattr(cli._common, "_bus", lambda _args: _Bus())
 
     codes = {}
     for as_json in (False, True):

@@ -307,7 +307,7 @@ def test_monitor_script_has_a_terminal_branch_for_exit_8() -> None:
 def test_watch_exits_8_on_a_rejected_credential() -> None:
     """The exit code the monitor branches on is real, not invented: AuthError
     gets its own `return 8`, caught ABOVE the generic AgentBusError's 3."""
-    body = (REPO / "src" / "agentbus_client" / "cli.py").read_text()
+    body = (REPO / "src" / "agentbus_client" / "cli" / "_watch_run.py").read_text()
     assert "except AuthError" in body
     assert "return 8" in body
     # And the generic path is still 3 — transport failures must stay retryable.

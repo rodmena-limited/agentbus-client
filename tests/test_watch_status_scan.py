@@ -109,8 +109,8 @@ class TestEnvAgentReversal:
         monkeypatch.setenv("AGENTBUS_AGENT", "main-agent")
         monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_" + "m" * 16 + "_mainkey")
         monkeypatch.setattr(claude_code, "_worktree_identity_bleed", lambda _env: "worktree-agent")
-        monkeypatch.setattr(cli, "_key_for_agent", lambda _agent: "ab_sk_" + "w" * 16 + "_ownkey")
-        monkeypatch.setattr(cli, "AgentBus", _CapturingBus)
+        monkeypatch.setattr(cli._common, "_key_for_agent", lambda _agent: "ab_sk_" + "w" * 16 + "_ownkey")
+        monkeypatch.setattr(cli._common, "AgentBus", _CapturingBus)
         args = SimpleNamespace(api_key=None, agent=None, base_url=None)
         cli._bus(args)
         assert captured["agent"] == "worktree-agent"
@@ -132,7 +132,7 @@ class TestEnvAgentReversal:
         monkeypatch.setenv("AGENTBUS_AGENT", "main-agent")
         monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_" + "m" * 16 + "_mainkey")
         monkeypatch.setattr(claude_code, "_worktree_identity_bleed", explode)
-        monkeypatch.setattr(cli, "AgentBus", _CapturingBus)
+        monkeypatch.setattr(cli._common, "AgentBus", _CapturingBus)
         args = SimpleNamespace(api_key=None, agent="chosen-one", base_url=None)
         cli._bus(args)
         assert captured["agent"] == "chosen-one"

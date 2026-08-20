@@ -58,7 +58,7 @@ def test_forwarding_sends_plaintext_through_the_sealing_send_path(monkeypatch):
     Reimplementing the sealing here would be a second copy of the rule that
     matters most."""
     bus = FakeBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     rc, _out = _forward(["carol"])
     assert rc == 0
     assert bus.sent is not None
@@ -70,7 +70,7 @@ def test_the_original_ciphertext_is_never_relayed(monkeypatch):
     """THE POINT. If a forward copied the sealed bytes, the third party would
     hold something only the ORIGINAL recipients can open."""
     bus = FakeBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"])
     assert "BEGIN AGE ENCRYPTED FILE" not in bus.sent["text"]
 
@@ -79,7 +79,7 @@ def test_the_forward_is_attributed(monkeypatch):
     """A quoted block with no attribution is how a forwarded claim becomes the
     forwarder's own."""
     bus = FakeBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"])
     text = bus.sent["text"]
     assert "Forwarded message" in text
@@ -89,7 +89,7 @@ def test_the_forward_is_attributed(monkeypatch):
 
 def test_a_note_can_be_added_above_the_quote(monkeypatch):
     bus = FakeBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"], body="see below")
     assert bus.sent["text"].startswith("see below")
 
@@ -99,7 +99,7 @@ def test_an_unreadable_message_is_refused_not_forwarded_empty(monkeypatch):
     empty forward would look like a delivered message with no content."""
     bus = FakeBus()
     bus.read = lambda _d: {"text_body": "", "subject": "x"}
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     rc, _ = _forward(["carol"])
     assert rc == 1
     assert bus.sent is None
@@ -115,7 +115,7 @@ def test_a_recipient_without_a_key_is_refused_by_the_send_path():
 
 def test_the_subject_is_marked_as_a_forward(monkeypatch):
     bus = FakeBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"])
     assert bus.sent["subject"].startswith("Fwd: ")
 
@@ -123,6 +123,6 @@ def test_the_subject_is_marked_as_a_forward(monkeypatch):
 def test_an_already_forwarded_subject_is_not_double_prefixed(monkeypatch):
     bus = FakeBus()
     bus.read = lambda _d: {"text_body": "x", "subject": "Fwd: budget", "sender_display": "a"}
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"])
     assert bus.sent["subject"] == "Fwd: budget"

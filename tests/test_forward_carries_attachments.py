@@ -76,8 +76,8 @@ class _Bus:
 def test_a_forward_carries_every_attachment(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE BUG: the files used to be left behind, silently."""
     bus = _Bus()
-    monkeypatch.setattr(cli, "_bus", lambda _args: bus)
-    monkeypatch.setattr(cli, "_read_body", lambda _b: "")
+    monkeypatch.setattr(cli._common, "_bus", lambda _args: bus)
+    monkeypatch.setattr(cli._common, "_read_body", lambda _b: "")
 
     args = argparse.Namespace(
         delivery_id="d1", to=["third-party"], cc=None, body=None, json=False, priority=None
@@ -103,8 +103,8 @@ def test_an_unreadable_attachment_refuses_instead_of_dropping_it(
     real problem and sends nothing.
     """
     bus = _Bus(failing_index=1)
-    monkeypatch.setattr(cli, "_bus", lambda _args: bus)
-    monkeypatch.setattr(cli, "_read_body", lambda _b: "")
+    monkeypatch.setattr(cli._common, "_bus", lambda _args: bus)
+    monkeypatch.setattr(cli._common, "_read_body", lambda _b: "")
 
     args = argparse.Namespace(
         delivery_id="d1", to=["third-party"], cc=None, body=None, json=False, priority=None
@@ -130,8 +130,8 @@ def test_a_message_with_no_attachments_still_forwards(monkeypatch: pytest.Monkey
             return data
 
     bus = _Plain()
-    monkeypatch.setattr(cli, "_bus", lambda _args: bus)
-    monkeypatch.setattr(cli, "_read_body", lambda _b: "")
+    monkeypatch.setattr(cli._common, "_bus", lambda _args: bus)
+    monkeypatch.setattr(cli._common, "_read_body", lambda _b: "")
 
     args = argparse.Namespace(
         delivery_id="d1", to=["third-party"], cc=None, body=None, json=False, priority=None

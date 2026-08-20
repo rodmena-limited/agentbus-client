@@ -65,7 +65,7 @@ class FakeBus:
 
 def _run_show(monkeypatch, delivery: dict, thread_data: dict, **flags) -> tuple[str, FakeBus]:
     bus = FakeBus(delivery, thread_data)
-    monkeypatch.setattr(cli, "_bus", lambda _args: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _args: bus)
     args = argparse.Namespace(
         delivery_id="del_1", json=False, thread=flags.get("thread", False), agent=None
     )

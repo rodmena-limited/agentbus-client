@@ -62,7 +62,7 @@ def _pipe_stdin(monkeypatch, text: str) -> None:
 
 def test_batch_of_three_sends_all_and_returns_zero(monkeypatch, capsys):
     bus = _BatchBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
         '\n'.join(
@@ -92,7 +92,7 @@ def test_bus_is_instantiated_ONCE_across_the_whole_batch(monkeypatch, capsys):
         instantiations += 1
         return bus
 
-    monkeypatch.setattr(cli, "_bus", counting_bus)
+    monkeypatch.setattr(cli._common, "_bus", counting_bus)
     _pipe_stdin(
         monkeypatch,
         '\n'.join([json.dumps({"to": "a", "subject": "s", "text": "hi"}) for _ in range(5)]),
@@ -106,7 +106,7 @@ def test_bus_is_instantiated_ONCE_across_the_whole_batch(monkeypatch, capsys):
 
 def test_a_failed_send_does_not_stop_the_batch(monkeypatch, capsys):
     bus = _BatchBus(errors=[None, AgentBusError("server said nope"), None])
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
         '\n'.join(
@@ -128,7 +128,7 @@ def test_a_failed_send_does_not_stop_the_batch(monkeypatch, capsys):
 
 def test_stop_on_error_stops_immediately(monkeypatch, capsys):
     bus = _BatchBus(errors=[None, AgentBusError("fail"), None])
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
         '\n'.join(
@@ -146,7 +146,7 @@ def test_stop_on_error_stops_immediately(monkeypatch, capsys):
 
 def test_malformed_json_line_is_reported_not_crashed(monkeypatch, capsys):
     bus = _BatchBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
         '\n'.join(
@@ -165,7 +165,7 @@ def test_malformed_json_line_is_reported_not_crashed(monkeypatch, capsys):
 
 def test_missing_to_field_is_reported(monkeypatch, capsys):
     bus = _BatchBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(monkeypatch, json.dumps({"subject": "no-to", "text": "hi"}))
     assert cli.cmd_send_batch(_args()) == 1
     lines = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
@@ -174,7 +174,7 @@ def test_missing_to_field_is_reported(monkeypatch, capsys):
 
 def test_blank_lines_are_tolerated(monkeypatch, capsys):
     bus = _BatchBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
         json.dumps({"to": "a", "subject": "s"}) + "\n\n\n" + json.dumps({"to": "b", "subject": "s"}),
@@ -186,7 +186,7 @@ def test_blank_lines_are_tolerated(monkeypatch, capsys):
 
 def test_empty_stdin_prints_usage_hint_and_exits_two(monkeypatch, capsys):
     bus = _BatchBus()
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(monkeypatch, "")
     assert cli.cmd_send_batch(_args()) == 2
     assert "no input on stdin" in capsys.readouterr().err
@@ -198,7 +198,7 @@ def test_empty_stdin_prints_usage_hint_and_exits_two(monkeypatch, capsys):
 def test_fire_and_forget_response_is_normalised_per_line(monkeypatch, capsys):
     """Same F13 rule as cmd_send — fire_and_forget must never emit {}."""
     bus = _BatchBus(responses=[{}, {"reached": 2}])
-    monkeypatch.setattr(cli, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
         '\n'.join(

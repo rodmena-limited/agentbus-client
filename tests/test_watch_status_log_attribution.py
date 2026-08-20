@@ -43,7 +43,7 @@ from agentbus_client import cli  # noqa: E402
 
 @pytest.fixture()
 def runtime(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "_watch_runtime_dir", lambda create=True: tmp_path)
+    monkeypatch.setattr(cli._watch_runtime, "_watch_runtime_dir", lambda create=True: tmp_path)
     return tmp_path
 
 

@@ -99,7 +99,7 @@ class _FakeBus:
 
 
 def test_cli_health_live_prints_and_exits_zero(monkeypatch, capsys):
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _FakeBus(LIVE_RESPONSE))
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _FakeBus(LIVE_RESPONSE))
     rc = cli_module.cmd_health(_args())
     assert rc == 0
     out = capsys.readouterr().out
@@ -115,7 +115,7 @@ def test_cli_health_stale_prints_note_and_exits_nonzero(monkeypatch, capsys):
     presence reads 'responsive', a send would land in a queue nothing
     drains. The CLI must exit non-zero so scripts branching on `agentbus
     health X` see the failure."""
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _FakeBus(STALE_RESPONSE))
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _FakeBus(STALE_RESPONSE))
     rc = cli_module.cmd_health(_args())
     assert rc == 1
     out = capsys.readouterr().out
@@ -124,7 +124,7 @@ def test_cli_health_stale_prints_note_and_exits_nonzero(monkeypatch, capsys):
 
 
 def test_cli_health_json_output(monkeypatch, capsys):
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: _FakeBus(LIVE_RESPONSE))
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _FakeBus(LIVE_RESPONSE))
     rc = cli_module.cmd_health(_args(json=True))
     assert rc == 0
     data = json.loads(capsys.readouterr().out)
@@ -136,7 +136,7 @@ def test_cli_health_404_prints_clear_error(monkeypatch, capsys):
     (existence undisclosed). The CLI must render that as an actionable
     error, not a raw traceback."""
     bus = _FakeBus(raises=AgentBusError("agent not found", status=404, code="not_found"))
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: bus)
     rc = cli_module.cmd_health(_args(target_agent="ghost"))
     assert rc == 1
     err = capsys.readouterr().err
@@ -148,7 +148,7 @@ def test_cli_health_defaults_to_acting_agent(monkeypatch, capsys):
     an operator running the command to verify their own watcher is
     healthy."""
     bus = _FakeBus(LIVE_RESPONSE)
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: bus)
     rc = cli_module.cmd_health(_args(target_agent=None))
     assert rc == 0
     out = capsys.readouterr().out
@@ -159,7 +159,7 @@ def test_cli_health_defaults_to_acting_agent(monkeypatch, capsys):
 def test_cli_health_no_target_and_no_acting_agent_exits_two(monkeypatch, capsys):
     bus = _FakeBus(LIVE_RESPONSE)
     bus.agent = None
-    monkeypatch.setattr(cli_module, "_bus", lambda _a: bus)
+    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: bus)
     rc = cli_module.cmd_health(_args(target_agent=None))
     assert rc == 2
     err = capsys.readouterr().err
@@ -169,6 +169,13 @@ def test_cli_health_no_target_and_no_acting_agent_exits_two(monkeypatch, capsys)
 def test_cli_health_verb_registered_in_parser():
     """A verb nobody can invoke is not a verb."""
     import inspect
-    src = inspect.getsource(cli_module)
+    src = _cli_source()
     assert '"health"' in src or "'health'" in src
     assert "cmd_health" in src
+
+
+def _cli_source() -> str:
+    """The CLI is a package now (one module per command family): read all of it."""
+    from pathlib import Path as _P
+
+    return "".join(f.read_text() for f in sorted(_P(cli_module.__file__).parent.glob("*.py")))

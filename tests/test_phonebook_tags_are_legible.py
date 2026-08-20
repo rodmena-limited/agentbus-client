@@ -81,7 +81,7 @@ def test_tags_are_a_fixed_column_not_a_suffix() -> None:
     pins is that the cell cannot go back to being appended to a variable-width
     line, which is the defect.
     """
-    source = (REPO / "src" / "agentbus_client" / "cli.py").read_text()
+    source = (REPO / "src" / "agentbus_client" / "cli" / "_directory.py").read_text()
     assert "tag_width = min(" in source
     assert "{cell:<{tag_width + 2}}  {agent['address']}" in source
 
@@ -117,7 +117,7 @@ def test_every_column_lines_up_across_rows(capsys, monkeypatch) -> None:
         def phonebook(self, *_a, **_k):
             return roster
 
-    monkeypatch.setattr(cli, "_bus", lambda _args: _Bus())
+    monkeypatch.setattr(cli._common, "_bus", lambda _args: _Bus())
     cli.cmd_phonebook(argparse.Namespace(query=None, capability=None, label=None, json=False))
     lines = [ln for ln in capsys.readouterr().out.splitlines() if "agentbus+" in ln]
     assert len(lines) == len(roster)
@@ -158,7 +158,7 @@ def test_history_renders_the_fields_the_endpoint_actually_returns(capsys, monkey
                 ],
             }
 
-    monkeypatch.setattr(cli, "_bus", lambda _args: _Bus())
+    monkeypatch.setattr(cli._common, "_bus", lambda _args: _Bus())
     cli.cmd_history(argparse.Namespace(room="ops", limit=None, since=None, json=False))
     out = capsys.readouterr().out
     assert "2026-08-15 13:02:17" in out, f"timestamp missing: {out!r}"

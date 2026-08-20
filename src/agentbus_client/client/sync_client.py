@@ -1,20 +1,13 @@
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-import concurrent.futures as _cf
-import logging
 import os
 import time
 import uuid
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from typing import Any
 
 import httpx
-
-_log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
 
 from .base import _Base
 from .errors import (

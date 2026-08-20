@@ -1,20 +1,10 @@
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-import concurrent.futures as _cf
-import logging
 import os
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from dataclasses import dataclass, field
 from typing import Any
-
-_log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
-
-
-
 
 # ------------------------------------------------------------------ models
 
@@ -166,5 +156,3 @@ def _ack_window_seconds(ack_window: Any, *, default_when_set: bool) -> int | Non
         )
     return seconds
 
-_SEAL_INFLATION_FACTOR = 1.806
-_DEFAULT_SERVER_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024

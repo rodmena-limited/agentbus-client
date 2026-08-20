@@ -94,3 +94,11 @@ python_version = "3.9"
 strict_optional = true
 warn_unused_ignores = true
 files = ["src", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# Re-export modules: every import IS the API surface (review #23 file-size split).
+"src/agentbus_client/cli/__init__.py" = ["F401", "F403"]
+"src/agentbus_client/onboarding/__init__.py" = ["F401", "F403"]
+"src/agentbus_client/hooks/claude_code.py" = ["F401"]
+"src/agentbus_client/watch.py" = ["F401"]
+"src/agentbus_client/client/__init__.py" = ["F401"]

@@ -107,9 +107,9 @@ def _resolve_env_agent() -> str | None:
     env_agent = os.environ.get("AGENTBUS_AGENT")
     if not env_agent:
         return None
-    from ..hooks.claude_code import _worktree_identity_bleed
+    from ..hooks import _identity as _hook_identity
 
-    own = _worktree_identity_bleed(env_agent)
+    own = _hook_identity._worktree_identity_bleed(env_agent)
     if own:
         print(
             f"identity: env named '{env_agent}' (the MAIN worktree's, injected by "

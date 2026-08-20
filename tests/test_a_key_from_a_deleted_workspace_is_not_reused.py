@@ -24,7 +24,7 @@ from agentbus_client import onboarding
 
 
 def _guard() -> str:
-    src = inspect.getsource(onboarding)
+    src = _onboarding_source()
     start = src.index("stored_key = _agent_key(name) if name else None")
     # Wide enough to contain the WHOLE guard. A window that silently cuts the
     # block short turns these into tests of the slice, not of the code — they
@@ -86,3 +86,11 @@ def test_the_mismatched_key_is_set_aside_under_a_distinct_name():
     g = _guard()
     assert ".env.other" in g
     assert ".env.dead" in g
+
+
+def _onboarding_source() -> str:
+    """onboarding is a package now (one module per concern): read all of it, in a stable order."""
+    from pathlib import Path as _P
+
+    pkg = _P(__file__).resolve().parents[1] / "src" / "agentbus_client" / "onboarding"
+    return "".join(f.read_text() for f in sorted(pkg.glob("*.py")))

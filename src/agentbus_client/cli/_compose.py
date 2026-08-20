@@ -158,10 +158,7 @@ def cmd_send(args: argparse.Namespace) -> int:
         import datetime as _dt
 
         raw = getattr(args, "ack_window", None)
-        if raw:
-            ack_window = _parse_duration(raw)
-        else:
-            ack_window = _dt.timedelta(hours=24)
+        ack_window = _parse_duration(raw) if raw else _dt.timedelta(hours=24)
     result = bus.send(
         args.to,
         cc=args.cc or None,

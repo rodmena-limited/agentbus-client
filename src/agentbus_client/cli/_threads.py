@@ -203,11 +203,9 @@ def cmd_reminders(args: argparse.Namespace) -> int:
         if getattr(args, "owed", False):
             rows = bus.reminders_owed()
             kind = "owed"
-            other = "sender"
         else:
             rows = bus.reminders_owing()
             kind = "owing"
-            other = "recipient"
     except AgentBusError as exc:
         if exc.status in (404, 405, 501):
             print(

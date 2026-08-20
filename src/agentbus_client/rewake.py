@@ -276,10 +276,10 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
     import datetime as _dt
 
     import resilient_circuit as rc
-
-    from .client.resilience import _cb_window
     from resilient_circuit.exceptions import ProtectionException
     from resilient_circuit.storage import InMemoryStorage
+
+    from .client.resilience import _cb_window
 
     # #234 Q2 (audit finding): Fraction(1, 1) meant the breaker opened on any
     # single failure and closed on any single success — combined with the
@@ -326,7 +326,7 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
             # error to surface. The next interval tries again; the wall-clock
             # deadline still bounds the whole thing.
             return ""
-        except BaseException as exc:  # noqa: BLE001 — deliberate, see below
+        except BaseException as exc:  # deliberate, see below
             # MAKE THE DOCUMENTED GUARANTEE REAL.
             #
             # `poll()`'s call site carries the comment `# already

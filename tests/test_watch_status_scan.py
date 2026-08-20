@@ -72,9 +72,7 @@ class TestEnvAgentReversal:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         monkeypatch.setenv("AGENTBUS_AGENT", "main-agent")
-        monkeypatch.setattr(
-            claude_code,
-            "_worktree_identity_bleed",
+        monkeypatch.setattr(claude_code._identity, "_worktree_identity_bleed",
             lambda env: "worktree-agent" if env == "main-agent" else None,
         )
         assert cli._resolve_env_agent() == "worktree-agent"
@@ -87,7 +85,7 @@ class TestEnvAgentReversal:
         """#90 intact: outside the bleed signature the env is the operator's
         word and must be obeyed silently."""
         monkeypatch.setenv("AGENTBUS_AGENT", "deliberate-export")
-        monkeypatch.setattr(claude_code, "_worktree_identity_bleed", lambda _env: None)
+        monkeypatch.setattr(claude_code._identity, "_worktree_identity_bleed", lambda _env: None)
         assert cli._resolve_env_agent() == "deliberate-export"
 
     def test_no_env_resolves_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,7 +106,7 @@ class TestEnvAgentReversal:
 
         monkeypatch.setenv("AGENTBUS_AGENT", "main-agent")
         monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_" + "m" * 16 + "_mainkey")
-        monkeypatch.setattr(claude_code, "_worktree_identity_bleed", lambda _env: "worktree-agent")
+        monkeypatch.setattr(claude_code._identity, "_worktree_identity_bleed", lambda _env: "worktree-agent")
         monkeypatch.setattr(cli._common, "_key_for_agent", lambda _agent: "ab_sk_" + "w" * 16 + "_ownkey")
         monkeypatch.setattr(cli._common, "AgentBus", _CapturingBus)
         args = SimpleNamespace(api_key=None, agent=None, base_url=None)
@@ -131,7 +129,7 @@ class TestEnvAgentReversal:
 
         monkeypatch.setenv("AGENTBUS_AGENT", "main-agent")
         monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_" + "m" * 16 + "_mainkey")
-        monkeypatch.setattr(claude_code, "_worktree_identity_bleed", explode)
+        monkeypatch.setattr(claude_code._identity, "_worktree_identity_bleed", explode)
         monkeypatch.setattr(cli._common, "AgentBus", _CapturingBus)
         args = SimpleNamespace(api_key=None, agent="chosen-one", base_url=None)
         cli._bus(args)

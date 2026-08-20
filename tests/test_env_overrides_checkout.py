@@ -51,7 +51,7 @@ def _wire(root: Path, agent: str, *, via_settings: bool = False) -> None:
 def test_conflict_is_reported_with_both_names(tmp_path, capsys, monkeypatch):
     """The #127 fix: name what the checkout says, what won, and the remedy."""
     _wire(tmp_path, OWN)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("AGENTBUS_AGENT", PARENT)
 
     claude_code._warn_if_env_overrides_this_checkout(PARENT)
@@ -68,7 +68,7 @@ def test_conflict_is_reported_with_both_names(tmp_path, capsys, monkeypatch):
 def test_no_warning_when_checkout_and_env_agree(tmp_path, capsys, monkeypatch):
     """The normal wired session. Firing here would be noise on every startup."""
     _wire(tmp_path, PARENT)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("AGENTBUS_AGENT", PARENT)
 
     claude_code._warn_if_env_overrides_this_checkout(PARENT)
@@ -78,7 +78,7 @@ def test_no_warning_when_checkout_and_env_agree(tmp_path, capsys, monkeypatch):
 
 def test_no_warning_in_an_unwired_checkout(tmp_path, capsys, monkeypatch):
     """Nothing declared here, so nothing was overridden."""
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("AGENTBUS_AGENT", PARENT)
 
     claude_code._warn_if_env_overrides_this_checkout(PARENT)
@@ -90,7 +90,7 @@ def test_settings_local_json_is_also_honoured(tmp_path, capsys, monkeypatch):
     """The Claude-Code mirror is a declaration site too — .agentbus/agent is not
     the only file a checkout can be wired through."""
     _wire(tmp_path, OWN, via_settings=True)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("AGENTBUS_AGENT", PARENT)
 
     claude_code._warn_if_env_overrides_this_checkout(PARENT)
@@ -102,7 +102,7 @@ def test_silent_when_the_env_var_did_not_win(tmp_path, capsys, monkeypatch):
     """Resolution did not come from the environment, so there is no override to
     report — guards against warning on a value that lost."""
     _wire(tmp_path, OWN)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("AGENTBUS_AGENT", PARENT)
 
     # The resolved agent is the checkout's own: the env var was not what won.
@@ -113,7 +113,7 @@ def test_silent_when_the_env_var_did_not_win(tmp_path, capsys, monkeypatch):
 
 def test_silent_when_no_env_var_is_set(tmp_path, capsys, monkeypatch):
     _wire(tmp_path, OWN)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
 
     claude_code._warn_if_env_overrides_this_checkout(OWN)

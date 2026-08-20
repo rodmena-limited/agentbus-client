@@ -147,7 +147,7 @@ def cmd_attachment(args: argparse.Namespace) -> int:
                 )
                 return 1
         # Second pass: actual fetch + write, in order.
-        for i, item in enumerate(attachments):
+        for i, _item in enumerate(attachments):
             data = bus.attachment(args.delivery_id, i)
             targets[i].write_bytes(data)
             print(f"wrote {targets[i]} ({targets[i].stat().st_size} bytes)")

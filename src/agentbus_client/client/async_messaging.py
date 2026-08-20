@@ -1,24 +1,15 @@
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-import concurrent.futures as _cf
-import logging
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from collections.abc import Sequence
 from typing import Any
 
 import httpx
 
-_log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
-
-
-
+from .attachments import _encode_attachments
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
-from .resilience import _encode_attachments
 
 
 class AsyncMessagingMixin:
@@ -179,7 +170,7 @@ class AsyncMessagingMixin:
 
         async def follow(self, cursor: int = 0, *, agent: str | None = None, wait: int = 30) -> Any:
             """Async generator yielding deliveries as they arrive — async twin.
-    
+
             Return type is Any (not AsyncIterator[Delivery]) because it is an async
             GENERATOR, which typing expresses as AsyncGenerator[Delivery, None]. The
             loose annotation keeps the parity test's param-name check simple; the
@@ -193,7 +184,7 @@ class AsyncMessagingMixin:
 
         async def read(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
             """Read one delivery, unsealing it when this machine holds the key.
-    
+
             SEV-4 (#234): the async twin USED to skip unsealing — a bug the sync one
             fixed and this one inherited from the drift the parity test now catches.
             A caller who switched sync -> async silently got ciphertext, and
@@ -254,15 +245,15 @@ class AsyncMessagingMixin:
             agent: str | None = None,
         ) -> dict[str, Any]:
             """Async mirror of AgentBus.status() (#187).
-    
+
             With no `state` this READS. With one it declares:
-    
+
                 online    the default; releases anything withheld
                 busy      occupied until T — delivers normally, tells senders
                 away      same, different word for a human reading the roster
                 dnd       WITHHOLDS normal and background; urgent still arrives
                 offline   WITHHOLDS everything, and nothing tries to wake you
-    
+
             `dnd` and `offline` are the recipient deciding, which is what #168's
             `busy()` was missing: it declared, and every sender was free to ignore
             it. Withheld mail is stored and delivered — with a wake — when the
@@ -303,16 +294,16 @@ class AsyncMessagingMixin:
             resolve_body: dict[str, Any] | None = None,
         ) -> tuple[dict[str, Any], dict[str, Any] | None]:
             """The async twin of the sync client's sealer. #220.
-    
+
             This class sealed NOTHING before: every async send on an encrypted
             workspace was refused by the server with "the body must be sealed by the
             client", and the async surface had no way to comply. The sealing rule
             lived on the sync class only — one surface fixed, the other left, which
             is the exact shape this codebase keeps paying for.
-    
+
             Only the request differs, so only the request is duplicated; the
             decision itself is `_apply_seal` on the shared base.
-    
+
             RETURNS THE RESOLVER'S ANSWER ALONGSIDE THE PAYLOAD, because the
             signature needs it: on a reply the server derives the recipients and the
             "Re: " subject, and a signature covers what the server STORES. `None`

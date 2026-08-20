@@ -1,19 +1,9 @@
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-import concurrent.futures as _cf
-import logging
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from collections.abc import Sequence
 from typing import Any
-
-_log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
-
-
-
 
 
 class AsyncDirectoryMixin:
@@ -137,7 +127,7 @@ class AsyncDirectoryMixin:
 
         async def heartbeat(self, agent: str | None = None) -> None:
             """Refresh presence for the acting agent — async twin.
-    
+
             REG-4 (round-3 audit): posts to /v1/agents/<agent>/heartbeat, matching
             the sync twin at AgentBus.heartbeat (client.py). This method previously
             posted to /v1/heartbeat, which the server 404s — presence went silently

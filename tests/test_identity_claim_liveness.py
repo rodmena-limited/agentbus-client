@@ -45,7 +45,7 @@ def claim(tmp_path, monkeypatch):
     """Redirect the claim file into a tmp dir and pin our session id."""
     monkeypatch.setenv("AGENTBUS_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", OURS)
-    monkeypatch.setattr(claude_code, "_identity_claim_path", lambda a: tmp_path / f"claim-{a}.json")
+    monkeypatch.setattr(claude_code._session, "_identity_claim_path", lambda a: tmp_path / f"claim-{a}.json")
     return tmp_path / f"claim-{AGENT}.json"
 
 
@@ -104,7 +104,7 @@ def test_liveness_is_actually_consulted(claim, monkeypatch):
         seen.append((agent, session))
         return False
 
-    monkeypatch.setattr(claude_code, "_identity_held_live", _spy)
+    monkeypatch.setattr(claude_code._session, "_identity_held_live", _spy)
     claude_code._warn_if_identity_shared(AGENT)
 
     assert seen == [(AGENT, GONE)], (
@@ -119,7 +119,7 @@ def test_our_own_prior_claim_is_never_a_collision(claim, capsys, monkeypatch):
     def _boom(_agent: str, _session: str) -> bool:
         raise AssertionError("liveness checked for our own session id")
 
-    monkeypatch.setattr(claude_code, "_identity_held_live", _boom)
+    monkeypatch.setattr(claude_code._session, "_identity_held_live", _boom)
     claude_code._warn_if_identity_shared(AGENT)
 
     assert capsys.readouterr().out == ""
@@ -128,7 +128,7 @@ def test_our_own_prior_claim_is_never_a_collision(claim, capsys, monkeypatch):
 def test_claim_is_taken_over_after_a_stale_one(claim, monkeypatch):
     """Silence is not enough — the stale record must be replaced by ours."""
     _write_claim(claim, GONE, age_seconds=5.0)
-    monkeypatch.setattr(claude_code, "_identity_held_live", lambda _a, _s: False)
+    monkeypatch.setattr(claude_code._session, "_identity_held_live", lambda _a, _s: False)
 
     claude_code._warn_if_identity_shared(AGENT)
 

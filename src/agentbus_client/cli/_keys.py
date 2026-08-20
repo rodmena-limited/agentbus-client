@@ -182,7 +182,7 @@ def _superseded_fingerprints() -> set[str]:
             path.name.removeprefix("sealing-").removesuffix(".key.superseded")
             for path in directory.glob("sealing-*.key.superseded")
         }
-    except Exception:  # startup label lookup MUST NOT block launch
+    except Exception:
         return set()
 
 
@@ -200,7 +200,7 @@ def _local_signing_fingerprint(agent: str) -> str | None:
         return None
     try:
         return _signing.fingerprint(_signing.public_from_private(private))
-    except Exception:  # startup label lookup MUST NOT block launch
+    except Exception:
         return None
 
 

@@ -98,7 +98,7 @@ def test_worktree_uses_its_own_identity_despite_the_injected_env(worktrees, monk
     """The #129 fix: the main worktree's value must not win here."""
     _main, tree = worktrees
     monkeypatch.chdir(tree)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tree)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tree)
     monkeypatch.setenv("AGENTBUS_AGENT", MAIN_AGENT)
 
     assert claude_code._resolve_agent() == TREE_AGENT
@@ -109,7 +109,7 @@ def test_main_worktree_is_untouched(worktrees, monkeypatch):
     """The correction must not fire in the main checkout — there is no bleed."""
     main, _tree = worktrees
     monkeypatch.chdir(main)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: main)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: main)
     monkeypatch.setenv("AGENTBUS_AGENT", MAIN_AGENT)
 
     assert claude_code._resolve_agent() == MAIN_AGENT
@@ -120,7 +120,7 @@ def test_deliberate_operator_override_still_wins(worktrees, monkeypatch):
     it is not the misinjection signature and must be honoured."""
     _main, tree = worktrees
     monkeypatch.chdir(tree)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tree)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tree)
     monkeypatch.setenv("AGENTBUS_AGENT", "some-other-agent-the-operator-chose")
 
     assert claude_code._resolve_agent() == "some-other-agent-the-operator-chose"
@@ -132,7 +132,7 @@ def test_no_correction_when_the_worktree_declares_nothing(worktrees, monkeypatch
     (tree / ".agentbus" / "agent").unlink()
     (tree / ".claude" / "settings.local.json").unlink()
     monkeypatch.chdir(tree)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tree)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tree)
     monkeypatch.setenv("AGENTBUS_AGENT", MAIN_AGENT)
 
     assert claude_code._resolve_agent() == MAIN_AGENT
@@ -143,7 +143,7 @@ def test_no_correction_when_the_two_checkouts_agree(worktrees, monkeypatch):
     _main, tree = worktrees
     _declare(tree, MAIN_AGENT)
     monkeypatch.chdir(tree)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tree)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tree)
     monkeypatch.setenv("AGENTBUS_AGENT", MAIN_AGENT)
 
     assert claude_code._resolve_agent() == MAIN_AGENT
@@ -155,7 +155,7 @@ def test_unwired_worktree_with_no_env_stays_off(worktrees, monkeypatch):
     (tree / ".agentbus" / "agent").unlink()
     (tree / ".claude" / "settings.local.json").unlink()
     monkeypatch.chdir(tree)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tree)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tree)
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
 
     assert claude_code._resolve_agent() is None
@@ -166,7 +166,7 @@ def test_helper_returns_none_outside_a_git_checkout(tmp_path, monkeypatch):
     plain = tmp_path / "plain"
     plain.mkdir()
     monkeypatch.chdir(plain)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: plain)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: plain)
 
     assert claude_code._worktree_identity_bleed(MAIN_AGENT) is None
 
@@ -202,7 +202,7 @@ def test_credential_follows_the_reversed_identity(worktrees, tmp_path, monkeypat
     _write_key(cfg, TREE_AGENT, "ab_sk_TREE")
     monkeypatch.setenv("AGENTBUS_CONFIG_DIR", str(cfg))
     monkeypatch.chdir(tree)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tree)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tree)
     # Exactly what hooks.json leaves behind: the MAIN worktree's agent AND its
     # agent-bound key, both already exported.
     monkeypatch.setenv("AGENTBUS_AGENT", MAIN_AGENT)
@@ -224,7 +224,7 @@ def test_credential_untouched_when_no_bleed(worktrees, tmp_path, monkeypatch):
     _write_key(cfg, MAIN_AGENT, "ab_sk_MAIN")
     monkeypatch.setenv("AGENTBUS_CONFIG_DIR", str(cfg))
     monkeypatch.chdir(main)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: main)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: main)
     monkeypatch.setenv("AGENTBUS_AGENT", MAIN_AGENT)
     monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_OPERATOR_CHOSE_THIS")
 
@@ -239,7 +239,7 @@ def test_missing_key_file_leaves_the_environment_alone(worktrees, tmp_path, monk
     _write_key(cfg, MAIN_AGENT, "ab_sk_MAIN")  # no key file for the worktree
     monkeypatch.setenv("AGENTBUS_CONFIG_DIR", str(cfg))
     monkeypatch.chdir(tree)
-    monkeypatch.setattr(claude_code, "_repo_root", lambda: tree)
+    monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tree)
     monkeypatch.setenv("AGENTBUS_AGENT", MAIN_AGENT)
     monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_MAIN")
 

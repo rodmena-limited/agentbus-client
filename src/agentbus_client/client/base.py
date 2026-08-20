@@ -1,27 +1,19 @@
-
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-from .models import _SEAL_INFLATION_FACTOR, _server_max_attachment_bytes
-import concurrent.futures as _cf
-import logging
 import os
 import sys
 import threading as _threading
 import uuid
-
-from .resilience import _key_from_disk
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from typing import Any
 
-_log = logging.getLogger(__name__)
+from .. import sealing
+from .errors import AgentBusError, AuthError
+from .models import _SEAL_INFLATION_FACTOR, _server_max_attachment_bytes
 
 DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
 
-
-from .errors import AgentBusError, AuthError
-from .models import _server_max_attachment_bytes
 
 # ------------------------------------------------------------------ clients
 
@@ -385,3 +377,36 @@ class _Base:
                 "this agent published a key, or to other recipients"
             )
         return message
+
+def _key_from_disk(agent: str | None) -> str:
+    """The credential this client already wrote, read back from where it put it.
+
+    ORDER IS LEAST-PRIVILEGE FIRST: a NAMED agent gets ONLY its own bound key
+    (keys/<agent>.env) and never falls through to the workspace-wide operator key
+    (SEV-1-B, #234) — that fall-through let a script act as any peer with operator
+    authority. An unnamed agent uses operator.env, the pre-binding acting mode.
+    Filenames go through sealing.bound_env_filename (REG-8/8b) so a hostile name
+    cannot traverse out of keys/.
+    """
+    config = os.path.join(os.path.expanduser("~"), ".config", "agentbus")
+
+    def _read(path: str) -> str:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                for raw in handle:
+                    entry = raw.strip()
+                    if not entry or entry.startswith("#"):
+                        continue
+                    entry = entry.removeprefix("export ").strip()
+                    name, sep, value = entry.partition("=")
+                    if sep and name.strip() == "AGENTBUS_API_KEY":
+                        value = value.strip().strip("'\"")
+                        if value:
+                            return value
+        except OSError:
+            return ""
+        return ""
+
+    if agent:
+        return _read(os.path.join(config, "keys", sealing.bound_env_filename(agent)))
+    return _read(os.path.join(config, "operator.env"))

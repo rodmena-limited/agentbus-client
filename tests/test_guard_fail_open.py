@@ -71,7 +71,7 @@ _REACHABLE: dict[str, tuple[bool, str]] = {"value": (True, "")}
 def _run_hook(monkeypatch: pytest.MonkeyPatch, stdin: str, **env: str) -> dict[str, Any]:
     """Invoke pre_tool_use with a mocked stdin and env; capture the decision."""
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
-    monkeypatch.setattr(hk, "_bus_reachable", lambda *_a, **_k: _REACHABLE["value"])
+    monkeypatch.setattr(hk._gate, "_bus_reachable", lambda *_a, **_k: _REACHABLE["value"])
     for k in ("AGENTBUS_API_KEY", "AGENTBUS_AGENT", "AGENTBUS_BASE_URL"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -338,6 +338,14 @@ def test_setup_writes_both_identity_sources_from_one_name() -> None:
     """settings.local.json exists only because Claude Code turns its env block
     into hook environment variables; it must be written from the same name as
     .agentbus/agent so the two can never disagree."""
-    body = (REPO / "src" / "agentbus_client" / "onboarding.py").read_text()
+    body = _onboarding_source()
     assert "_write_worktree_identity(name, report)" in body
     assert "The two must never disagree" in body
+
+
+def _onboarding_source() -> str:
+    """onboarding is a package now (one module per concern): read all of it, in a stable order."""
+    from pathlib import Path as _P
+
+    pkg = _P(__file__).resolve().parents[1] / "src" / "agentbus_client" / "onboarding"
+    return "".join(f.read_text() for f in sorted(pkg.glob("*.py")))

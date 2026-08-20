@@ -47,11 +47,11 @@ The wake-hook contract:
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable
 from typing import Any
-
 
 # Envelope schema key used as the discriminator (peer-confirmed spelling).
 ENVELOPE_KIND = "coalesced"
@@ -241,10 +241,7 @@ class Coalescer:
         A wake handler crashing must not take the coalescer down —
         watcher's `_drain` already logs handler exceptions.
         """
-        try:
+        # Swallow: the caller's handler wrapper in _drain also catches and logs.
+        # The coalescer's job is to serialise wakes, not to be a second logging layer.
+        with contextlib.suppress(Exception):
             self._sink(payload)
-        except Exception:
-            # Swallow; the caller's handler wrapper in _drain also catches
-            # and logs. The coalescer's job is to serialise wakes, not to
-            # be a second logging layer.
-            pass

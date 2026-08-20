@@ -1,20 +1,12 @@
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-import concurrent.futures as _cf
 import json
-import logging
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from collections.abc import Sequence
 from typing import Any
 
 import httpx
-
-_log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
-
 
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import _max_attachment_bytes
@@ -70,7 +62,7 @@ class AsyncMiscMixin:
 
         async def verify(self, delivery_id: str, *, agent: str | None = None) -> dict[str, Any]:
             """Verify a message's signature yourself — async twin of AgentBus.verify.
-    
+
             SEV-3 (#234): reads the sender from `sender_agent_name` when the server
             publishes it, falling back to the historical " via AgentBus" strip. The
             strip is fragile — a display-suffix change breaks verification — but
@@ -229,7 +221,7 @@ class AsyncMiscMixin:
             agent: str | None = None,
         ) -> dict[str, Any]:
             """Store a draft, sealed to YOUR OWN key on an encrypted workspace — async twin.
-    
+
             Calls the same _seal_to_self path as the sync twin; sealing is a local
             operation so no async-specific machinery is needed inside it.
             """
@@ -308,10 +300,10 @@ class AsyncMiscMixin:
             self, delivery_id: str, index: int = 0, *, agent: str | None = None
         ) -> bytes:
             """The RAW BYTES of one attachment on a delivery — async twin of AgentBus.attachment.
-    
+
             Unseals on the way out with any private key this machine holds, so
             `sealed_by=sender` armor never leaks to the caller as-is.
-    
+
             REG-9 (round-3 re-audit): stream + boundary cap, same rule as the sync
             twin. See AgentBus.attachment for the reasoning.
             """

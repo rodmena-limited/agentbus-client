@@ -1,25 +1,16 @@
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-import concurrent.futures as _cf
-import logging
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from collections.abc import Iterator, Sequence
 from typing import Any
 
 import httpx
 
 from .. import sealing
-
-_log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
-
-
+from .attachments import _encode_attachments
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
-from .resilience import _encode_attachments
 
 
 class SyncMessagingMixin:
@@ -203,7 +194,7 @@ class SyncMessagingMixin:
             agent: str | None = None,
         ) -> list[Delivery]:
             """One page of deliveries after `cursor`. `wait` long-polls (max 55s).
-    
+
             `unread=True` asks the SERVER for unread only. Page-and-filter from
             cursor 0 cannot answer "what is unread": cursor 0 is the OLDEST page,
             so the window fills with read mail as history grows and the filter goes
@@ -243,7 +234,7 @@ class SyncMessagingMixin:
 
         def read(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
             """Read one delivery, unsealing it when this machine holds the key.
-    
+
             Unsealing happens HERE rather than being an extra step the caller must
             remember: a reader that forgets it gets ciphertext and no explanation,
             and "remember to decrypt" is exactly the kind of instruction that is
@@ -270,7 +261,7 @@ class SyncMessagingMixin:
 
         def thread(self, thread_id: str) -> dict[str, Any]:
             """Read a whole conversation, unsealing each message where possible.
-    
+
             F10 (issuedb #11): on an encrypted workspace the server holds
             ciphertext by design (end-to-end sealing — no private key server-
             side). Before this fix, `agentbus thread --json` returned each
@@ -307,15 +298,15 @@ class SyncMessagingMixin:
             agent: str | None = None,
         ) -> dict[str, Any]:
             """Read or declare this agent's availability (#187).
-    
+
             With no `state` this READS. With one it declares:
-    
+
                 online    the default; releases anything withheld
                 busy      occupied until T — delivers normally, tells senders
                 away      same, different word for a human reading the roster
                 dnd       WITHHOLDS normal and background; urgent still arrives
                 offline   WITHHOLDS everything, and nothing tries to wake you
-    
+
             `dnd` and `offline` are the recipient deciding, which is what #168's
             `busy()` was missing: it declared, and every sender was free to ignore
             it. Withheld mail is stored and delivered — with a wake — when the
@@ -349,7 +340,7 @@ class SyncMessagingMixin:
             agent: str | None = None,
         ) -> dict[str, Any]:
             """Declare how long THIS agent cannot take new work (#168); 0 clears it.
-    
+
             A duration, not a flag: it expires by itself, so a crash cannot leave
             this agent looking permanently unavailable.
             """
@@ -373,20 +364,20 @@ class SyncMessagingMixin:
             resolve_body: dict[str, Any] | None = None,
         ) -> tuple[dict[str, Any], dict[str, Any] | None]:
             """Seal the body when the workspace is encrypted, or leave it alone.
-    
+
             THE SERVER IS ASKED, NOT GUESSED. `POST /v1/recipients/resolve` returns
             the concrete agents a send would reach — which only the server can know
             for `room:` and `tag:` targets — along with their public keys and,
             crucially, the names of any recipient that has published none.
-    
+
             A CLIENT THAT SEALED ONLY TO THE KEYS IT FOUND would silently exclude
             whoever had none: a message that looks delivered and is unreadable by
             half its recipients, with nothing anywhere saying so. So a missing key
             is a refusal, not a warning.
-    
+
             The sender's own key is always added, so an agent can read its own sent
             mail. Without it, `agentbus sent` shows you ciphertext you wrote.
-    
+
             RETURNS THE RESOLVER'S ANSWER ALONGSIDE THE PAYLOAD, because the
             signature needs it: on a reply the server derives the recipients and the
             "Re: " subject, and a signature covers what the server STORES. `None`
@@ -422,7 +413,7 @@ class SyncMessagingMixin:
 
         def _seal_to_self(self, payload: dict[str, Any], agent: str | None) -> dict[str, Any]:
             """Seal `text` to this agent's own key, or leave it alone.
-    
+
             Asks the server whether the workspace is encrypted rather than guessing,
             the same way `_seal_if_needed` does, and falls through untouched when the
             question cannot be answered — a refusal must never cost you the write.
@@ -455,7 +446,7 @@ class SyncMessagingMixin:
 
         def _as_message_id(self, ident: str, *, agent: str | None = None) -> str:
             """A delivery id resolved to its message id, or the input unchanged.
-    
+
             Every surface an agent reads prints `agentbus show <DELIVERY_ID>`, so
             pasting that into `reply` is the natural move — and it used to fail with
             a bare `not_found` that gave no hint the id was the wrong KIND.

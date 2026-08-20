@@ -1,21 +1,14 @@
 """Typed sync and async clients for the AgentBus API."""
+
 from __future__ import annotations
 
-import concurrent.futures as _cf
 import contextlib
-import logging
 import os
 import time
 import uuid
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
 from typing import Any
 
 import httpx
-
-_log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
 
 from .async_directory import AsyncDirectoryMixin
 from .async_messaging import AsyncMessagingMixin
@@ -108,14 +101,14 @@ class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMi
             self, fn: Any, *, deadline: float | None = None
         ) -> Any:
             """Retry-with-backoff + async bulkhead + breaker for async _request.
-    
+
             Semantics mirror the sync `_run_with_resilience`: retries only fire for
             transient errors (transport / 503), non-transient errors pass through
             immediately, and one Semaphore slot covers the whole retry sequence so
             N callers never multiply their load during a bus deploy.
-    
+
             Two additions close the async/sync gap (ticket #18):
-    
+
             - CIRCUIT BREAKER. resilient_circuit (the sync breaker) is sync-only,
               so a hand-rolled per-process breaker lives here. It sees POST-RETRY
               outcomes (a whole failing retry-sequence counts as one failure);
@@ -128,7 +121,7 @@ class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMi
               call site) bounds the whole retry sequence plus the bulkhead wait via
               asyncio.wait_for, so a choked call cannot retry behind the caller's
               own timeout indefinitely; it surfaces as a TransportError.
-    
+
             REG-10 (round-3 re-audit): the semaphore is keyed BY THE RUNNING EVENT
             LOOP, not by the instance. asyncio.Semaphore binds permanently to the
             loop it was instantiated on — a global AsyncAgentBus reused across

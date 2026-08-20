@@ -255,6 +255,23 @@ class _Base:
                 + ". They each need to run `agentbus signin` on their machine."
             )
 
+        # AN UNBOUND CLIENT CANNOT SEAL AN ENCRYPTED WORKSPACE.
+        #
+        # B1 (reliability audit follow-up): this used to call
+        # ensure_keypair(agent or self.agent) directly, which raised a raw,
+        # untyped ValueError("no acting agent") when a client was constructed
+        # with neither agent= nor AGENTBUS_AGENT. The sibling _sign_if_possible
+        # degrades to unsigned on the same condition; the seal path cannot
+        # degrade (sealing to nobody's key is a guarantee, not a choice), so it
+        # must fail TYPED so an SDK caller catching AgentBusError sees it.
+        acting = agent or self.agent
+        if not acting:
+            raise AgentBusError(
+                "cannot seal: this workspace is encrypted but no acting agent is "
+                "set. A sealing key belongs to ONE agent, so the client needs "
+                "agent=... or AGENTBUS_AGENT to know whose key to seal to."
+            )
+
         # EVERY key of every recipient, not one each. An agent may be on
         # several machines (AGENTBUS_DEVICE_ID is the documented way a
         # container fleet shares one identity), and sealing to only the first
@@ -263,7 +280,7 @@ class _Base:
         keys: list[str] = []
         for entries in (resolved.get("keys") or {}).values():
             keys.extend(entry["public_key"] for entry in entries)
-        _private, own_public = sealing.ensure_keypair(agent or self.agent)
+        _private, own_public = sealing.ensure_keypair(acting)
         if own_public not in keys:
             keys.append(own_public)
         if not keys:

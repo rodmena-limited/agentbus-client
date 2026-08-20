@@ -460,7 +460,17 @@ class SyncMessagingMixin:
                 raise
             if not resolved.get("encrypted"):
                 return payload
-            _private, own_public = sealing.ensure_keypair(agent or self.agent)
+            # B2 (reliability audit follow-up): same unbound-client guard as
+            # _apply_seal — an untyped ValueError from ensure_keypair would
+            # escape an SDK caller that catches AgentBusError.
+            acting = agent or self.agent
+            if not acting:
+                raise AgentBusError(
+                    "cannot seal: this workspace is encrypted but no acting agent "
+                    "is set. A sealing key belongs to ONE agent, so the client "
+                    "needs agent=... or AGENTBUS_AGENT to know whose key to seal to."
+                )
+            _private, own_public = sealing.ensure_keypair(acting)
             sealed = dict(payload)
             sealed["text"] = sealing.seal_for(payload["text"], [own_public])
             sealed["sealed"] = True

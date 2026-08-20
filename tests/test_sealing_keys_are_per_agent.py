@@ -142,6 +142,42 @@ def test_apply_seal_uses_the_explicit_agent(monkeypatch):
     assert out["sealed"] is True
 
 
+def test_apply_seal_requires_acting_agent_when_unbound(monkeypatch) -> None:
+    """B1: an unbound client (no agent=, no AGENTBUS_AGENT) sealing to an
+    ENCRYPTED workspace must raise a TYPED AgentBusError, not a raw ValueError
+    from ensure_keypair — so an SDK caller catching AgentBusError can handle it."""
+    from agentbus_client.client import AgentBusError
+    from agentbus_client.client.base import _Base
+
+    monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
+    bus = _Base(api_key="ab_sk_x", base_url="https://x")
+    resolved = {
+        "encrypted": True,
+        "external": False,
+        "missing_keys": [],
+        "keys": {"r": [{"public_key": "k"}]},
+    }
+    with pytest.raises(AgentBusError) as exc:
+        bus._apply_seal({"text": "hi"}, resolved, agent=None)
+    assert "no acting agent" in str(exc.value)
+
+
+def test_seal_to_self_requires_acting_agent_when_unbound(monkeypatch) -> None:
+    """B2: same unbound-client guard on the draft path — _seal_to_self seals
+    to the acting agent's OWN key, so with no acting agent it is a typed error,
+    not a raw ValueError."""
+    from agentbus_client.client import AgentBus, AgentBusError
+
+    monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
+    bus = AgentBus(api_key="ab_sk_x", base_url="https://x")
+    monkeypatch.setattr(
+        bus, "_request", lambda *a, **k: {"encrypted": True, "keys": {}}
+    )
+    with pytest.raises(AgentBusError) as exc:
+        bus._seal_to_self({"text": "hi"}, None)
+    assert "no acting agent" in str(exc.value)
+
+
 def test_the_agent_name_is_sanitised_into_the_filename(store):
     """An agent name reaches a path. Anything that could traverse or collide
     must be neutralised, or a crafted name reads another agent's key."""

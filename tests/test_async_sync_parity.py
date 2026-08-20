@@ -156,3 +156,40 @@ def test_shared_methods_use_the_same_endpoints() -> None:
         "different HTTP URL than its counterpart, so the async caller may 404 "
         "or hit the wrong resource):\n" + "\n".join(drift)
     )
+
+
+def test_private_sealing_twin_covers_async_secure_draft(tmp_path, monkeypatch) -> None:
+    """C (reliability audit follow-up): async `secure_draft` called the
+    UNDEFINED `_seal_to_self_async` — a guaranteed AttributeError on the async
+    draft path, invisible to the public-method parity check above because the
+    helper is private. Pin the twin exists with the sync signature and seals a
+    body to the acting agent's own key on an encrypted workspace.
+
+    (Not part of the public parity sweep on purpose — verified here explicitly,
+    with the config dir isolated to tmp so the test never touches real keys.)
+    """
+    import asyncio
+    import inspect
+
+    import agentbus_client.sealing as sealing_mod
+    from agentbus_client.client import AsyncAgentBus
+
+    sync_params = list(inspect.signature(AgentBus._seal_to_self).parameters)
+    async_params = list(inspect.signature(AsyncAgentBus._seal_to_self_async).parameters)
+    assert async_params == sync_params, (
+        f"async _seal_to_self_async signature {async_params} diverges from sync "
+        f"_seal_to_self {sync_params}"
+    )
+
+    monkeypatch.setattr(sealing_mod, "config_dir", lambda: tmp_path)
+    bus = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
+
+    async def fake_request(_method, path, **_kwargs):
+        if path == "/v1/recipients/resolve":
+            return {"encrypted": True, "keys": {}}
+        raise AssertionError(f"unexpected request path: {path}")
+
+    monkeypatch.setattr(bus, "_request", fake_request)
+    sealed = asyncio.run(bus._seal_to_self_async({"text": "secret"}, "t"))
+    assert sealed.get("sealed") is True
+    assert sealed["text"].lstrip().startswith("-----BEGIN AGE ENCRYPTED FILE-----")

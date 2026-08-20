@@ -332,6 +332,46 @@ class AsyncMessagingMixin:
                 raise
             return self._apply_seal(payload, resolved, agent=agent), resolved
 
+        async def _seal_to_self_async(
+            self, payload: dict[str, Any], agent: str | None
+        ) -> dict[str, Any]:
+            """Seal `text` to this agent's own key on an encrypted workspace —
+            async twin of the sync `_seal_to_self`.
+
+            C (reliability audit follow-up): this method did NOT exist even
+            though async `secure_draft` called it — a guaranteed AttributeError
+            on the async draft path. It mirrors the sync implementation (the
+            resolve round-trip is the only I/O, hence `async def`), including
+            the B2 unbound-client guard.
+            """
+            from .. import sealing
+
+            try:
+                resolved = await self._request(
+                    "POST",
+                    "/v1/recipients/resolve",
+                    json={"to": [agent or self.agent]},
+                    agent=agent,
+                )
+            except AgentBusError as exc:
+                if getattr(exc, "status", None) in (403, 404, 405):
+                    return payload
+                raise
+            if not resolved.get("encrypted"):
+                return payload
+            acting = agent or self.agent
+            if not acting:
+                raise AgentBusError(
+                    "cannot seal: this workspace is encrypted but no acting agent "
+                    "is set. A sealing key belongs to ONE agent, so the client "
+                    "needs agent=... or AGENTBUS_AGENT to know whose key to seal to."
+                )
+            _private, own_public = sealing.ensure_keypair(acting)
+            sealed = dict(payload)
+            sealed["text"] = sealing.seal_for(payload["text"], [own_public])
+            sealed["sealed"] = True
+            return sealed
+
         def unseal_message(self, message: dict[str, Any]) -> dict[str, Any]:
             """Decrypt a message body in place — async twin.
     

@@ -5,6 +5,7 @@ import concurrent.futures as _cf
 import contextlib
 import logging
 import os
+import time
 import uuid
 
 _ConcurrentFuturesTimeout = _cf.TimeoutError
@@ -75,12 +76,21 @@ class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMi
             if (idempotent or idempotency_key) and not idempotency_key:
                 idempotency_key = str(uuid.uuid4())
 
+            # Same shared budget as the sync client (issuedb #26): the sequence gets
+            # call_timeout + 5s and every attempt is bounded by what is left.
+            call_timeout = kwargs.pop("timeout", None) or self.timeout
+            budget = call_timeout + 5
+            deadline = time.monotonic() + budget
+
             async def _do_request() -> Any:
+                remaining = deadline - time.monotonic()
+                attempt_timeout = max(0.05, min(call_timeout, remaining))
                 try:
                     response = await self._client.request(
                         method,
                         path,
                         headers=self._headers(agent, idempotent, idempotency_key),
+                        timeout=attempt_timeout,
                         **kwargs,
                     )
                 except httpx.HTTPError as exc:
@@ -90,18 +100,9 @@ class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMi
                 self._capture_challenge(payload)
                 return payload
 
-            # REG-7: resilience for the async client. resilient_circuit is sync-only
-            # so we hand-roll retry + concurrency isolation here. Semantics match
-            # the sync stack: only transient errors retry; bulkhead is a
-            # per-instance asyncio.Semaphore acquired for the whole retry sequence
-            # (so N failing callers don't multiply their load).
             if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
                 return await _do_request()
-            # Mirror the sync call_timeout + 5 headroom: the outer deadline bounds
-            # the whole retry sequence (plus the bulkhead wait), so a choked call
-            # cannot retry behind the caller's own timeout forever.
-            call_timeout = kwargs.get("timeout") or self.timeout
-            return await self._run_with_resilience_async(_do_request, deadline=call_timeout + 5)
+            return await self._run_with_resilience_async(_do_request, deadline=budget)
 
         async def _run_with_resilience_async(
             self, fn: Any, *, deadline: float | None = None
@@ -164,18 +165,18 @@ class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMi
                 with contextlib.suppress(TypeError):
                     weakref.finalize(loop, bulkheads.pop, loop_id, None)
 
-            if breaker.is_open():
-                # Fail fast — the bus has demonstrably been failing; do not burn
-                # retries or a bulkhead slot on it. Mirror the sync breaker-open
-                # behaviour, surfacing the last observed error.
-                last = breaker.last_error()
-                if last is not None:
-                    raise last
+            if not breaker.admit():
+                # Fail fast — the bus has demonstrably been failing (or a half-open
+                # probe is already in flight). A FRESH TransportError per caller, with
+                # the last observed error as __cause__: re-raising one shared exception
+                # instance across callers grew its traceback without bound (S9).
                 raise TransportError(
-                    "agentbus SDK async breaker is open — the bus is failing; "
-                    "failing fast instead of retrying at full rate. Retry after "
-                    "the cooldown, or set AGENTBUS_SDK_RESILIENCE=0 to disable."
-                )
+                    "agentbus SDK async circuit breaker is OPEN: recent calls to the bus "
+                    "failed, so the client is failing fast for the cooldown instead of "
+                    "retrying at full rate. Retry after the cooldown, or set "
+                    "AGENTBUS_SDK_RESILIENCE=0 to bypass the resilience layer."
+                ) from breaker.last_error()
+            verdict_given = False
 
             async def _sequence() -> Any:
                 last_exc: BaseException | None = None
@@ -194,22 +195,33 @@ class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMi
                             delay *= 1 + random.uniform(-0.2, 0.2)
                             await asyncio.sleep(delay)
                         else:
+                            nonlocal verdict_given
+                            verdict_given = True
                             breaker.on_success()
                             return result
                 assert last_exc is not None
                 # The whole retry sequence failed transiently — record it against
                 # the breaker so a sustained outage opens it and later calls fail fast.
+                verdict_given = True
                 breaker.on_failure(last_exc)
                 raise last_exc
 
-            if deadline is not None:
-                try:
-                    return await asyncio.wait_for(_sequence(), timeout=deadline)
-                except asyncio.TimeoutError as exc:
-                    raise TransportError(
-                        f"agentbus SDK call did not complete within {deadline}s "
-                        "(deadline = caller timeout + 5s; likely a transient "
-                        "network stall)."
-                    ) from exc
-            return await _sequence()
+            try:
+                if deadline is not None:
+                    try:
+                        return await asyncio.wait_for(_sequence(), timeout=deadline)
+                    except asyncio.TimeoutError as exc:
+                        # A deadline IS a failure of the bus to answer in time: count
+                        # it, or a slow outage never opens the breaker (S9).
+                        verdict_given = True
+                        breaker.on_failure(exc)
+                        raise TransportError(
+                            f"agentbus SDK call did not complete within {deadline}s "
+                            "(deadline = caller timeout + 5s; likely a transient "
+                            "network stall)."
+                        ) from exc
+                return await _sequence()
+            finally:
+                if not verdict_given:
+                    breaker.release_probe()
 

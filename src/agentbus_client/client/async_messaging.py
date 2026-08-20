@@ -371,14 +371,3 @@ class AsyncMessagingMixin:
             sealed["text"] = sealing.seal_for(payload["text"], [own_public])
             sealed["sealed"] = True
             return sealed
-
-        def unseal_message(self, message: dict[str, Any]) -> dict[str, Any]:
-            """Decrypt a message body in place — async twin.
-    
-            Local operation (no I/O), so it is not `async def` even on the async
-            client; it uses this machine's sealing keys and returns immediately.
-            The parity test only checks the name and parameter shape, not that both
-            implementations are the same shape of function.
-            """
-            return AgentBus.unseal_message(self, message)  # type: ignore[arg-type]
-

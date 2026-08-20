@@ -105,6 +105,12 @@ class DeadWakeSocket(RuntimeError):
     """The session socket this watcher injects into no longer exists."""
 
 
+class WatchTerminated(BaseException):
+    """SIGTERM arrived. A BaseException so the reconnect handler's total
+    `except BaseException` cannot swallow it; cmd_watch's SIGTERM handler raises
+    it so `finally` blocks (coalescer flush, pidfile removal) run (review #23, S3)."""
+
+
 # THE ONLY WAY THIS CLIENT CAN OBSERVE A LINK THAT DIED WITHOUT A FIN.
 #
 # A clean outage — restart, deploy, refused connection — sends FIN, something
@@ -127,6 +133,11 @@ class DeadWakeSocket(RuntimeError):
 #     which is the same bug wearing the opposite sign. Three missed keepalives.
 STREAM_KEEPALIVE_SECONDS = 20.0
 STREAM_READ_DEADLINE = 60.0
+
+# How long a stream must stay open before the reconnect ladder resets. A reset on
+# the bare HTTP 200 let a bus that accepts-then-drops (an overloaded proxy, a
+# draining worker) defeat the backoff entirely (review #23, issuedb #27).
+STREAM_HEALTHY_SECONDS = 30.0
 
 # The longest this client will go without asking the server directly, no matter
 # how healthy the stream looks. Push is an OPTIMISATION here, never the only way
@@ -190,6 +201,10 @@ class Watcher:
         # the SSE loop keep consuming keepalives.
         self._drain_thread: threading.Thread | None = None
         self._drain_lock = threading.Lock()
+        # Serialises state-file publishes from the drain thread and the main
+        # thread (peer review C2 / review #23 S10): each writer also uses its own
+        # tmp name, so a reader only ever sees a complete file.
+        self._state_lock = threading.Lock()
         # Does this watcher's handler START A TURN, or only record?
         #
         # `--append` writes arrivals to a file and `print_line` writes them to a
@@ -228,53 +243,66 @@ class Watcher:
                 return {}
         return {}
 
-    def _key_really_revoked(self) -> bool:
-        """Second opinion before this client ever gives up for good.
+    def _credential_refusal(self) -> int | None:
+        """The HTTP status of a REST-CONFIRMED definitive refusal, or None.
 
-        Only a REST call that actually refuses us counts as revocation. Anything
-        else — a timeout, a 5xx, a connection error — means we could not tell,
-        and 'could not tell' must never end the watch.
+        Only a REST call that actually refuses us counts. Anything else — a
+        timeout, a 5xx, a connection error — means we could not tell, and
+        'could not tell' must never end the watch.
 
-        SEV-2-G (#234): classify by TYPED status + code, not by grepping the
-        exception's stringified message. A server rewording that drops the word
-        'revoked' or '401' from the body used to turn a real refusal into
-        'transient' and the watcher reconnected forever. AgentBusError already
-        carries .status and .code; use them. The string check remains as a
-        narrow belt-and-braces only for a non-standard exception path where the
-        typed fields are absent.
+        401 (revoked/invalid key), 403 (key bound to another agent, suspended
+        workspace) and 410 (agent RETIRED) are all DEFINITIVE: retrying them at
+        the backoff cadence forever while watch-status says RUNNING was peer
+        review C4. Classified by TYPED status, never by grepping the message
+        (SEV-2-G); an exception the SDK did not type is "could not tell" (S6).
         """
         try:
             self.bus.whoami()
-            return False
-        except AuthError:
-            # AuthError == 401 with any code the server used (invalid_api_key,
-            # revoked, key_agent_mismatch under auth). Any 401 is revocation for
-            # this watch's purposes — the credential does not authenticate.
-            return True
+            return None
+        except AuthError as exc:
+            return int(exc.status or 401)
         except AgentBusError as exc:
-            # A structured error with an explicit 401 status ALSO counts,
-            # regardless of subclass (a bare AgentBusError raised somewhere).
-            # 5xx/transport failures are NOT revocation and drop through to the
-            # transient path below.
-            return exc.status == 401
-        except Exception as exc:
-            # Last-resort classifier for an exception the server client did not
-            # wrap. Deliberately kept because a network stack can raise all
-            # kinds of things; the typed path above is what matters in practice.
-            text = f"{type(exc).__name__}: {exc}".lower()
-            return (
-                "401" in text
-                or "unauthenticated" in text
-                or "invalid_api_key" in text
-                or "revoked" in text
-            )
+            return exc.status if exc.status in (401, 403, 410) else None
+        except Exception:
+            return None
+
+    def _key_really_revoked(self) -> bool:
+        """Second opinion before this client ever gives up for good.
+
+        The single gate every terminal path consults (tests stub it); the
+        confirmed HTTP status is kept on `_last_refusal` for the error text.
+        """
+        status = self._credential_refusal()
+        self._last_refusal = status
+        return status is not None
+
+    def _refused_status(self, fallback: int) -> int:
+        return int(getattr(self, "_last_refusal", None) or fallback)
+
+    @staticmethod
+    def _terminal_auth_error(status: int, where: str) -> AuthError:
+        code = {401: "revoked", 403: "forbidden", 410: "retired"}.get(status, "refused")
+        return AuthError(
+            f"credential definitively refused by the bus (HTTP {status}, {where}); "
+            "not retrying — fix the key or the agent registration",
+            code=code,
+            status=status,
+        )
 
     def _save_cursor(self) -> None:
         if not self.state_path:
             return
+        with self._state_lock:
+            self._save_cursor_locked()
+
+    def _save_cursor_locked(self) -> None:
         try:
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.state_path.with_suffix(".tmp")
+            # Unique per writer (review #23, S10): the drain thread and the main
+            # thread both checkpoint, and a shared ".tmp" name raced.
+            tmp = self.state_path.with_name(
+                f"{self.state_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+            )
             # Record the workspace so this cursor can never be mistaken for
             # another workspace's. A cursor is a per-delivery sequence INSIDE one
             # workspace; the same agent name routinely exists in several.
@@ -435,6 +463,7 @@ class Watcher:
             batch = self.bus.inbox(self.cursor, limit=100, agent=self.agent)
             if not batch:
                 return seen
+            before = self.cursor
             for message in batch:
                 self.cursor = max(self.cursor, message.seq)
                 seen += 1
@@ -443,6 +472,18 @@ class Watcher:
                 except Exception as exc:
                     print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
             self._save_cursor()
+            if self.cursor <= before:
+                # PROGRESS GUARD (review #23, issuedb #29): a page that does not
+                # advance the cursor would be fetched again forever at full speed,
+                # holding the drain lock — a watcher RUNNING and deaf. Stop this
+                # drain; the next reconcile tick retries.
+                print(
+                    f"agentbus watch: inbox page of {len(batch)} did not advance the "
+                    f"cursor past {before}; stopping this drain (server seq anomaly?)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return seen
 
     # ------------------------------------------------------------- stream
 
@@ -456,37 +497,40 @@ class Watcher:
             # it counted sockets and called that a wake channel.
             "X-AgentBus-Wake-Capable": "1" if self.wake_capable else "0",
         }
-        with (
-            httpx.Client(timeout=httpx.Timeout(STREAM_READ_DEADLINE, connect=15.0)) as client,
-            client.stream("GET", f"{self.bus.base_url}/v1/stream", headers=headers) as response,
-        ):
+        client = httpx.Client(timeout=httpx.Timeout(STREAM_READ_DEADLINE, connect=15.0))
+        with client, client.stream(
+            "GET", f"{self.bus.base_url}/v1/stream", headers=headers
+        ) as response:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 # GET /v1/stream returned 401/403 — the SAME revocation signal
-                # as an `event: unauthorized` frame, and until now it fell
-                # straight into the reconnect loop's generic handler and was
-                # retried forever, hammering the bus with a credential that
-                # will never work (audit: "SSE stream revocation asymmetry").
-                # Confirm against REST before believing it — only a confirmed
-                # revocation ends the watch (via AuthError -> cli.py exit 8);
-                # a blip (5xx mid-deploy, pool torn down) stays transient and
-                # the backoff loop below handles it.
-                if exc.response.status_code in (401, 403) and self._key_really_revoked():
-                    raise AuthError(
-                        f"API key was rejected by the stream (HTTP {exc.response.status_code})",
-                        code="revoked" if exc.response.status_code == 401 else "forbidden",
-                        status=int(exc.response.status_code),
+                # as an `event: unauthorized` frame. Confirm against REST before
+                # believing it — only a confirmed revocation ends the watch (via
+                # AuthError -> cli.py exit 8); a blip stays transient.
+                if exc.response.status_code in (401, 403, 410) and self._key_really_revoked():
+                    raise self._terminal_auth_error(
+                        self._refused_status(int(exc.response.status_code)), "stream"
                     ) from exc
                 raise
-            # Successful reconnect: clear the persisted backoff position too,
-            # so a subsequent process restart resumes from a clean baseline
-            # rather than reading a stale `failures=6` and starting at 60s.
-            if self._failures != 0 or self._last_failure_at:
-                self._failures = 0
-                self._last_failure_at = 0.0
-                self._save_cursor()
+            # The ladder resets only once the stream has PROVED healthy for
+            # STREAM_HEALTHY_SECONDS (issuedb #27), not on the bare 200.
+            opened_at = time.monotonic()
             for line in response.iter_lines():
+                # THE WAKE TARGET CAN DIE WHILE THE STREAM STAYS HEALTHY (peer
+                # review C3): the drain thread's DeadWakeSocket was swallowed and
+                # a keepalive-only stream never reconnected, so a watcher whose
+                # session had ended kept the subscription and kept reporting
+                # wake_capable. Re-validate on every frame, keepalives included.
+                reason = _dead_wake_socket_reason()
+                if reason:
+                    raise DeadWakeSocket(reason)
+                if (self._failures or self._last_failure_at) and (
+                    time.monotonic() - opened_at >= STREAM_HEALTHY_SECONDS
+                ):
+                    self._failures = 0
+                    self._last_failure_at = 0.0
+                    self._save_cursor()
                 if line.startswith("event: unauthorized"):
                     # DO NOT take this as final on the strength of one frame.
                     #
@@ -504,7 +548,9 @@ class Watcher:
                     # genuinely revoked, this raises and we stop. If it
                     # answers, the stream was wrong and we reconnect.
                     if self._key_really_revoked():
-                        raise AuthError("API key was revoked", code="revoked", status=401)
+                        raise self._terminal_auth_error(
+                            self._refused_status(401), "stream said unauthorized"
+                        )
                     print(
                         "agentbus watch: stream said unauthorized but the key "
                         "still works; treating as transient and reconnecting",
@@ -586,6 +632,19 @@ class Watcher:
             # hammer the bus with a key that will never work. Re-raise so
             # cmd_watch returns 8 and the monitor stops.
             raise
+        except AgentBusError as exc:
+            # 403/410 on the startup drain are just as terminal as 401 once
+            # REST confirms them (peer review C4); anything else is deferred.
+            if exc.status in (403, 410) and self._key_really_revoked():
+                raise self._terminal_auth_error(
+                    self._refused_status(exc.status), "startup drain"
+                ) from exc
+            tag = str(exc) or f"({type(exc).__name__})"
+            print(
+                f"agentbus watch: startup drain deferred ({tag}); entering reconnect loop",
+                file=sys.stderr,
+                flush=True,
+            )
         except Exception as exc:  # noqa: BLE001 — startup drain MUST NOT block launch
             # The reconnect envelope in the while loop below handles this
             # exact class of failure. Defer to it — announcement is one
@@ -631,6 +690,12 @@ class Watcher:
                 )
             except Exception as exc:
                 self._backoff_and_drain(f"stream dropped ({exc})")
+            else:
+                # A CLEAN EOF IS A DROP TOO (review #23, issuedb #27). The server
+                # (or a proxy in front of it) closed the response without an error;
+                # looping straight back produced 217 reconnects in 12s with no log
+                # line. Back off and log exactly like any other drop.
+                self._backoff_and_drain("stream ended (closed cleanly by the far end)")
 
     def _backoff_and_drain(self, reason: str, stream: Any = sys.stderr) -> None:
         """Announce the failure, opportunistically drain HTTP, THEN back off.
@@ -707,11 +772,9 @@ class Watcher:
             else:
                 try:
                     self._drain()
-                except DeadWakeSocket:
-                    # The socket died while we were disconnected — the session
-                    # is gone. Do NOT sleep and retry a wake target that
-                    # cannot come back. Re-raise (finally still runs) so
-                    # run() sees it.
+                except (DeadWakeSocket, WatchTerminated, KeyboardInterrupt):
+                    # The session is gone, or we were told to stop: do NOT sleep
+                    # and retry. Re-raise (finally still runs) so run() sees it.
                     raise
                 except BaseException as exc:  # noqa: BLE001 — deliberate: reconnect handler MUST be total
                     # Empty message diagnostic: some exceptions (notably

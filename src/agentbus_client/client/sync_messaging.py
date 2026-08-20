@@ -231,9 +231,15 @@ class SyncMessagingMixin:
             """Yield deliveries forever, advancing the cursor as they are consumed."""
             while True:
                 batch = self.inbox(cursor, wait=wait, agent=agent)
+                before = cursor
                 for delivery in batch:
                     cursor = max(cursor, delivery.seq)
                     yield delivery
+                if batch and cursor <= before:
+                    # Progress guard (issuedb #29): never re-fetch the same page forever.
+                    raise AgentBusError(
+                        f"inbox page of {len(batch)} did not advance the cursor past {before}"
+                    )
 
         def read(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
             """Read one delivery, unsealing it when this machine holds the key.
@@ -413,35 +419,6 @@ class SyncMessagingMixin:
                     return payload, None
                 raise
             return self._apply_seal(payload, resolved, agent=agent), resolved
-
-        def unseal_message(self, message: dict[str, Any]) -> dict[str, Any]:
-            """Decrypt a message body in place, or mark plainly why it could not be.
-    
-            A READER THAT CANNOT DECRYPT MUST SAY SO. Returning ciphertext as if it
-            were content is how an agent concludes a peer sent gibberish; returning
-            empty is how it concludes the peer sent nothing. Both are worse than
-            the truth, which is that this message was sealed to keys this machine
-            does not hold.
-            """
-            from .. import sealing
-
-            body = message.get("text_body") or message.get("text") or ""
-            if not sealing.is_sealed(body):
-                return message
-            if not sealing.load_private_keys(self.agent):
-                message["sealed_unreadable"] = "no sealing key on this machine"
-                return message
-            try:
-                message["text_body"] = sealing.unseal_with_any(body, self.agent)
-                message["sealed_opened"] = True
-            except sealing.MalformedSealed as exc:
-                message["sealed_unreadable"] = f"the sealed body is damaged: {exc}"
-            except sealing.CannotDecrypt:
-                message["sealed_unreadable"] = (
-                    "sealed to keys this machine does not hold — it was sent before "
-                    "this agent published a key, or to other recipients"
-                )
-            return message
 
         def _seal_to_self(self, payload: dict[str, Any], agent: str | None) -> dict[str, Any]:
             """Seal `text` to this agent's own key, or leave it alone.

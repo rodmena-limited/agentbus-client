@@ -4,6 +4,7 @@ from __future__ import annotations
 import concurrent.futures as _cf
 import logging
 import os
+import time
 import uuid
 
 _ConcurrentFuturesTimeout = _cf.TimeoutError
@@ -21,6 +22,7 @@ from .errors import (
         _raise_for,
 )
 from .resilience import (
+        _SYNC_CLIENTS,
         _run_with_resilience,
 )
 from .sync_directory import SyncDirectoryMixin
@@ -42,6 +44,9 @@ class AgentBus(_Base, SyncMessagingMixin, SyncDirectoryMixin, SyncMiscMixin):
                 keepalive_expiry=float(os.environ.get("AGENTBUS_KEEPALIVE_EXPIRY", "30")),
             )
             self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout, limits=limits)
+            # Closed by the resilience layer's shutdown hook so an in-flight socket
+            # read cannot hold the interpreter open (issuedb #26).
+            _SYNC_CLIENTS.add(self._client)
 
         def close(self) -> None:
             self._client.close()
@@ -71,12 +76,23 @@ class AgentBus(_Base, SyncMessagingMixin, SyncDirectoryMixin, SyncMiscMixin):
             if (idempotent or idempotency_key) and not idempotency_key:
                 idempotency_key = str(uuid.uuid4())
 
+            # THE BUDGET IS SHARED BY EVERY ATTEMPT (issuedb #26). The whole retry
+            # sequence gets call_timeout + 5s; each attempt's own httpx timeout is
+            # bounded by what is left, so no attempt can outlive the caller's
+            # deadline and an abandoned sequence ends within one backoff sleep.
+            call_timeout = kwargs.pop("timeout", None) or self.timeout
+            budget = call_timeout + 5
+            deadline = time.monotonic() + budget
+
             def _do_request() -> Any:
+                remaining = deadline - time.monotonic()
+                attempt_timeout = max(0.05, min(call_timeout, remaining))
                 try:
                     response = self._client.request(
                         method,
                         path,
                         headers=self._headers(agent, idempotent, idempotency_key),
+                        timeout=attempt_timeout,
                         **kwargs,
                     )
                 except httpx.HTTPError as exc:
@@ -86,16 +102,11 @@ class AgentBus(_Base, SyncMessagingMixin, SyncDirectoryMixin, SyncMiscMixin):
                 self._capture_challenge(payload)
                 return payload
 
-            # REG-7: wrap every request in the resilience stack. Long-polls (large
-            # timeout=) pass their timeout through so a bulkman queue-block does not
-            # override the caller's own wait budget.
+            # REG-7: wrap every request in the resilience stack. Long-polls pass their
+            # own timeout through so a bulkman queue-block never overrides the
+            # caller's wait budget.
             if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
-                # An explicit opt-out for cases where a caller has its own
-                # resilience layer around the SDK and does not want doubled retries.
+                # Explicit opt-out for a caller with its own resilience layer.
                 return _do_request()
-            call_timeout = kwargs.get("timeout") or self.timeout
-            # Add generous headroom over the actual HTTP timeout so bulkman's
-            # future.result(timeout=) never trips before the httpx call does; the
-            # httpx timeout is the source of truth for "this request took too long".
-            return _run_with_resilience(_do_request, timeout=call_timeout + 5)
+            return _run_with_resilience(_do_request, timeout=budget)
 

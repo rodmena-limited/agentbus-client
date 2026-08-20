@@ -58,11 +58,15 @@ def device_id() -> str:
 
     generated = str(uuid.uuid4())
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(generated + "\n")
-        # It identifies this machine to a shared workspace; no reason for it to
-        # be world-readable.
-        path.chmod(0o600)
+        from .sealing import create_secret_exclusive
+
+        # Atomic and 0600 from birth (review #23, #30/S2): two first-run
+        # processes must agree on ONE device id, and it identifies this machine
+        # to a shared workspace, so it is never world-readable even briefly.
+        if not create_secret_exclusive(path, generated + "\n"):
+            existing = path.read_text().strip()
+            if existing:
+                return existing
     except OSError:
         # A read-only home must not stop an agent registering. It degrades to a
         # per-process device id, which means an ephemeral identity — correct,

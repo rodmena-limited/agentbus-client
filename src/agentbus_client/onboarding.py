@@ -72,7 +72,7 @@ _SESSION_START_CMD = (
     '[ -n "${AGENTBUS_AGENT:-}" ] || exit 0; '
     'case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) exit 0;; esac; '
     '[ -n "${AGENTBUS_API_KEY:-}" ] || { set -a; '
-    '[ -f "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env" ] && . "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env" 2>/dev/null; set +a; } || true; '
+    '[ -f "${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}/keys/${AGENTBUS_AGENT}.env" ] && . "${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}/keys/${AGENTBUS_AGENT}.env" 2>/dev/null; set +a; } || true; '
     "agentbus-hook session-start || true"
 )
 _PENDING_CMD = _SESSION_START_CMD.replace("session-start", "pending")
@@ -99,7 +99,7 @@ REWAKE_HOOK_TIMEOUT_SEC = 600  # invariant: strictly greater
 _STOP_CMD = (
     '[ -n "${AGENTBUS_AGENT:-}" ] && '
     f"AGENTBUS_REWAKE_WINDOW={REWAKE_WINDOW_SEC} "
-    '"$HOME/.config/agentbus/stop-rewake.sh"'
+    '"${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}/stop-rewake.sh"'
 )
 
 # The Stop re-waker. Load-bearing properties, each a real failure first:
@@ -121,10 +121,10 @@ _STOP_CMD = (
 #
 # STOP_REWAKE_VERSION is stamped so `doctor --wake` can refuse to trust a stale
 # copy left behind by a client upgrade (david D9).
-STOP_REWAKE_VERSION = 3
+STOP_REWAKE_VERSION = 4
 STOP_REWAKE_SH = r"""#!/bin/sh
 # Stop-hook re-wake for AgentBus (installed by `agentbus setup`; SPECS/0021).
-# agentbus-rewake-version: 3
+# agentbus-rewake-version: 4
 #
 # THIN wrapper on purpose. Its whole job is the one thing shell does better than
 # Python — resolve the per-agent credential with `set -a` sourcing so the child
@@ -139,9 +139,12 @@ set -u
 # hostile AGENTBUS_AGENT (from .claude/settings.local.json or .agentbus/agent)
 # must not be able to source $HOME/.config/agentbus/operator.env via `../operator`
 # traversal. Reject any name with a character outside [a-zA-Z0-9._-].
-if [ -n "${AGENTBUS_AGENT:-}" ] && case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) false;; *) true;; esac && [ -r "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env" ]; then
+# The config dir is overridable (AGENTBUS_CONFIG_DIR), the same way every
+# Python path in the client resolves it (review #23, S4).
+AGENTBUS_CFG="${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}"
+if [ -n "${AGENTBUS_AGENT:-}" ] && case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) false;; *) true;; esac && [ -r "$AGENTBUS_CFG/keys/${AGENTBUS_AGENT}.env" ]; then
     set -a
-    . "$HOME/.config/agentbus/keys/${AGENTBUS_AGENT}.env"
+    . "$AGENTBUS_CFG/keys/${AGENTBUS_AGENT}.env"
     set +a
 else
     exit 0
@@ -194,12 +197,24 @@ def _say(msg: str) -> None:
 
 
 def _write_private(path: Path, content: str) -> bool:
-    """Write with 0600, parents 0700 where we create them. True if changed."""
+    """Write a credential-bearing file, 0600 FROM BIRTH. True if the content changed.
+
+    Never write_text()-then-chmod (review #23, S2): that leaves the secret
+    world-readable between the two calls. The fd is opened 0600 and an existing
+    file's mode is tightened with fchmod before a byte is written.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.read_text() == content:
+        with contextlib.suppress(OSError):
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
         return False
-    path.write_text(content)
-    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+    try:
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)
     return True
 
 
@@ -219,9 +234,14 @@ def _load_json(path: Path) -> dict[str, Any]:
     return data
 
 
-def _dump_json(path: Path, data: dict[str, Any]) -> None:
+def _dump_json(path: Path, data: dict[str, Any], *, private: bool = False) -> None:
+    """Write JSON; `private=True` for a file that carries a credential (0600 from birth)."""
+    text = json.dumps(data, indent=2) + "\n"
+    if private:
+        _write_private(path, text)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    path.write_text(text)
 
 
 # ---------------------------------------------------------------- signin
@@ -567,6 +587,13 @@ def _session_identity() -> str | None:
     from the credential lookup is the whole of #67 — an identity ASSERTION must
     never double as an instruction to go find somebody's secret.
     """
+    # THE CHECKOUT'S OWN DECLARATION FIRST (peer review C6): the hooks and the
+    # plugin monitor read `.agentbus/agent`; the bare CLI used to skip it and
+    # fall through to the signin default, so `agentbus inbox` in a wired
+    # checkout acted as whoever last ran signin on the box.
+    worktree = _agent_from_worktree()
+    if worktree:
+        return worktree
     try:
         local = _load_json(_project_claude_dir() / "settings.local.json")
         identity = (local.get("env") or {}).get("AGENTBUS_AGENT")
@@ -1846,10 +1873,14 @@ def _setup_opencode(args: argparse.Namespace) -> int:
             }
             changed = True
     if changed:
-        _dump_json(oc_path, oc_data)
+        # It carries the bound bearer key: 0600, never the umask default (issuedb #32).
+        _dump_json(oc_path, oc_data, private=True)
         report.append(f"project identity: {oc_path} mcp.agentbus (bound key for {name})")
     else:
         report.append(f"project identity: {oc_path} (already {name})")
+    if key_for_mcp and oc_path.exists():
+        with contextlib.suppress(OSError):
+            os.chmod(oc_path, stat.S_IRUSR | stat.S_IWUSR)
 
     # 5. Plugin reference in the project's plugin array. The project file is
     #    merged over the global one, so a project-level plugin array ADDS to the
@@ -1860,7 +1891,7 @@ def _setup_opencode(args: argparse.Namespace) -> int:
         oc_data["plugin"] = plugins
     if OPENCODE_PLUGIN_NPM not in plugins:
         plugins.append(OPENCODE_PLUGIN_NPM)
-        _dump_json(oc_path, oc_data)
+        _dump_json(oc_path, oc_data, private=bool(key_for_mcp))
         report.append(
             f"plugin: {oc_path} -> {OPENCODE_PLUGIN_NPM} "
             "(installed via `opencode plugin <name>` the first time)"
@@ -2109,8 +2140,14 @@ def _monitor_pids(agent: str | None = None, session: str | None = None) -> list[
             # came to reap an interactive session's monitor. Identity is
             # device+repo+path, so agent scope cannot separate two sessions on
             # one checkout.
-            want = f"monitor-{agent}-{session}.json" if session else f"monitor-{agent}"
-            if want in line:
+            want = f"monitor-{agent}-{session}.json" if session else f"monitor-{agent}-"
+            # BOTH the state-file name AND an exact `--agent <name>` token (review
+            # #23, S8): `monitor-agentbus-` is a prefix of `monitor-agentbus-ui-...`,
+            # so the name alone gave a false green for prefix-sharing agents.
+            agent_token = re.compile(
+                rf"(?:^|\s)--agent(?:=|\s+)['\"]?{re.escape(agent)}['\"]?(?:\s|$)"
+            )
+            if want in line and agent_token.search(line):
                 pids.append(line.split(None, 1)[0])
         elif "agentbus-monitor.sh" in line:
             pids.append(line.split(None, 1)[0])

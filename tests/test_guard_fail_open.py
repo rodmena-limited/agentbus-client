@@ -62,9 +62,16 @@ class _HTTPError(urllib.error.HTTPError):
         return self._detail.encode()
 
 
+# The TCP reachability pre-check (peer review C5) would otherwise dial the real
+# bus from a unit test. Stubbed reachable by default; a test flips it to model
+# a dead network.
+_REACHABLE: dict[str, tuple[bool, str]] = {"value": (True, "")}
+
+
 def _run_hook(monkeypatch: pytest.MonkeyPatch, stdin: str, **env: str) -> dict[str, Any]:
     """Invoke pre_tool_use with a mocked stdin and env; capture the decision."""
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+    monkeypatch.setattr(hk, "_bus_reachable", lambda *_a, **_k: _REACHABLE["value"])
     for k in ("AGENTBUS_API_KEY", "AGENTBUS_AGENT", "AGENTBUS_BASE_URL"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -151,6 +158,38 @@ def test_unreachable_bus_allows_with_warning(monkeypatch: pytest.MonkeyPatch) ->
     result, _ = _capture(monkeypatch, AGENTBUS_API_KEY="ab_sk_ok", AGENTBUS_AGENT="wired-agent")
     assert _decision(result) == "allow"
     assert "UNVETTED" in _reason(result)
+
+
+def test_dead_network_allows_fast_and_opens_the_circuit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Peer review C5: a dead network must cost ONE bounded connect attempt, not
+    the full read budget twice per tool call, and the very next call must
+    fast-fail off the recorded circuit — while still degrading to allow."""
+    monkeypatch.setenv("AGENTBUS_WAKE_DIR", str(tmp_path))
+    calls = {"urlopen": 0}
+
+    def never(*_a: Any, **_k: Any) -> _Resp:
+        calls["urlopen"] += 1
+        raise AssertionError("urlopen must not be attempted when the bus is unreachable")
+
+    monkeypatch.setattr(hk.urllib.request, "urlopen", never)
+    _REACHABLE["value"] = (False, "TimeoutError: timed out")
+    try:
+        first, _ = _capture(monkeypatch, AGENTBUS_API_KEY="ab_sk_ok", AGENTBUS_AGENT="wired-agent")
+        assert _decision(first) == "allow"
+        assert "UNVETTED" in _reason(first) and "unreachable" in _reason(first)
+        state = json.loads(hk._gate_degraded_file("wired-agent").read_text())
+        assert state["reason"] == "connect_failure" and state["count"] == 1
+        # Second call: the circuit is open on the FIRST connect failure, so the
+        # hook answers from the state file without even dialling.
+        _REACHABLE["value"] = (True, "")
+        second, _ = _capture(monkeypatch, AGENTBUS_API_KEY="ab_sk_ok", AGENTBUS_AGENT="wired-agent")
+        assert _decision(second) == "allow"
+        assert "FAST-FAILING" in _reason(second)
+        assert calls["urlopen"] == 0
+    finally:
+        _REACHABLE["value"] = (True, "")
 
 
 def test_retired_identity_allows_with_warning(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -355,3 +355,33 @@ class _Base:
             sealed["attachments"] = resealed
         return sealed
 
+    def unseal_message(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Decrypt a message body in place, or mark plainly why it could not be.
+
+        A READER THAT CANNOT DECRYPT MUST SAY SO. Returning ciphertext as if it
+        were content is how an agent concludes a peer sent gibberish; returning
+        empty is how it concludes the peer sent nothing.
+
+        ON `_Base` (review #23, issuedb #34): it does no I/O, and the async copy
+        delegated to `AgentBus.unseal_message` — a name its module never imported —
+        so every AsyncAgentBus.read()/thread() raised NameError.
+        """
+        from .. import sealing
+
+        body = message.get("text_body") or message.get("text") or ""
+        if not sealing.is_sealed(body):
+            return message
+        if not sealing.load_private_keys(self.agent):
+            message["sealed_unreadable"] = "no sealing key on this machine"
+            return message
+        try:
+            message["text_body"] = sealing.unseal_with_any(body, self.agent)
+            message["sealed_opened"] = True
+        except sealing.MalformedSealed as exc:
+            message["sealed_unreadable"] = f"the sealed body is damaged: {exc}"
+        except sealing.CannotDecrypt:
+            message["sealed_unreadable"] = (
+                "sealed to keys this machine does not hold — it was sent before "
+                "this agent published a key, or to other recipients"
+            )
+        return message

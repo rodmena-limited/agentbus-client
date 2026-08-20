@@ -573,26 +573,35 @@ def record_gate_degraded(agent: str, reason: str, detail: str) -> None:
     call still runs.
     """
     with contextlib.suppress(Exception):
+        import fcntl
+
         path = _gate_degraded_file(agent)
         path.parent.mkdir(parents=True, exist_ok=True)
-        prior = {}
-        try:
-            prior = json.loads(path.read_text())
-        except Exception:
-            prior = {}
-        count = int(prior.get("count") or 0) + 1
-        first = prior.get("first_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        path.write_text(
-            json.dumps(
-                {
-                    "first_at": first,
-                    "last_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "count": count,
-                    "reason": _scrub(reason)[:60],
-                    "detail": _scrub(detail)[:400],
-                }
-            )
-        )
+        # Read-modify-write under a lock (review #23, S13): parallel tool calls
+        # run parallel hooks, and an unlocked RMW lost counts.
+        with path.with_suffix(".lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                prior = {}
+                try:
+                    prior = json.loads(path.read_text())
+                except Exception:
+                    prior = {}
+                count = int(prior.get("count") or 0) + 1
+                first = prior.get("first_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                path.write_text(
+                    json.dumps(
+                        {
+                            "first_at": first,
+                            "last_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "count": count,
+                            "reason": _scrub(reason)[:60],
+                            "detail": _scrub(detail)[:400],
+                        }
+                    )
+                )
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def clear_gate_degraded(agent: str) -> None:
@@ -1655,6 +1664,29 @@ def _scrub(text: str) -> str:
     return _SECRET_RE.sub(lambda m: m.group(1).split("_sk_")[0] + "_sk_<redacted>", str(text))
 
 
+def _bus_reachable(base: str, timeout: float) -> tuple[bool, str]:
+    """A bounded TCP connect to the bus — the cheapest possible "is the network there".
+
+    urllib's single `timeout` covers connect AND read, so a dead network used to
+    cost the full read budget per attempt, twice (peer review C5: 24s per tool
+    call). A connect that fails in <= `timeout` answers the question the guard
+    actually has — can we reach the bus at all — for a fraction of the cost.
+    """
+    import socket
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(base)
+    host = parts.hostname or ""
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    if not host:
+        return False, f"no host in AGENTBUS_BASE_URL {base!r}"
+    try:
+        socket.create_connection((host, port), timeout=timeout).close()
+        return True, ""
+    except OSError as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
 def pre_tool_use(_args: argparse.Namespace) -> int:
     """PreToolUse: ask AgentBus whether this tool call may run, BEFORE it does.
 
@@ -1825,7 +1857,10 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
             state = json.loads(state_path.read_text())
             count = int(state.get("count") or 0)
             last_at = state.get("last_at") or ""
-            if count >= _FAST_FAIL_THRESHOLD and last_at:
+            # A CONNECT failure opens the circuit at once (peer review C5): the
+            # network is gone, and making the next ten tool calls each re-discover
+            # that is what a user feels as "the client freezes on network drop".
+            if last_at and (count >= _FAST_FAIL_THRESHOLD or state.get("reason") == "connect_failure"):
                 # REG-1 (round-3 audit): last_at is written with time.gmtime()
                 # (UTC — see record_gate_degraded), so it MUST be parsed back as
                 # UTC. time.mktime() interprets local; on BST that reads the
@@ -1849,10 +1884,22 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     except Exception:
         pass
 
-    # Timeout: 12s (previously 30) — a guard/check must be fast; a slow bus is a
-    # broken bus, and the fast-fail circuit above absorbs the cost of the first
-    # few slow calls that seed it. Overridable for genuine long-tail environments.
-    _GATE_TIMEOUT = float(os.environ.get("AGENTBUS_GATE_TIMEOUT", "12"))
+    # Budgets (peer review C5; previously 12s x 2 attempts = ~24s per tool call
+    # on a dead network): a 1.5s TCP reachability check first, then a 4s read
+    # budget for the verdict. A guard must be fast; a slow bus is a broken bus.
+    _GATE_TIMEOUT = float(os.environ.get("AGENTBUS_GATE_TIMEOUT", "4"))
+    _GATE_CONNECT_TIMEOUT = float(os.environ.get("AGENTBUS_GATE_CONNECT_TIMEOUT", "1.5"))
+    reachable, why = _bus_reachable(base, _GATE_CONNECT_TIMEOUT)
+    if not reachable:
+        with contextlib.suppress(Exception):
+            record_gate_degraded(agent, "connect_failure", why)
+        return decide(
+            "allow",
+            f"AgentBus is unreachable ({why}), so this action runs UNVETTED — approval "
+            f"checking is OFF until the bus is reachable again (circuit open for "
+            f"{int(_FAST_FAIL_COOLDOWN)}s). Restore the network or the bus, then re-run "
+            "any gated tool to confirm gating is back on.",
+        )
 
     # ONE retry, on TRANSIENT failures only. david measured five 503s in an
     # evening, each recovered within seconds with /healthz green immediately
@@ -1908,10 +1955,11 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
                 break
             time.sleep(0.25)
         except Exception as exc:
+            # Transport-class failure (timeout, reset, DNS): NO retry (peer review
+            # C5) — the reachability check above already passed, so this is a
+            # slow or dying bus and a second full budget buys nothing.
             last_exc = exc
-            if attempt:
-                break
-            time.sleep(0.25)
+            break
 
     if body is None:
         # NO ANSWER FROM THE GUARD = THE SESSION RUNS UNVETTED, IT IS NEVER

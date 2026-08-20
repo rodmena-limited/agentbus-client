@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import re
 import stat
+import time
 from pathlib import Path
 from typing import Any
 
@@ -160,23 +161,57 @@ def _harden(path: Path) -> None:
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
 
+def create_secret_exclusive(path: Path, content: str) -> bool:
+    """Create `path` holding `content`, mode 0600 FROM BIRTH, or return False if it exists.
+
+    O_CREAT|O_EXCL is the only atomic "create if absent" POSIX offers. The old
+    exists()-then-write_text()-then-chmod sequence (review #23, issuedb #30) let
+    eight concurrent first users each generate a key and overwrite one another —
+    seven of them then held a private key that no longer existed on disk, and
+    anything sealed to their published public half was unreadable forever. It
+    also left the secret world-readable between write and chmod (S2).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IWUSR)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return True
+
+
+def _ensure_secret(path: Path, generate: Any) -> str:
+    """The secret at `path`, generating it EXACTLY ONCE across concurrent first users.
+
+    The loser of a creation race re-reads what the winner wrote. A file that
+    exists but is still empty is a winner mid-write (microseconds); wait for it
+    rather than treat it as absent.
+    """
+    for _ in range(200):
+        if path.exists():
+            existing = path.read_text().strip()
+            if existing:
+                return existing
+            time.sleep(0.005)
+            continue
+        candidate = generate()
+        if create_secret_exclusive(path, candidate + "\n"):
+            _harden(path)
+            return candidate
+    raise OSError(f"could not create or read {path}: another writer never finished")
+
+
 def ensure_keypair(agent: str | None = None) -> tuple[str, str]:
     """THIS AGENT's sealing keypair, generating it on first use.
 
     Returns (private, public). Generation is LOCAL and unconditional — there is
     no path where a key is fetched, uploaded, escrowed or recovered. A lost key
     means the messages sealed to it are unreadable forever, which is the
-    property, not a shortcoming.
+    property, not a shortcoming — and exactly why creation must be atomic.
     """
-    path = key_path(agent)
-    if path.exists():
-        private = path.read_text().strip()
-        return private, public_from_private(private)
-    private, public = generate_keypair()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(private + "\n")
-    _harden(path)
-    return private, public
+    private = _ensure_secret(key_path(agent), lambda: generate_keypair()[0])
+    return private, public_from_private(private)
 
 
 def load_private_key(agent: str | None = None) -> str | None:
@@ -410,15 +445,8 @@ def ensure_signing_keypair(agent: str | None = None) -> tuple[str, str]:
     """
     from . import _signing
 
-    path = signing_key_path(agent)
-    if path.exists():
-        private = path.read_text().strip()
-        return private, _signing.public_from_private(private)
-    private, public = _signing.generate_keypair()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(private + "\n")
-    _harden(path)
-    return private, public
+    private = _ensure_secret(signing_key_path(agent), lambda: _signing.generate_keypair()[0])
+    return private, _signing.public_from_private(private)
 
 
 def load_signing_key(agent: str | None = None) -> str | None:

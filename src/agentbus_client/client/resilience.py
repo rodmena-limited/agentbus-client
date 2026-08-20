@@ -1,100 +1,132 @@
+"""Resilience layer shared by the sync and async clients: retry, breaker, bulkhead.
 
-"""Typed sync and async clients for the AgentBus API."""
+Design (REG-7, round-3 audit), inside-out around every SDK request:
+
+    bulkman  <-  resilient_circuit.SafetyNet(CircuitProtector, RetryWithBackoff)  <-  httpx call
+
+- RetryWithBackoff is INNERMOST: it decides "was this attempt transient? retry".
+- CircuitProtector wraps the retry, so it sees POST-RETRY outcomes: a whole failing
+  retry-sequence counts as ONE failure. NOTE WELL (review #23, issuedb #24): because
+  SafetyNet applies policies in reverse, the breaker never sees the transport error
+  itself — it sees `RetryLimitReached`, whose `__cause__` is the real error. The
+  breaker's classifier therefore unwraps to the root cause. Before that fix the breaker
+  recorded every exhausted sequence as a SUCCESS and never opened.
+- bulkman sits OUTSIDE the retry so a whole send-with-3-retries holds ONE slot.
+  bulkman's own breaker is ALWAYS OFF (house rule): resilient_circuit is the single
+  breaker authority on this path.
+
+Two further properties the review made explicit (issuedb #26):
+
+- THE OUTER DEADLINE CANCELS WORK. `future.result(timeout=)` used to return control
+  while the retry sequence kept running on a non-daemon pool thread for ~110 s,
+  filling the 8-slot bulkhead so calls against a HEALTHY bus then failed, and blocking
+  interpreter exit. Now every sequence carries a cancel flag set when its caller's
+  deadline fires; the next attempt raises `_Abandoned` instead of touching the
+  network, and each attempt's own httpx timeout is bounded by the remaining budget.
+- EXIT IS NOT HELD HOSTAGE. A threading-shutdown hook abandons every in-flight
+  sequence and cancels queued work before the executor is joined.
+
+Everything is lazy-instantiated and a process-wide singleton, created under a lock
+(issuedb #31: sixteen concurrent first callers used to get fifteen thread pools).
+"""
+
 from __future__ import annotations
 
+import atexit
 import base64
 import concurrent.futures as _cf
+import contextlib
 import logging
 import mimetypes
 import os
+import sys
+import threading
 import time
-
-from .models import _max_attachment_bytes, _server_max_attachment_bytes
-
-_ConcurrentFuturesTimeout = _cf.TimeoutError
+import weakref
 from collections.abc import Sequence
+from fractions import Fraction
 from typing import Any
 
 import httpx
 
 from .. import sealing
+from .errors import AgentBusError, ServiceUnavailable, TransportError
+from .models import _max_attachment_bytes, _server_max_attachment_bytes
 
 _log = logging.getLogger(__name__)
-
-DEFAULT_BASE_URL = "https://agentbus.rodmena.co.uk"
-
-
-from .errors import (
-    AgentBusError,
-    ServiceUnavailable,
-    TransportError,
-)
-
-# ------------------------------------------------------------------ resilience
-#
-# REG-7 (round-3 audit): the SDK is the largest surface every caller touches,
-# and it was the one place in the codebase ignoring the house resilience
-# contract — bare httpx calls, no retry, no breaker, no bulkhead. A bus rolling
-# deploy (30-60s of 503s) turned every send/reply/inbox into a TransportError,
-# and N callers each rolled their own retry loop that hammered the recovering
-# bus.
-#
-# The design puts three layers around every SDK request, in this order (inside-out):
-#
-#     bulkman  <-  resilient_circuit  <-  actual httpx call
-#
-# - resilient_circuit.SafetyNet(RetryWithBackoff + CircuitProtector) sits closest
-#   to the call: it decides "was this attempt transient? retry" and "have too
-#   many recent attempts failed? open the breaker".
-# - bulkman.BulkheadThreading sits OUTSIDE the retry, so a whole
-#   send-with-3-retries counts as ONE concurrency slot and finishes together —
-#   otherwise N failing callers each retrying 3x would multiply the load.
-# - bulkman's OWN circuit breaker is ALWAYS OFF (`circuit_breaker_enabled=False`)
-#   per the house rule: resilient_circuit is the single breaker authority in the
-#   codebase, and two breakers on one path is worse than one.
-#
-# Everything is lazy-instantiated at first request so importing agentbus_client
-# does not pay the wiring cost, and singleton at the module level so all
-# AgentBus instances (and long-lived processes like the watcher) share one
-# breaker state and one concurrency cap.
+_ConcurrentFuturesTimeout = _cf.TimeoutError
 
 _SDK_BULKHEAD: Any = None
 _SDK_SAFETY_NET: Any = None
+_ASYNC_CIRCUIT_BREAKER: _AsyncCircuitBreaker | None = None
+_SDK_INIT_LOCK = threading.Lock()
+
+#: Cancel flags of every retry sequence whose caller is still waiting. The shutdown
+#: hook sets them all so no abandoned sequence can hold the interpreter open.
+_INFLIGHT: set[threading.Event] = set()
+_INFLIGHT_LOCK = threading.Lock()
+#: httpx clients the sync SDK created, closed at interpreter shutdown so an
+#: in-flight socket read (Ctrl-C during a 30s stall) cannot hold the exit.
+_SYNC_CLIENTS: weakref.WeakSet = weakref.WeakSet()
+#: The cancel flag of the sequence running on THIS worker thread, so the backoff
+#: between attempts can wait on it instead of sleeping blind.
+_CURRENT_CANCEL = threading.local()
+
+
+class _Abandoned(Exception):
+    """Raised inside a retry sequence whose caller has already given up.
+
+    Never retried (the retry classifier refuses it) but COUNTED by the breaker:
+    from the caller's point of view the bus did not answer in time.
+    """
 
 
 def _sdk_cb_limits() -> tuple[int, int]:
-    """The circuit-breaker burst thresholds, from env — SHARED by both breakers.
-
-    A1 (reliability audit follow-up): AGENTBUS_SDK_CB_FAILURE_LIMIT and
-    AGENTBUS_SDK_CB_SUCCESS_LIMIT used to be honored ONLY by the async breaker
-    (_async_circuit_breaker) while the sync breaker hardcoded 5/5 and 2/2 —
-    the exact sync/async knob asymmetry this module exists to prevent. One
-    helper, both breakers, one operator setting.
-    """
+    """Breaker burst thresholds from env — SHARED by the sync and async breakers (A1)."""
     return (
         max(1, int(os.environ.get("AGENTBUS_SDK_CB_FAILURE_LIMIT", "5"))),
         max(1, int(os.environ.get("AGENTBUS_SDK_CB_SUCCESS_LIMIT", "2"))),
     )
 
 
-def _is_transient_sdk_error(exc: BaseException) -> bool:
-    """Classify what the resilience layer should retry / count for the breaker.
+def _cb_window(n: int) -> Fraction:
+    """A resilient_circuit threshold meaning "n consecutive outcomes".
 
-    Transport failures and 5xx are transient — retry them. 5xx means the
-    server side failed (rolling deploy, gateway 500/502/504, upstream 503),
-    so retrying is correct and cheap; the cause lives on the far side.
-    Every other typed AgentBusError is DEFINITIVE (401 revoked, 403
-    forbidden, 404 not found, 409/413/422 malformed, 429 quota/rate) and
-    MUST pass through unchanged; retrying them wastes work and can make the
-    underlying state worse. Also: httpx.HTTPError catches network-level
-    failures before the SDK can wrap them as TransportError, so it counts as
-    transient too.
-
-    Why the 5xx branch is a STATUS check, not a subclass check: the server
-    maps only 503 to ServiceUnavailable in errors._ERRORS, so 500/502/504 (a
-    proxy/gateway mid-deploy) surface as a BARE AgentBusError with the status
-    attached. Matching on isinstance would silently treat those definitive.
+    resilient_circuit sizes its window by the Fraction's DENOMINATOR, and
+    `Fraction(n, n)` reduces to `1/1` — a one-slot window that trips on any single
+    failure (issuedb #24; bulkman's own source carries the same warning). `(n-1)/n`
+    keeps an n-slot window and trips when at least n-1 of the last n agree.
     """
+    return Fraction(n - 1, n) if n >= 2 else Fraction(1, 1)
+
+
+def _root_cause(exc: BaseException) -> BaseException:
+    """Unwrap `RetryLimitReached` to the error the last attempt actually raised.
+
+    Safe to call before resilient_circuit has ever been imported: if its
+    exceptions module is not loaded, nothing can be a RetryLimitReached.
+    """
+    mod = sys.modules.get("resilient_circuit.exceptions")
+    rlr = getattr(mod, "RetryLimitReached", None) if mod is not None else None
+    hops = 0
+    while rlr is not None and isinstance(exc, rlr) and exc.__cause__ is not None and hops < 8:
+        exc = exc.__cause__
+        hops += 1
+    return exc
+
+
+def _is_transient_sdk_error(exc: BaseException) -> bool:
+    """RETRY classifier: what an attempt may be retried on.
+
+    Transport failures and 5xx are transient (rolling deploy, gateway 500/502/504,
+    upstream 503). Every other typed AgentBusError is DEFINITIVE (401, 403, 404,
+    409/413/422, 429) and passes through unchanged. An abandoned sequence is never
+    retried. The 5xx branch is a STATUS check because only 503 maps to
+    ServiceUnavailable; 500/502/504 surface as a bare AgentBusError.
+    """
+    exc = _root_cause(exc)
+    if isinstance(exc, _Abandoned):
+        return False
     if isinstance(exc, (TransportError, ServiceUnavailable)):
         return True
     if isinstance(exc, AgentBusError) and 500 <= exc.status <= 599:
@@ -102,136 +134,265 @@ def _is_transient_sdk_error(exc: BaseException) -> bool:
     return isinstance(exc, httpx.HTTPError)
 
 
+def _breaker_should_handle(exc: BaseException) -> bool:
+    """BREAKER classifier: what counts as "the bus failed us".
+
+    Sees post-retry outcomes, so it unwraps RetryLimitReached first. An abandoned
+    sequence counts as a failure — the caller's deadline fired without an answer.
+    """
+    exc = _root_cause(exc)
+    if isinstance(exc, _Abandoned):
+        return True
+    return _is_transient_sdk_error(exc)
+
+
+def _cancellable_backoff(min_delay: Any, max_delay: Any, factor: int, jitter: float) -> Any:
+    """An ExponentialDelay whose wait ENDS THE MOMENT the sequence is abandoned.
+
+    resilient_circuit calls `sleep(backoff.for_attempt(n))` between attempts — a
+    blind time.sleep of up to 8s that an abandoned sequence used to serve in full
+    before noticing its caller had gone (issuedb #26). This subclass performs the
+    wait itself on the sequence's cancel flag (set by the outer deadline or the
+    shutdown hook) and returns 0, so the library's own sleep is a no-op.
+    """
+    import resilient_circuit as rc
+
+    class _CancellableDelay(rc.ExponentialDelay):
+        def for_attempt(self, attempt: int) -> float:
+            delay = super().for_attempt(attempt)
+            flag = getattr(_CURRENT_CANCEL, "flag", None)
+            if flag is None:
+                return delay
+            flag.wait(delay)
+            return 0.0
+
+    return _CancellableDelay(min_delay=min_delay, max_delay=max_delay, factor=factor, jitter=jitter)
+
+
+def _daemon_executor(max_workers: int, prefix: str) -> Any:
+    """A ThreadPoolExecutor whose workers are DAEMON threads and are not joined at exit.
+
+    A stock executor's workers are non-daemon and registered for a join in
+    concurrent.futures' shutdown hook, so a worker blocked in socket.recv (Ctrl-C one
+    second into a 30s stall) held the interpreter open for the whole read timeout —
+    closing the httpx client does not wake a blocked read (issuedb #26). Daemon
+    workers are abandoned at exit instead; the SDK's own shutdown hook has already
+    flagged their sequences as abandoned.
+
+    Relies on the private `_worker` entry point, which has had the same four-argument
+    shape from 3.7 through 3.13. The shape is CHECKED: if it ever changes, the stock
+    executor is used (correct, merely slower to exit) rather than spawning workers
+    that would fail on their first task.
+    """
+    import inspect
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import thread as _cft
+
+    worker = getattr(_cft, "_worker", None)
+    try:
+        shape_ok = worker is not None and len(inspect.signature(worker).parameters) == 4
+    except (TypeError, ValueError):
+        shape_ok = False
+    if not shape_ok:
+        return ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=prefix)
+
+    class _DaemonExecutor(ThreadPoolExecutor):
+        def _adjust_thread_count(self) -> None:
+            if self._idle_semaphore.acquire(timeout=0):
+                return
+            queue = self._work_queue
+
+            def _weakref_cb(_: Any, q: Any = queue) -> None:
+                q.put(None)
+
+            num_threads = len(self._threads)
+            if num_threads < self._max_workers:
+                t = threading.Thread(
+                    name=f"{self._thread_name_prefix}_{num_threads}",
+                    target=worker,
+                    args=(weakref.ref(self, _weakref_cb), queue, self._initializer, self._initargs),
+                    daemon=True,
+                )
+                t.start()
+                self._threads.add(t)
+
+    return _DaemonExecutor(max_workers=max_workers, thread_name_prefix=prefix)
+
+
 def _sdk_bulkhead() -> Any:
     """Lazy singleton — one concurrency lane for the whole SDK per process.
 
-    circuit_breaker_enabled is HARD-CODED False (Farshid's explicit instruction,
-    round-3 audit note): bulkman is the concurrency lane, resilient_circuit is
-    the breaker. Two breakers on one call path is worse than one.
+    circuit_breaker_enabled is HARD-CODED False (house rule): bulkman is the
+    concurrency lane, resilient_circuit is the breaker.
     """
     global _SDK_BULKHEAD
     if _SDK_BULKHEAD is None:
-        import bulkman
+        with _SDK_INIT_LOCK:
+            if _SDK_BULKHEAD is None:
+                import bulkman
 
-        _SDK_BULKHEAD = bulkman.BulkheadThreading(
-            bulkman.BulkheadConfig(
-                name="agentbus-sdk",
-                max_concurrent_calls=int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8")),
-                max_queue_size=int(os.environ.get("AGENTBUS_SDK_MAX_QUEUE", "100")),
-                # NEVER True. The single breaker authority in the codebase is
-                # resilient_circuit; bulkman here is a concurrency isolator only.
-                circuit_breaker_enabled=False,
-            )
-        )
+                workers = int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8"))
+                bulkhead = bulkman.BulkheadThreading(
+                    bulkman.BulkheadConfig(
+                        name="agentbus-sdk",
+                        max_concurrent_calls=workers,
+                        max_queue_size=int(os.environ.get("AGENTBUS_SDK_MAX_QUEUE", "100")),
+                        circuit_breaker_enabled=False,  # NEVER True — see module docstring
+                    )
+                )
+                stock = bulkhead._executor
+                bulkhead._executor = _daemon_executor(workers, "Bulkhead-agentbus-sdk")
+                stock.shutdown(wait=False)
+                _SDK_BULKHEAD = bulkhead
     return _SDK_BULKHEAD
 
 
 def _sdk_safety_net() -> Any:
-    """Lazy singleton — one retry+breaker policy shared across every request.
-
-    Widened breaker (5/5 fail, 2/2 success) and a small exponential retry
-    budget. The `should_handle` classifier ONLY matches transient errors, so a
-    401 or 404 falls through immediately — retrying a 401 hammers the bus with
-    a credential that will never work and turns one clear failure into many.
-    """
+    """Lazy singleton — one retry+breaker policy shared across every request."""
     global _SDK_SAFETY_NET
     if _SDK_SAFETY_NET is None:
-        import datetime as _dt
-        from fractions import Fraction
+        with _SDK_INIT_LOCK:
+            if _SDK_SAFETY_NET is None:
+                import datetime as _dt
 
-        import resilient_circuit as rc
-        from resilient_circuit.storage import InMemoryStorage
+                import resilient_circuit as rc
+                from resilient_circuit.storage import InMemoryStorage
 
-        # One operator setting, both breakers (A1): the sync CircuitProtector
-        # takes a Fraction of the last N attempts; the env knob is an integer,
-        # shared with the async breaker via _sdk_cb_limits().
-        break_fail, close_success = _sdk_cb_limits()
-        _SDK_SAFETY_NET = rc.SafetyNet(
-            policies=(
-                rc.CircuitProtectorPolicy(
-                    resource_key="agentbus-sdk",
-                    storage=InMemoryStorage(),
-                    failure_limit=Fraction(break_fail, break_fail),  # last N failed
-                    success_limit=Fraction(close_success, close_success),  # N clean to close
-                    cooldown=_dt.timedelta(
-                        seconds=int(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30"))
-                    ),
-                    should_handle=_is_transient_sdk_error,
-                ),
-                rc.RetryWithBackoffPolicy(
-                    max_retries=int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3")),
-                    backoff=rc.ExponentialDelay(
-                        min_delay=_dt.timedelta(milliseconds=500),
-                        max_delay=_dt.timedelta(seconds=8),
-                        factor=2,
-                        jitter=0.2,
-                    ),
-                    should_handle=_is_transient_sdk_error,
-                ),
-            )
-        )
+                # resilient_circuit logs a WARNING every time a late in-flight
+                # result re-marks an already-OPEN breaker ("state write refused
+                # ... adopting stored state") — a no-op that would otherwise reach
+                # stderr via the lastResort handler on every outage.
+                logging.getLogger("resilient_circuit.circuit_breaker").setLevel(logging.ERROR)
+                break_fail, close_success = _sdk_cb_limits()
+                _SDK_SAFETY_NET = rc.SafetyNet(
+                    policies=(
+                        rc.CircuitProtectorPolicy(
+                            resource_key="agentbus-sdk",
+                            storage=InMemoryStorage(),
+                            failure_limit=_cb_window(break_fail),
+                            success_limit=_cb_window(close_success),
+                            cooldown=_dt.timedelta(
+                                seconds=int(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30"))
+                            ),
+                            should_handle=_breaker_should_handle,
+                        ),
+                        rc.RetryWithBackoffPolicy(
+                            max_retries=int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3")),
+                            backoff=_cancellable_backoff(
+                                min_delay=_dt.timedelta(milliseconds=500),
+                                max_delay=_dt.timedelta(seconds=8),
+                                factor=2,
+                                jitter=0.2,
+                            ),
+                            should_handle=_is_transient_sdk_error,
+                        ),
+                    )
+                )
     return _SDK_SAFETY_NET
+
+
+def _abandon_inflight_on_exit() -> None:
+    """Interpreter shutdown: abandon every sequence so the executor join is short."""
+    with _INFLIGHT_LOCK:
+        pending = list(_INFLIGHT)
+    for flag in pending:
+        flag.set()
+    for client in list(_SYNC_CLIENTS):
+        with contextlib.suppress(Exception):
+            client.close()
+    bulkhead = _SDK_BULKHEAD
+    if bulkhead is not None:
+        with contextlib.suppress(Exception):
+            bulkhead._executor.shutdown(wait=False, cancel_futures=True)
+
+
+# threading's own atexit list runs BEFORE concurrent.futures joins its workers and
+# before the regular atexit handlers; later registrations run first. Private but
+# stable since 3.9; fall back to atexit where it is missing.
+try:
+    threading._register_atexit(_abandon_inflight_on_exit)  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover - fallback for unusual interpreters
+    atexit.register(_abandon_inflight_on_exit)
 
 
 def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
     """Run a sync callable through the retry/breaker/bulkhead stack.
 
-    The order matters — see the module comment. RetryWithBackoff wraps the raw
-    fn first (retries within one bulkhead slot); CircuitProtector wraps that
-    (breaker sees post-retry outcomes); the bulkhead is outermost (one
-    concurrency slot for the whole retry sequence).
+    Every library-specific outcome is translated at this boundary so callers only
+    ever see AgentBusError subclasses:
 
-    A ProtectionException from resilient_circuit (breaker open, retries
-    exhausted) is unwrapped into its cause so callers still see a
-    TransportError or ServiceUnavailable, not a library-specific error type.
-
-    bulkman.execute returns a Future[ExecutionResult]; we block on .result()
-    then translate: success -> the value, failure -> re-raise the original error.
+    - retries exhausted         -> the ORIGINAL error (TransportError, 503, ...)
+    - breaker OPEN              -> TransportError naming the breaker (issuedb #25)
+    - outer deadline fired      -> TransportError (CFT preserved as __cause__), and
+                                   the sequence is ABANDONED (issuedb #26)
+    - bulkhead full             -> TransportError naming the knobs
     """
     import bulkman
-    from resilient_circuit.exceptions import ProtectionException
+    from resilient_circuit.exceptions import (
+        ProtectedCallError,
+        ProtectionException,
+        RetryLimitReached,
+    )
 
-    guarded = _sdk_safety_net()(fn)
+    cancel = threading.Event()
+    with _INFLIGHT_LOCK:
+        _INFLIGHT.add(cancel)
+
+    def _attempt() -> Any:
+        if cancel.is_set():
+            raise _Abandoned("the caller's deadline already fired; not issuing another attempt")
+        return fn()
+
+    guarded = _sdk_safety_net()(_attempt)
 
     def _wrapped() -> Any:
+        _CURRENT_CANCEL.flag = cancel
         try:
             return guarded()
+        except RetryLimitReached as exc:
+            cause = _root_cause(exc)
+            if cause is not exc:
+                raise cause  # noqa: B904 - deliberate: propagate the original
+            raise TransportError("agentbus SDK: retries exhausted") from exc
+        except ProtectedCallError as exc:
+            raise TransportError(
+                "agentbus SDK circuit breaker is OPEN: recent calls to the bus failed, so the "
+                "client is failing fast for the cooldown (AGENTBUS_SDK_CB_COOLDOWN, default 30s) "
+                "instead of hammering it. Retry after the cooldown, or set "
+                "AGENTBUS_SDK_RESILIENCE=0 to bypass the resilience layer."
+            ) from exc
         except ProtectionException as exc:
-            # Retries exhausted or breaker open — unwrap to the ORIGINAL error
-            # so a caller catching TransportError still catches this. `__cause__`
-            # is set by RetryWithBackoffPolicy when it gives up.
             cause = exc.__cause__ or exc.__context__
             if cause is not None:
                 raise cause  # noqa: B904 - deliberate: propagate the original
-            raise
+            raise TransportError(
+                f"agentbus SDK resilience layer refused the call ({type(exc).__name__})"
+            ) from exc
+        finally:
+            _CURRENT_CANCEL.flag = None
+            with _INFLIGHT_LOCK:
+                _INFLIGHT.discard(cancel)
 
     try:
         future = _sdk_bulkhead().execute(_wrapped)
-        result = future.result(timeout=timeout)
     except bulkman.BulkheadFullError as exc:
-        # Turn a bulkhead refusal into a TransportError with clear text — a
-        # caller waiting for a slot forever is worse than a fast failure they
-        # can retry against.
+        with _INFLIGHT_LOCK:
+            _INFLIGHT.discard(cancel)
         raise TransportError(
             f"agentbus SDK bulkhead full ({exc}); raise AGENTBUS_SDK_MAX_CONCURRENT "
             "or AGENTBUS_SDK_MAX_QUEUE if this is a legitimate high-fan-out caller."
         ) from exc
+    try:
+        result = future.result(timeout=timeout)
     except _ConcurrentFuturesTimeout as exc:
-        # SEV-1 (macbook-admin-bd8e86 thread 01M08ZBXDD8PQ9J70MM4VDBZR0):
-        # future.result(timeout=timeout) raises concurrent.futures._base.TimeoutError
-        # when the SDK call takes longer than `timeout` — which is exactly what
-        # happens during a network outage. On Python 3.10.x that class does
-        # NOT subclass OSError (it did only in 3.11+ where CFT became an alias
-        # of the builtin TimeoutError). Every downstream `except` guard in
-        # watch.py / cli.py / onboarding.py catches OSError | httpx.HTTPError
-        # | AgentBusError | ... — none of them catch CFT on 3.10, so it
-        # escaped the whole recovery stack and killed the watcher process
-        # during the exact condition the reconnect loop existed to survive.
-        #
-        # Fix: translate at the BOUNDARY into TransportError, with the
-        # original set as __cause__. Now every existing guard catches it on
-        # every Python version, at every call site, including ones nobody
-        # audited yet. Closes the whole class rather than the one traceback.
+        # The caller's budget is spent. Abandon the sequence (the next attempt raises
+        # _Abandoned, the in-flight one is already bounded by the remaining budget) and
+        # translate at the boundary: on Python 3.10 CFT is NOT an OSError, so every
+        # downstream `except (AgentBusError, OSError, httpx.HTTPError)` guard missed it
+        # and the watcher died during the exact outage its reconnect loop existed for.
+        cancel.set()
+        with contextlib.suppress(Exception):
+            future.cancel()
         raise TransportError(
             f"agentbus SDK call did not complete within {timeout}s "
             f"({type(exc).__name__} — likely a transient network stall). "
@@ -240,12 +401,8 @@ def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
     if result.success:
         return result.result
     assert result.error is not None
-    # bulkman wraps every non-BulkheadError as `BulkheadError(f"Execution
-    # failed: {e}")` and sets `__cause__` to the original — see
-    # bulkman/threading.py's _run(). Unwrap it so a caller who catches
-    # AuthError / QuotaExceeded / TransportError still sees the typed error,
-    # not a library-specific wrapper that erases the classification a caller
-    # is trying to branch on.
+    # bulkman wraps every non-BulkheadError as BulkheadError(...) with __cause__ set
+    # to the original; unwrap so callers see the typed error they branch on.
     err = result.error
     if isinstance(err, bulkman.BulkheadError) and err.__cause__ is not None:
         raise err.__cause__
@@ -255,15 +412,9 @@ def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
 def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
     """Read files and declare the type the bytes actually are.
 
-    The server sniffs content types before egress because mail-api rejects a
-    mismatch between the declared type and the sniffed one.
-
-    REG-6 (round-3 audit): every file is size-checked BEFORE it is opened, and
-    a file over AGENTBUS_MAX_ATTACHMENT_BYTES (default 50 MB) is refused with
-    an AgentBusError — never opened, never base64-encoded, never buffered.
-    Peak memory used to be ~4-5x file size (raw + base64 + JSON + httpx buffer);
-    an unbounded loop over 25 x 10 MB let a forward peak at ~2 GB. The cap
-    reads at the OS level (os.stat) so the refusal costs nothing.
+    REG-6: every file is size-checked BEFORE it is opened; a file over the client
+    cap (default 50 MB) or the server cap (10 MiB, F7) is refused without being
+    read — peak memory is ~4-5x file size otherwise.
     """
     limit = _max_attachment_bytes()
     server_limit = _server_max_attachment_bytes()
@@ -273,10 +424,6 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
             size = os.stat(path).st_size
         except OSError as exc:
             raise AgentBusError(f"cannot read attachment '{path}': {exc}") from exc
-        # F7 (issuedb #4): SERVER-CAP CHECK FIRST. This is the wall the user
-        # actually hits, and it fires with the exact 10 MiB number the docs
-        # promise — no confusing "50 MB client cap" for a file the server was
-        # never going to accept. Costs one os.stat per attachment.
         if size > server_limit:
             raise AgentBusError(
                 f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
@@ -314,40 +461,13 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
 def _key_from_disk(agent: str | None) -> str:
     """The credential this client already wrote, read back from where it put it.
 
-    THE BUG THIS FIXES. `__init__` resolved the key from an explicit argument or
-    `AGENTBUS_API_KEY` and NOWHERE ELSE — it never read a file. So `agentbus
-    setup`, whose sealing step builds `AgentBus(base_url=..., agent=name)` with
-    no key, raised "no API key" on a machine that had just been signed in
-    seconds earlier in the same command. On an encrypted workspace that left the
-    agent with NO published sealing key: registration succeeded, the bound key
-    was minted, MCP was wired, the summary ended green, and the one line that
-    makes an encrypted workspace encrypted had silently failed.
-
-    Worse, the error text told the operator to save the key to
-    `~/.config/agentbus/operator.env` — which `signin` had ALREADY done, and
-    which this code could not read. Advice that names the file it ignores is
-    how somebody spends an hour proving their key is fine.
-
-    ORDER IS LEAST-PRIVILEGE FIRST. The agent's own bound key is preferred
-    because the operations this fallback exists to serve are "self" operations
-    (publishing your OWN pubkey is authorised as self — see
-    routes_agents.register_public_key, where publishing FOR a peer is the one
-    move the design exists to prevent). The unbound operator credential is the
-    fallback, not the default, so a routine call does not reach for the most
-    powerful key on the box.
+    ORDER IS LEAST-PRIVILEGE FIRST: a NAMED agent gets ONLY its own bound key
+    (keys/<agent>.env) and never falls through to the workspace-wide operator key
+    (SEV-1-B, #234) — that fall-through let a script act as any peer with operator
+    authority. An unnamed agent uses operator.env, the pre-binding acting mode.
+    Filenames go through sealing.bound_env_filename (REG-8/8b) so a hostile name
+    cannot traverse out of keys/.
     """
-    # SEV-1-B (#234): when an agent is NAMED, only that agent's own bound key is
-    # eligible. Falling through to operator.env on `AgentBus(agent="peer")` when
-    # keys/peer.env is missing was a silent identity escalation — the operator
-    # key is workspace-wide, so a script that constructed AgentBus with an
-    # arbitrary agent name acted as that peer with operator authority, and the
-    # server saw a signed, attested send from that peer. The CLI's
-    # resolve_credentials already refused this ("--agent is an ASSERTION OF
-    # IDENTITY, not 'go find that agent's credential'"); the SDK constructor
-    # bypassed it. Same rule here: an unspecified `agent` legitimately falls back
-    # to operator.env (the pre-agent-binding acting mode), a specified one does
-    # NOT. A missing per-agent file raises rather than substituting, so the
-    # failure surfaces as a NamedIdentityKeyMissing the caller can catch.
     config = os.path.join(os.path.expanduser("~"), ".config", "agentbus")
 
     def _read(path: str) -> str:
@@ -357,7 +477,6 @@ def _key_from_disk(agent: str | None) -> str:
                     entry = raw.strip()
                     if not entry or entry.startswith("#"):
                         continue
-                    # `export KEY=value`, the shape onboarding writes.
                     entry = entry.removeprefix("export ").strip()
                     name, sep, value = entry.partition("=")
                     if sep and name.strip() == "AGENTBUS_API_KEY":
@@ -369,14 +488,6 @@ def _key_from_disk(agent: str | None) -> str:
         return ""
 
     if agent:
-        # REG-8 (round-3) + REG-8b (round-3.5 sweep): PATH TRAVERSAL / identity
-        # escalation. Round-3 sanitized this one call site; macbook's re-audit
-        # (round-3.5) found FOUR MORE sibling call sites with the same
-        # unsanitized keys/<agent>.env pattern (cli.py `_key_for_agent`, join
-        # --name, setup, service; hooks/claude_code.py `_adopt_credential_for`).
-        # ALL now route through sealing.bound_env_filename so the same
-        # sanitizer decides the filename everywhere — separators to '_',
-        # '..' to '_' — and nothing can escape keys/ into operator.env.
         return _read(os.path.join(config, "keys", sealing.bound_env_filename(agent)))
     return _read(os.path.join(config, "operator.env"))
 
@@ -384,23 +495,13 @@ def _key_from_disk(agent: str | None) -> str:
 class _AsyncCircuitBreaker:
     """Minimal per-process breaker for the async client (REG-7 follow-up).
 
-    resilient_circuit — the sync breaker — is sync-only, so the async path
-    hand-rolls one. Semantics mirror the sync CircuitProtector *as it is
-    paired with RetryWithBackoff*: the breaker sees POST-RETRY outcomes, so a
-    whole failing retry-sequence counts as ONE failure, not N attempts. After
-    `failure_limit` consecutive failing sequences the breaker opens for
-    `cooldown` seconds; while open, calls fail fast (no retry, no bulkhead
-    slot) instead of hammering a bus that is demonstrably down. When the
-    cooldown lapses the breaker is half-open and allows a probe; a failing
-    probe re-opens it IMMEDIATELY (one failure, not `failure_limit`), while
-    `success_limit` clean probes close it fully — the standard CQ cycle, so a
-    sustained outage costs one probe burst per cooldown, not N.
-
-    State is only monotonic timestamps and counters — no asyncio primitive —
-    so it has no event-loop affinity and can be a module-level singleton
-    shared across every AsyncAgentBus and every loop in the process (the same
-    way the sync breaker is module-level). Mutations are non-awaiting, so
-    within single-threaded async they are atomic per coroutine step.
+    resilient_circuit is sync-only, so the async path hand-rolls one with the same
+    semantics: it sees POST-RETRY outcomes (a whole failing sequence is ONE
+    failure); after `failure_limit` consecutive failures it opens for `cooldown`
+    seconds and calls fail fast; when the cooldown lapses it is half-open and admits
+    ONE probe at a time (review #23, S9) — a failing probe re-opens it immediately,
+    `success_limit` clean probes close it. State is plain counters, so it has no
+    event-loop affinity and is shared by every AsyncAgentBus in the process.
     """
 
     def __init__(self, failure_limit: int = 5, success_limit: int = 2, cooldown: float = 30.0):
@@ -411,6 +512,7 @@ class _AsyncCircuitBreaker:
         self._half_open = False
         self._failures = 0
         self._successes = 0
+        self._probe_inflight = False
         self._last_error: BaseException | None = None
 
     def is_open(self) -> bool:
@@ -419,7 +521,22 @@ class _AsyncCircuitBreaker:
     def last_error(self) -> BaseException | None:
         return self._last_error
 
+    def admit(self) -> bool:
+        """May a sequence start now? False while open, or while a half-open probe flies."""
+        if self.is_open():
+            return False
+        if self._half_open:
+            if self._probe_inflight:
+                return False
+            self._probe_inflight = True
+        return True
+
+    def release_probe(self) -> None:
+        """A sequence ended without a verdict (cancelled): free the probe slot."""
+        self._probe_inflight = False
+
     def on_success(self) -> None:
+        self._probe_inflight = False
         self._failures = 0
         self._successes += 1
         if self._successes >= self.success_limit:
@@ -428,11 +545,11 @@ class _AsyncCircuitBreaker:
             self._successes = 0
 
     def on_failure(self, exc: BaseException) -> None:
+        self._probe_inflight = False
         self._successes = 0
         self._last_error = exc
         if self._half_open:
-            # A failed half-open probe re-opens immediately — do not require
-            # failure_limit more failures to admit the bus is still down.
+            # A failed half-open probe re-opens immediately.
             self._open_until = time.monotonic() + self.cooldown
             self._failures = 0
             return
@@ -443,22 +560,16 @@ class _AsyncCircuitBreaker:
             self._failures = 0
 
 
-_ASYNC_CIRCUIT_BREAKER: _AsyncCircuitBreaker | None = None
-
-
 def _async_circuit_breaker() -> _AsyncCircuitBreaker:
-    """Lazy per-process singleton — one async breaker for every client.
-
-    Mirrors `_sdk_safety_net`: one breaker state means one down bus fails fast
-    for ALL async clients in the process, not once per instance.
-    """
+    """Lazy per-process singleton — one async breaker for every client."""
     global _ASYNC_CIRCUIT_BREAKER
     if _ASYNC_CIRCUIT_BREAKER is None:
-        fail_n, succ_n = _sdk_cb_limits()
-        _ASYNC_CIRCUIT_BREAKER = _AsyncCircuitBreaker(
-            failure_limit=fail_n,
-            success_limit=succ_n,
-            cooldown=float(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30")),
-        )
+        with _SDK_INIT_LOCK:
+            if _ASYNC_CIRCUIT_BREAKER is None:
+                fail_n, succ_n = _sdk_cb_limits()
+                _ASYNC_CIRCUIT_BREAKER = _AsyncCircuitBreaker(
+                    failure_limit=fail_n,
+                    success_limit=succ_n,
+                    cooldown=float(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30")),
+                )
     return _ASYNC_CIRCUIT_BREAKER
-

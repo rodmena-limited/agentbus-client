@@ -57,7 +57,12 @@ def _is_transient_rewake_error(exc: BaseException) -> bool:
     poll skipped retry backoff + breaker tracking entirely.
     """
     from .client import AgentBusError, ServiceUnavailable, TransportError
+    from .client.resilience import _root_cause
 
+    # The breaker sits OUTSIDE the retry, so it sees RetryLimitReached, not the
+    # network error — unwrap, or every exhausted poll is recorded as a success
+    # and the breaker never opens (review #23, issuedb #24).
+    exc = _root_cause(exc)
     if isinstance(exc, (ConnectionError, TimeoutError, OSError, ServiceUnavailable, TransportError)):
         return True
     return isinstance(exc, AgentBusError) and exc.status in (502, 503, 504)
@@ -109,15 +114,17 @@ def _unread_text(agent: str, wait: int = 0) -> str:
     """
     from .client import AgentBus
 
-    bus = AgentBus(agent=agent)
-    if wait <= 0:
-        count = int(((bus.whoami().get("unread") or {}).get("count")) or 0)
-        if not count:
-            return ""
-    lines = []
-    for m in bus.inbox(limit=25, unread=True, wait=wait):
-        lines.append(f"  {m.sender}: {m.subject}  (agentbus show {m.delivery_id})")
-    return "\n".join(lines)
+    # One client per poll, CLOSED when the poll ends (review #23, S7): a 540s
+    # window at a 15s interval used to leak ~36 httpx pools per monitor.
+    with AgentBus(agent=agent) as bus:
+        if wait <= 0:
+            count = int(((bus.whoami().get("unread") or {}).get("count")) or 0)
+            if not count:
+                return ""
+        lines = []
+        for m in bus.inbox(limit=25, unread=True, wait=wait):
+            lines.append(f"  {m.sender}: {m.subject}  (agentbus show {m.delivery_id})")
+        return "\n".join(lines)
 
 
 def monitor(_args: object = None) -> int:
@@ -173,10 +180,14 @@ def _monitor_inner() -> int:
         if text:
             fresh = [k for k in _delivery_keys(text) if k not in seen]
             if fresh:
+                # Claim under the ledger lock (issuedb #33): two armed monitors —
+                # the previous turn's still polling and this turn's — used to both
+                # see the same new mail and both wake the session.
+                claimed = _claim_fresh(ledger, fresh)
                 seen.update(fresh)
-                _append_ledger(ledger, fresh)
-                print(text)
-                return 2
+                if claimed:
+                    print(text)
+                    return 2
         # Wall-clock deadline: a suspend/resume is judged by real time, not by
         # how many iterations a sleeping CPU managed to run.
         if time.time() >= deadline:
@@ -198,24 +209,42 @@ def _monitor_inner() -> int:
             time.sleep(interval)
 
 
-def _append_ledger(ledger: Path, fresh: list[str]) -> None:
+def _claim_fresh(ledger: Path, keys: list[str]) -> list[str]:
+    """Under the ledger lock: re-read, keep only unseen keys, append them.
+
+    Returns the keys THIS process claimed. The in-memory `seen` set is loaded
+    once at start, so the decision must be re-made against the file while the
+    lock is held — that is what makes a wake exactly-once across concurrent
+    monitors (issuedb #33). An unusable ledger falls back to claiming everything:
+    a duplicate wake is recoverable, a lost one is not.
+    """
     try:
         with ledger.open("a+", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             try:
-                for k in fresh:
-                    fh.write(k + "\n")
-                fh.flush()
                 fh.seek(0)
-                lines = fh.read().split()
-                if len(lines) > 1000:
+                on_disk = set(fh.read().split())
+                fresh = [k for k in keys if k not in on_disk]
+                if fresh:
+                    for k in fresh:
+                        fh.write(k + "\n")
+                    fh.flush()
                     fh.seek(0)
-                    fh.truncate()
-                    fh.write("\n".join(lines[-500:]) + "\n")
+                    lines = fh.read().split()
+                    if len(lines) > 1000:
+                        fh.seek(0)
+                        fh.truncate()
+                        fh.write("\n".join(lines[-500:]) + "\n")
+                return fresh
             finally:
                 fcntl.flock(fh, fcntl.LOCK_UN)
     except OSError:
-        pass
+        return list(keys)
+
+
+def _append_ledger(ledger: Path, fresh: list[str]) -> None:
+    """Back-compat shim: append without deciding. Prefer _claim_fresh."""
+    _claim_fresh(ledger, fresh)
 
 
 def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
@@ -245,9 +274,10 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
     # nobody reads (background monitor). If the import fails now it raises here,
     # and `agentbus doctor` catches it — the right place to notice a broken install.
     import datetime as _dt
-    from fractions import Fraction
 
     import resilient_circuit as rc
+
+    from .client.resilience import _cb_window
     from resilient_circuit.exceptions import ProtectionException
     from resilient_circuit.storage import InMemoryStorage
 
@@ -264,8 +294,10 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
             rc.CircuitProtectorPolicy(
                 resource_key=f"wake-poll-{agent}",
                 storage=InMemoryStorage(),  # process-local: no leak between turns
-                failure_limit=Fraction(5, 5),  # 5 of the last 5 attempts failed
-                success_limit=Fraction(2, 2),  # 2 clean attempts to close
+                # _cb_window: Fraction(n, n) reduces to 1/1 — a ONE-slot window
+                # (issuedb #24). (n-1)/n keeps an n-slot window.
+                failure_limit=_cb_window(5),
+                success_limit=_cb_window(2),
                 cooldown=_dt.timedelta(
                     seconds=max(5, int(os.environ.get("AGENTBUS_REWAKE_INTERVAL", "15")))
                 ),

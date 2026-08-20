@@ -660,15 +660,50 @@ def _scan_watch_process(agent: str) -> int | None:
     # (quoted) — an operator alias that uses `=` or quotes never matched the
     # bare space-separated form and this fallback returned None silently. The
     # pidfile is still the primary source of truth; this improves the fallback.
-    forms = [
-        rf"(?:^|\s)--agent(?:=|\s+)['\"]?{re.escape(agent)}['\"]?(?:\s|$)",
-    ]
-    needle_re = re.compile("|".join(forms))
+    needle_re = _agent_flag_re(agent)
     for line in out.splitlines():
         if "agentbus" in line and " watch " in f" {line} " and needle_re.search(line):
             with contextlib.suppress(ValueError, IndexError):
                 return int(line.split(None, 1)[0])
     return None
+
+
+def _agent_flag_re(agent: str) -> re.Pattern[str]:
+    """`--agent foo`, `--agent=foo`, `--agent 'foo'` — the forms a watcher argv can carry."""
+    return re.compile(rf"(?:^|\s)--agent(?:=|\s+)['\"]?{re.escape(agent)}['\"]?(?:\s|$)")
+
+
+def _pid_cmdline(pid: int) -> str | None:
+    """The command line of `pid`, or None if it cannot be read (gone, or foreign)."""
+    with contextlib.suppress(OSError):
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        if raw:
+            return raw.replace(b"\0", b" ").decode(errors="replace").strip()
+    import subprocess as _sp
+
+    try:
+        out = _sp.run(
+            ["ps", "-o", "args=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).stdout.strip()
+    except (OSError, _sp.SubprocessError):
+        return None
+    return out or None
+
+
+def _pid_is_watcher(pid: int, agent: str) -> bool:
+    """Is `pid` an agentbus watcher FOR THIS AGENT — not merely a live process?
+
+    `os.kill(pid, 0)` proves a process exists, not which one (review #23,
+    issuedb #28): pidfiles survive reboots, PIDs restart low, and a stale file
+    made `watch-status` report `sleep 300` as RUNNING and `watch-stop` SIGTERM
+    it. The command line is the identity check; a PID we cannot read is treated
+    as stale, never as ours.
+    """
+    line = _pid_cmdline(pid)
+    if not line:
+        return False
+    return "agentbus" in line and " watch " in f" {line} " and bool(_agent_flag_re(agent).search(line))
 
 
 def _watch_pids(agent: str) -> dict[str, int]:
@@ -691,6 +726,8 @@ def _watch_pids(agent: str) -> dict[str, int]:
         try:
             pid = int(Path(path).read_text().strip())
             os.kill(pid, 0)
+            if not _pid_is_watcher(pid, agent):
+                raise ProcessLookupError(f"pid {pid} is not an agentbus watcher for {agent}")
             out[Path(path).name] = pid
         except (OSError, ValueError):
             with contextlib.suppress(OSError):
@@ -701,6 +738,8 @@ def _watch_pids(agent: str) -> dict[str, int]:
     try:
         pid = int(_watch_pidfile(agent).read_text().strip())
         os.kill(pid, 0)
+        if not _pid_is_watcher(pid, agent):
+            raise ProcessLookupError(f"pid {pid} is not an agentbus watcher for {agent}")
         out["(legacy)"] = pid
     except (OSError, ValueError):
         with contextlib.suppress(OSError):
@@ -774,10 +813,12 @@ def _watch_pid(agent: str, state: str | None = None) -> int | None:
         return None
     try:
         os.kill(pid, 0)
+        if not _pid_is_watcher(pid, agent):
+            raise ProcessLookupError(f"pid {pid} is not an agentbus watcher for {agent}")
     except (OSError, ProcessLookupError):
-        # Stale pidfile from a dead process. Best-effort: on a read-only config
-        # dir we cannot clean it up, and failing to tidy must not stop us
-        # answering the question that was asked.
+        # Stale pidfile from a dead (or REUSED, #28) pid. Best-effort: on a
+        # read-only config dir we cannot clean it up, and failing to tidy must
+        # not stop us answering the question that was asked.
         with contextlib.suppress(OSError):
             _watch_pidfile(agent, state).unlink(missing_ok=True)
         return None
@@ -3489,8 +3530,25 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # plugin monitor's retry loop, and `watch-status` can then tell "the wake
     # target died" from "the stream dropped" and act accordingly (stop the
     # zombie, let a fresh session re-arm).
-    from .watch import EXIT_DEAD_WAKE_SOCKET
+    from .watch import EXIT_DEAD_WAKE_SOCKET, WatchTerminated
     from .watch import DeadWakeSocket as _DeadWakeSocket
+
+    # SIGTERM (watch-stop, session-end, the plugin monitor) used to kill the
+    # process outright, so the coalescer's buffered envelope was lost while the
+    # cursor had already been persisted past it (review #23, S3). Raise a
+    # BaseException instead so every `finally` below runs; exit 143 keeps the
+    # conventional code the monitor script already recognises.
+    import signal as _signal
+    import threading as _threading
+
+    def _on_sigterm(_signum: int, _frame: Any) -> None:
+        raise WatchTerminated()
+
+    previous_handler: Any = None
+    if _threading.current_thread() is _threading.main_thread():
+        with contextlib.suppress(ValueError, OSError):
+            previous_handler = _signal.signal(_signal.SIGTERM, _on_sigterm)
+    pidfile = _watch_pidfile(agent, state_key)
 
     try:
         try:
@@ -3535,12 +3593,23 @@ def cmd_watch(args: argparse.Namespace) -> int:
             tag = str(exc) or f"({type(exc).__name__})"
             print(f"agentbus watch: bus error ({tag}); monitor should retry", file=sys.stderr)
             return 3
+        except WatchTerminated:
+            print("agentbus watch: SIGTERM received; flushing pending wakes and stopping", file=sys.stderr)
+            return 143
     finally:
         # Flush any buffered coalesced envelope so a graceful shutdown never
-        # eats a wake. Runs on every exit path — normal, DeadWakeSocket, or
-        # an unexpected raise higher up.
+        # eats a wake. Runs on every exit path — normal, DeadWakeSocket,
+        # SIGTERM, or an unexpected raise higher up.
         if coalescer is not None:
             coalescer.close()
+        # Remove OUR pidfile (only if it still names us) so a reused PID can
+        # never be mistaken for a live watcher later (issuedb #28).
+        with contextlib.suppress(OSError, ValueError):
+            if pidfile.read_text().strip() == str(os.getpid()):
+                pidfile.unlink(missing_ok=True)
+        if previous_handler is not None:
+            with contextlib.suppress(ValueError, OSError):
+                _signal.signal(_signal.SIGTERM, previous_handler)
     return 0
 
 

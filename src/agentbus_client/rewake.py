@@ -43,6 +43,26 @@ from pathlib import Path
 _SHOW_RE = re.compile(r"agentbus show ([A-Za-z0-9_-]+)")
 
 
+def _is_transient_rewake_error(exc: BaseException) -> bool:
+    """Classify what the rewake poll's retry + circuit breaker should treat
+    as transient. Network-shaped errors and 5xx (502/503/504, including
+    ServiceUnavailable) ARE transient — a rolling server deploy must be
+    retried with backoff and count against the breaker, not escape the poll.
+    Every other typed API error (401 revoked, 403, 404, 429 quota) is
+    definitive and passes through; the outer guards decide what to do.
+
+    Before this classifier existed the SafetyNet only recognised
+    (ConnectionError, TimeoutError, OSError), so a ServiceUnavailable (503)
+    or a bare AgentBusError (502/504) mid-deploy was NOT classified and the
+    poll skipped retry backoff + breaker tracking entirely.
+    """
+    from .client import AgentBusError, ServiceUnavailable, TransportError
+
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError, ServiceUnavailable, TransportError)):
+        return True
+    return isinstance(exc, AgentBusError) and exc.status in (502, 503, 504)
+
+
 def _config_dir() -> Path:
     root = os.environ.get("AGENTBUS_WAKE_DIR")
     return Path(root) if root else Path.home() / ".config" / "agentbus"
@@ -202,7 +222,6 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
     """A poll callable wrapped in retry+breaker+failsafe. Falls back to a plain
     guarded poll if resilient-circuit is somehow absent — degraded, but never a
     crash and never a silent wrong answer (it says so on stderr)."""
-    net_errors = (ConnectionError, TimeoutError, OSError)
 
     def raw() -> str:
         try:
@@ -250,7 +269,7 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
                 cooldown=_dt.timedelta(
                     seconds=max(5, int(os.environ.get("AGENTBUS_REWAKE_INTERVAL", "15")))
                 ),
-                should_handle=lambda e: isinstance(e, net_errors),
+                should_handle=_is_transient_rewake_error,
             ),
             rc.RetryWithBackoffPolicy(
                 max_retries=3,
@@ -260,7 +279,7 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
                     factor=2,
                     jitter=0.2,
                 ),
-                should_handle=lambda e: isinstance(e, net_errors),
+                should_handle=_is_transient_rewake_error,
             ),
         )
     )

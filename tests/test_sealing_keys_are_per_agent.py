@@ -102,6 +102,46 @@ def test_a_key_with_no_owner_is_refused():
     assert "one agent" in str(exc.value).lower()
 
 
+@pytest.mark.usefixtures("store")
+def test_unbound_agent_loaders_return_none_not_value_error():
+    """THE AUDIT FIX. key_path() still REFUSES a no-owner key (above), but the
+    READ-side loaders must treat 'no acting agent' as 'this machine
+    holds no key for it' — returning None/[] exactly like load_signing_key —
+    instead of raising an unhandled ValueError that crashes a send or read."""
+    assert sealing.load_private_key() is None
+    assert sealing.load_private_keys() == []
+    assert sealing.load_signing_key() is None
+
+
+def test_apply_seal_uses_the_explicit_agent(monkeypatch):
+    """THE AUDIT FIX (second half): _apply_seal must resolve the sealing key
+    for the agent passed to send(..., agent=...), not the client's own bound
+    agent. Before, an explicit agent= was ignored and the send resealed to the
+    wrong identity's key."""
+    from agentbus_client.client.base import _Base
+
+    real_priv, real_pub = sealing.generate_keypair()  # valid age key, no I/O
+
+    seen: dict[str, str | None] = {}
+
+    def _fake_ensure(agent=None):
+        seen["agent"] = agent
+        return real_priv, real_pub
+
+    monkeypatch.setattr(sealing, "ensure_keypair", _fake_ensure)
+
+    bus = _Base(api_key="ab_sk_x", base_url="https://x", agent="bound-agent")
+    resolved = {
+        "encrypted": True,
+        "external": False,
+        "missing_keys": [],
+        "keys": {"recipient": [{"public_key": real_pub}]},
+    }
+    out = bus._apply_seal({"text": "hello"}, resolved, agent="explicit-agent")
+    assert seen["agent"] == "explicit-agent"
+    assert out["sealed"] is True
+
+
 def test_the_agent_name_is_sanitised_into_the_filename(store):
     """An agent name reaches a path. Anything that could traverse or collide
     must be neutralised, or a crafted name reads another agent's key."""

@@ -460,7 +460,25 @@ class Watcher:
             httpx.Client(timeout=httpx.Timeout(STREAM_READ_DEADLINE, connect=15.0)) as client,
             client.stream("GET", f"{self.bus.base_url}/v1/stream", headers=headers) as response,
         ):
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                # GET /v1/stream returned 401/403 — the SAME revocation signal
+                # as an `event: unauthorized` frame, and until now it fell
+                # straight into the reconnect loop's generic handler and was
+                # retried forever, hammering the bus with a credential that
+                # will never work (audit: "SSE stream revocation asymmetry").
+                # Confirm against REST before believing it — only a confirmed
+                # revocation ends the watch (via AuthError -> cli.py exit 8);
+                # a blip (5xx mid-deploy, pool torn down) stays transient and
+                # the backoff loop below handles it.
+                if exc.response.status_code in (401, 403) and self._key_really_revoked():
+                    raise AuthError(
+                        f"API key was rejected by the stream (HTTP {exc.response.status_code})",
+                        code="revoked" if exc.response.status_code == 401 else "forbidden",
+                        status=int(exc.response.status_code),
+                    ) from exc
+                raise
             # Successful reconnect: clear the persisted backoff position too,
             # so a subsequent process restart resumes from a clean baseline
             # rather than reading a stale `failures=6` and starting at 60s.
@@ -486,7 +504,7 @@ class Watcher:
                     # genuinely revoked, this raises and we stop. If it
                     # answers, the stream was wrong and we reconnect.
                     if self._key_really_revoked():
-                        raise PermissionError("API key was revoked")
+                        raise AuthError("API key was revoked", code="revoked", status=401)
                     print(
                         "agentbus watch: stream said unauthorized but the key "
                         "still works; treating as transient and reconnecting",
@@ -562,6 +580,12 @@ class Watcher:
                 delivered = self._drain()
         except DeadWakeSocket:
             raise
+        except AuthError:
+            # Startup on a revoked credential is TERMINAL, not a reason to
+            # defer into the reconnect loop — the reconnect loop would just
+            # hammer the bus with a key that will never work. Re-raise so
+            # cmd_watch returns 8 and the monitor stops.
+            raise
         except Exception as exc:  # noqa: BLE001 — startup drain MUST NOT block launch
             # The reconnect envelope in the while loop below handles this
             # exact class of failure. Defer to it — announcement is one
@@ -583,9 +607,12 @@ class Watcher:
                 self._stream_once()
             except DeadWakeSocket:
                 raise
-            except PermissionError as exc:
-                print(f"agentbus watch: stopping — {exc}", file=sys.stderr)
-                return 0
+            except AuthError:
+                # A REST-confirmed revoked credential is TERMINAL. The generic
+                # handler below would back off and retry forever, hammering the
+                # bus with a key that will never work — the revocation
+                # asymmetry the audit flagged. Re-raise so cmd_watch returns 8.
+                raise
             except KeyboardInterrupt:
                 return 0
             except httpx.ReadTimeout:

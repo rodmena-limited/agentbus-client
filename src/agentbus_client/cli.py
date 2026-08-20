@@ -3507,6 +3507,34 @@ def cmd_watch(args: argparse.Namespace) -> int:
             print(f"agentbus watch: {exc}", file=sys.stderr)
             print("  A fresh session's monitor will re-arm the wake path.", file=sys.stderr)
             return EXIT_DEAD_WAKE_SOCKET
+        except AuthError as exc:
+            # SPECS/0020: a revoked key is TERMINAL — retrying will hammer
+            # the bus with a credential that will never work. Exit 8 so the
+            # monitor script's dedicated auth-failure branch handles it
+            # (stop + operator message, no retry). Without this catch, the
+            # exception reaches main()'s global AuthError handler which
+            # also returns 8, but catching it HERE means cmd_watch controls
+            # its own exit codes and a refactor to main() cannot silently
+            # change what the monitor sees.
+            print(f"agentbus watch: credential rejected ({exc.code}: {exc.detail})", file=sys.stderr)
+            return 8
+        except AgentBusError as exc:
+            # SPECS/0020: ANY other bus error that escapes the Watcher's own
+            # reconnect loop (e.g. a ServiceUnavailable or TransportError
+            # during construction, or a future code path that doesn't enter
+            # the while-True loop) MUST stay retryable. Exit 3 is the
+            # generic "bus error" code the monitor script counts against its
+            # startup budget and retries with backoff.
+            #
+            # Without this catch, main()'s global handlers assign
+            # ServiceUnavailable → 5, QuotaExceeded → 4, generic → 3. The
+            # monitor script only recognises 3 as retryable; 4 and 5 fall
+            # through to the catch-all and consume an attempt with no
+            # diagnostic. Normalising them to 3 here is both simpler and
+            # more honest: every transient bus failure is retryable.
+            tag = str(exc) or f"({type(exc).__name__})"
+            print(f"agentbus watch: bus error ({tag}); monitor should retry", file=sys.stderr)
+            return 3
     finally:
         # Flush any buffered coalesced envelope so a graceful shutdown never
         # eats a wake. Runs on every exit path — normal, DeadWakeSocket, or

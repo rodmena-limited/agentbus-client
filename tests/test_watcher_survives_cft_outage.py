@@ -289,3 +289,178 @@ def test_cmd_watch_whoami_startup_catches_any_exception():
     # The specific comment referencing the SEV-1 diagnosis is present so a
     # future refactor doesn't narrow it back.
     assert "startup label lookup MUST NOT block launch" in src
+
+
+def test_cmd_watch_catches_escaped_auth_error(monkeypatch, tmp_path):
+    """AuthError escaping Watcher.run() returns exit code 8 (terminal)."""
+    import argparse
+    from agentbus_client import cli as cli_module
+    from agentbus_client import watch as watch_module
+    from agentbus_client.client import AuthError
+
+    args = argparse.Namespace(
+        api_key="test-key",
+        agent="test-agent",
+        base_url="https://fake",
+        cursor=None,
+        state=str(tmp_path / "state.json"),
+        workspace=None,
+        exec=None,
+        append=None,
+        coalesce=None,
+        once=True,
+    )
+
+    def _fake_run(self, once=False):
+        raise AuthError("Key revoked", code="auth_failed", status=401)
+
+    monkeypatch.setattr(watch_module.Watcher, "run", _fake_run)
+    rc = cli_module.cmd_watch(args)
+    assert rc == 8
+
+
+def test_cmd_watch_catches_escaped_service_unavailable(monkeypatch, tmp_path):
+    """ServiceUnavailable/AgentBusError escaping Watcher.run() returns exit code 3 (retryable)."""
+    import argparse
+    from agentbus_client import cli as cli_module
+    from agentbus_client import watch as watch_module
+    from agentbus_client.client import ServiceUnavailable
+
+    args = argparse.Namespace(
+        api_key="test-key",
+        agent="test-agent",
+        base_url="https://fake",
+        cursor=None,
+        state=str(tmp_path / "state.json"),
+        workspace=None,
+        exec=None,
+        append=None,
+        coalesce=None,
+        once=True,
+    )
+
+    def _fake_run(self, once=False):
+        raise ServiceUnavailable("Gateway down", status=503)
+
+    monkeypatch.setattr(watch_module.Watcher, "run", _fake_run)
+    rc = cli_module.cmd_watch(args)
+    assert rc == 3
+
+
+# ------------------------------------------------- Fix: revocation is TERMINAL
+#
+# SPECS/0020: AuthError (confirmed-revoked credential) exits 8 and is never
+# retried. The cli.py handler above only fires if Watcher.run() actually lets
+# AuthError ESCAPE — the generic `except Exception` in the reconnect loop used
+# to swallow it into _backoff_and_drain and retry forever (hammering the bus
+# with a key that will never work): the SSE revocation asymmetry the audit
+# flagged.
+
+
+def test_run_propagates_confirmed_revocation_from_stream(tmp_path, monkeypatch):
+    """run() must re-raise AuthError from _stream_once, not fold it into the
+    reconnect backoff. If it were swallowed, _backoff_and_drain would fire —
+    which this test turns into a loud failure instead of an infinite loop."""
+    from unittest.mock import patch
+
+    from agentbus_client.client import AuthError
+    from agentbus_client import watch as watch_module
+
+    bus = _FakeBus()
+    w = _watcher(bus, tmp_path)
+
+    def _revoked(self, once=False):
+        raise AuthError("API key was revoked", code="revoked", status=401)
+
+    def _must_not_backoff(self, reason, stream=None):
+        raise AssertionError("revoked credential was folded into the backoff loop")
+
+    with (
+        patch.object(watch_module.Watcher, "_stream_once", _revoked),
+        patch.object(watch_module.Watcher, "_backoff_and_drain", _must_not_backoff),
+    ):
+        with pytest.raises(AuthError):
+            w.run()
+
+
+def test_run_propagates_revocation_from_startup_drain(tmp_path, monkeypatch):
+    """A revoked key at STARTUP is terminal too: run(once=True) must raise
+    AuthError, not defer the drain and return 0 (a revoked credential must
+    never look like a successful `--once` check)."""
+    from agentbus_client.client import AuthError
+
+    bus = _FakeBus()
+    bus.inbox_raises = AuthError("revoked", code="revoked", status=401)
+    w = _watcher(bus, tmp_path)
+    with pytest.raises(AuthError):
+        w.run(once=True)
+
+
+class _FakeStreamResponse:
+    """Minimal httpx stream response: needs the context-manager protocol
+    (`client.stream(...) as response`) and raise_for_status — nothing else is
+    reached for these 4xx tests."""
+
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+
+    def __enter__(self) -> "_FakeStreamResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            import httpx
+
+            raise httpx.HTTPStatusError(
+                f"stream error {self.status_code}",
+                request=object(),
+                response=self,
+            )
+
+
+class _FakeStreamClient:
+    def __init__(self, status_code: int):
+        self._status = status_code
+
+    def __enter__(self) -> "_FakeStreamClient":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def stream(self, method: str, url: str, headers=None) -> _FakeStreamResponse:
+        return _FakeStreamResponse(self._status)
+
+
+def test_stream_once_confirmed_401_raises_auth_error(tmp_path, monkeypatch):
+    """GET /v1/stream returning 401 with a REST-confirmed revocation raises
+    AuthError (-> exit 8), not httpx.HTTPStatusError folded into backoff."""
+    import httpx
+
+    from agentbus_client import watch as watch_module
+
+    bus = _FakeBus()
+    w = _watcher(bus, tmp_path)
+    monkeypatch.setattr(watch_module.httpx, "Client", lambda timeout=None: _FakeStreamClient(401))
+    monkeypatch.setattr(w, "_key_really_revoked", lambda: True)
+    with pytest.raises(watch_module.AuthError):
+        w._stream_once()
+
+
+def test_stream_once_401_without_confirmation_stays_transient(tmp_path, monkeypatch):
+    """GET /v1/stream returning 401 that is NOT a confirmed revocation (a
+    server blip) re-raises the HTTPStatusError so the backoff loop reconnects —
+    it must NOT exit 8 on the server's word alone."""
+    import httpx
+
+    from agentbus_client import watch as watch_module
+
+    bus = _FakeBus()
+    w = _watcher(bus, tmp_path)
+    monkeypatch.setattr(watch_module.httpx, "Client", lambda timeout=None: _FakeStreamClient(401))
+    monkeypatch.setattr(w, "_key_really_revoked", lambda: False)
+    with pytest.raises(httpx.HTTPStatusError):
+        w._stream_once()

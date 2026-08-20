@@ -218,7 +218,7 @@ class _Base:
             return payload
         return signed
 
-    def _apply_seal(self, payload: dict[str, Any], resolved: dict[str, Any]) -> dict[str, Any]:
+    def _apply_seal(self, payload: dict[str, Any], resolved: dict[str, Any], agent: str | None = None) -> dict[str, Any]:
         """Turn a resolve answer into a sealed payload. NO I/O, so both the sync
         and async clients share it.
 
@@ -263,7 +263,7 @@ class _Base:
         keys: list[str] = []
         for entries in (resolved.get("keys") or {}).values():
             keys.extend(entry["public_key"] for entry in entries)
-        _private, own_public = sealing.ensure_keypair(self.agent)
+        _private, own_public = sealing.ensure_keypair(agent or self.agent)
         if own_public not in keys:
             keys.append(own_public)
         if not keys:

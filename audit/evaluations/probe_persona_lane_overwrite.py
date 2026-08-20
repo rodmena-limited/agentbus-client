@@ -1,4 +1,6 @@
 import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))
 import unittest.mock as mock
 from agentbus_client.cli import cmd_watch
 import argparse

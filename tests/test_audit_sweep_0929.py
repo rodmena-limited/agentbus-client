@@ -210,6 +210,37 @@ def test_rewake_poll_still_returns_real_text_on_success(monkeypatch):
     assert poll() == "agentbus show 01ABC"
 
 
+def test_rewake_classifies_503_as_transient():
+    """The audit gap: during a rolling deploy, ServiceUnavailable (503) and
+    bare AgentBusError (502/504) must be classified TRANSIENT so the retry
+    policy backoffs and the circuit breaker counts them — not escape the
+    SafetyNet into the fallback (which skipped both)."""
+    from agentbus_client import rewake
+    from agentbus_client.client import (
+        AgentBusError,
+        AuthError,
+        NotFoundError,
+        QuotaExceeded,
+        ServiceUnavailable,
+        TransportError,
+    )
+
+    is_t = rewake._is_transient_rewake_error
+    # Transient — retried with backoff + counted by the breaker.
+    assert is_t(ConnectionError("wifi dropped"))
+    assert is_t(TimeoutError())
+    assert is_t(OSError("dns failed"))
+    assert is_t(ServiceUnavailable("deploy", status=503))
+    assert is_t(AgentBusError("gateway", status=502))
+    assert is_t(AgentBusError("gateway", status=504))
+    assert is_t(TransportError("request never got an answer"))
+    # Definitive — not transient, passes through for the outer guards.
+    assert not is_t(AuthError("revoked", status=401))
+    assert not is_t(NotFoundError("gone", status=404))
+    assert not is_t(QuotaExceeded("429", status=429))
+    assert not is_t(AgentBusError("bad", status=422))
+
+
 # ------------------------------------------------------- F2b doctor ledger path
 
 

@@ -180,7 +180,10 @@ def ensure_keypair(agent: str | None = None) -> tuple[str, str]:
 
 
 def load_private_key(agent: str | None = None) -> str | None:
-    path = key_path(agent)
+    try:
+        path = key_path(agent)
+    except ValueError:
+        return None
     if not path.exists():
         return None
     return path.read_text().strip() or None
@@ -203,7 +206,10 @@ def load_private_keys(agent: str | None = None) -> list[str]:
     current = load_private_key(agent)
     if current:
         keys.append(current)
-    directory = key_path(agent).parent
+    try:
+        directory = key_path(agent).parent
+    except ValueError:
+        return keys
     if directory.exists():
         # SCOPED TO THIS AGENT'S OWN SUPERSEDED KEYS. This used to glob
         # `*.superseded` across the whole directory, which on a box with several

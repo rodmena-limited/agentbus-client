@@ -412,7 +412,7 @@ class SyncMessagingMixin:
                 if getattr(exc, "status", None) in (403, 404, 405):
                     return payload, None
                 raise
-            return self._apply_seal(payload, resolved), resolved
+            return self._apply_seal(payload, resolved, agent=agent), resolved
 
         def unseal_message(self, message: dict[str, Any]) -> dict[str, Any]:
             """Decrypt a message body in place, or mark plainly why it could not be.

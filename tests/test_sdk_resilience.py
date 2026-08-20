@@ -34,6 +34,13 @@ from agentbus_client.client import (
 def test_transient_errors_classify_as_transient() -> None:
     assert _is_transient_sdk_error(TransportError("bus unreachable"))
     assert _is_transient_sdk_error(ServiceUnavailable("503"))
+    # 5xx that the server maps to a BARE AgentBusError (500/502/504 surface
+    # via a proxy/gateway mid-deploy; only 503 becomes ServiceUnavailable).
+    # These MUST retry or a deploy fails every in-flight call definitively.
+    for status in (500, 502, 504):
+        assert _is_transient_sdk_error(
+            client_module.AgentBusError("gateway", status=status)
+        ), f"bare AgentBusError status {status} MUST be transient"
 
 
 def test_non_transient_errors_classify_as_definitive() -> None:
@@ -51,6 +58,23 @@ def test_httpx_transport_level_error_classifies_as_transient() -> None:
 
     assert _is_transient_sdk_error(httpx.ConnectError("network"))
     assert _is_transient_sdk_error(httpx.ReadTimeout("slow"))
+
+
+def test_sync_and_async_breakers_share_cb_env_knobs(monkeypatch) -> None:
+    """A1: AGENTBUS_SDK_CB_FAILURE_LIMIT / _SUCCESS_LIMIT used to be honored
+    only by the async breaker; the sync breaker hardcoded 5/5 and 2/2. One
+    helper must feed both, so one operator setting tunes both surfaces."""
+    from agentbus_client.client import resilience as resilience_module
+
+    monkeypatch.setenv("AGENTBUS_SDK_CB_FAILURE_LIMIT", "7")
+    monkeypatch.setenv("AGENTBUS_SDK_CB_SUCCESS_LIMIT", "3")
+    failure, success = resilience_module._sdk_cb_limits()
+    assert (failure, success) == (7, 3)
+
+    # Defaults still sane when unset.
+    monkeypatch.delenv("AGENTBUS_SDK_CB_FAILURE_LIMIT", raising=False)
+    monkeypatch.delenv("AGENTBUS_SDK_CB_SUCCESS_LIMIT", raising=False)
+    assert resilience_module._sdk_cb_limits() == (5, 2)
 
 
 # ---------------------------------------------------------------- retry behavior
@@ -111,6 +135,24 @@ def test_transient_transport_error_retries_and_eventually_succeeds(monkeypatch) 
         [
             httpx.ConnectError("network"),
             httpx.ConnectError("still network"),
+            (200, {"ok": True}),
+        ]
+    )
+    bus = _make_bus(client, monkeypatch)
+    result = bus._request("GET", "/v1/whoami")
+    assert result == {"ok": True}
+    assert client.calls == 3
+
+
+def test_gateway_502_retries_and_eventually_succeeds(monkeypatch) -> None:
+    """502 -> 502 -> 200. A bare AgentBusError 502 (proxy mid-deploy) used to
+    be treated as DEFINITIVE and passed through on the first attempt — the
+    same transient-classification gap the audit found in rewake.py, one layer
+    over. Now it retries with backoff like a 503."""
+    client = _StubClient(
+        [
+            (502, {"code": "bad_gateway", "detail": "upstream raced"}),
+            (502, {"code": "bad_gateway", "detail": "upstream raced"}),
             (200, {"ok": True}),
         ]
     )

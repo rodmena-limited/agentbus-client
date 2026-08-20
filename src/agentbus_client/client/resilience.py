@@ -62,17 +62,42 @@ _SDK_BULKHEAD: Any = None
 _SDK_SAFETY_NET: Any = None
 
 
+def _sdk_cb_limits() -> tuple[int, int]:
+    """The circuit-breaker burst thresholds, from env — SHARED by both breakers.
+
+    A1 (reliability audit follow-up): AGENTBUS_SDK_CB_FAILURE_LIMIT and
+    AGENTBUS_SDK_CB_SUCCESS_LIMIT used to be honored ONLY by the async breaker
+    (_async_circuit_breaker) while the sync breaker hardcoded 5/5 and 2/2 —
+    the exact sync/async knob asymmetry this module exists to prevent. One
+    helper, both breakers, one operator setting.
+    """
+    return (
+        max(1, int(os.environ.get("AGENTBUS_SDK_CB_FAILURE_LIMIT", "5"))),
+        max(1, int(os.environ.get("AGENTBUS_SDK_CB_SUCCESS_LIMIT", "2"))),
+    )
+
+
 def _is_transient_sdk_error(exc: BaseException) -> bool:
     """Classify what the resilience layer should retry / count for the breaker.
 
-    Transport failures and 5xx (ServiceUnavailable) are transient — retry them.
-    Every other typed AgentBusError is DEFINITIVE (401 revoked, 403 forbidden,
-    404 not found, 422 malformed, 429 quota/rate) and MUST pass through
-    unchanged; retrying them wastes work and can make the underlying state
-    worse. Also: httpx.HTTPError catches network-level failures before the SDK
-    can wrap them as TransportError, so it counts as transient too.
+    Transport failures and 5xx are transient — retry them. 5xx means the
+    server side failed (rolling deploy, gateway 500/502/504, upstream 503),
+    so retrying is correct and cheap; the cause lives on the far side.
+    Every other typed AgentBusError is DEFINITIVE (401 revoked, 403
+    forbidden, 404 not found, 409/413/422 malformed, 429 quota/rate) and
+    MUST pass through unchanged; retrying them wastes work and can make the
+    underlying state worse. Also: httpx.HTTPError catches network-level
+    failures before the SDK can wrap them as TransportError, so it counts as
+    transient too.
+
+    Why the 5xx branch is a STATUS check, not a subclass check: the server
+    maps only 503 to ServiceUnavailable in errors._ERRORS, so 500/502/504 (a
+    proxy/gateway mid-deploy) surface as a BARE AgentBusError with the status
+    attached. Matching on isinstance would silently treat those definitive.
     """
     if isinstance(exc, (TransportError, ServiceUnavailable)):
+        return True
+    if isinstance(exc, AgentBusError) and 500 <= exc.status <= 599:
         return True
     return isinstance(exc, httpx.HTTPError)
 
@@ -117,13 +142,17 @@ def _sdk_safety_net() -> Any:
         import resilient_circuit as rc
         from resilient_circuit.storage import InMemoryStorage
 
+        # One operator setting, both breakers (A1): the sync CircuitProtector
+        # takes a Fraction of the last N attempts; the env knob is an integer,
+        # shared with the async breaker via _sdk_cb_limits().
+        break_fail, close_success = _sdk_cb_limits()
         _SDK_SAFETY_NET = rc.SafetyNet(
             policies=(
                 rc.CircuitProtectorPolicy(
                     resource_key="agentbus-sdk",
                     storage=InMemoryStorage(),
-                    failure_limit=Fraction(5, 5),  # 5 of last 5 attempts failed
-                    success_limit=Fraction(2, 2),  # 2 clean attempts to close
+                    failure_limit=Fraction(break_fail, break_fail),  # last N failed
+                    success_limit=Fraction(close_success, close_success),  # N clean to close
                     cooldown=_dt.timedelta(
                         seconds=int(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30"))
                     ),
@@ -425,9 +454,10 @@ def _async_circuit_breaker() -> _AsyncCircuitBreaker:
     """
     global _ASYNC_CIRCUIT_BREAKER
     if _ASYNC_CIRCUIT_BREAKER is None:
+        fail_n, succ_n = _sdk_cb_limits()
         _ASYNC_CIRCUIT_BREAKER = _AsyncCircuitBreaker(
-            failure_limit=int(os.environ.get("AGENTBUS_SDK_CB_FAILURE_LIMIT", "5")),
-            success_limit=int(os.environ.get("AGENTBUS_SDK_CB_SUCCESS_LIMIT", "2")),
+            failure_limit=fail_n,
+            success_limit=succ_n,
             cooldown=float(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30")),
         )
     return _ASYNC_CIRCUIT_BREAKER

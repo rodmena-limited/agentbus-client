@@ -36,3 +36,4 @@ scratch*.py
 
 # Per-checkout issuedb — never committed
 .issue.db
+opencode.json

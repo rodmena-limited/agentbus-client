@@ -48,7 +48,7 @@ def test_lane_overwrite():
             self.handler({"delivery_id": "123", "lane": "sender-persona"})
             return 0
 
-    with mock.patch("agentbus_client.cli._bus", return_value=MockBus()), \
+    with mock.patch("agentbus_client.cli._common._bus", return_value=MockBus()), \
          mock.patch("agentbus_client._coalesce.Coalescer", MockCoalescer), \
          mock.patch("agentbus_client.watch.notify_command", fake_notify_command), \
          mock.patch("agentbus_client.watch.Watcher", FakeWatcher):

@@ -6,6 +6,12 @@ machine against fake servers on 127.0.0.1 or in-process stubs; **the production 
 Each reproduction is persisted as a probe in `audit/evaluations/` — run `audit/evaluations/run_all.sh`;
 a FAIL is an open finding, and a probe that later PASSES is the fix verification.
 
+> **RESOLVED in 0.9.44** (same day, unattended session). Commits `1cfe0cb` (fixes, #24–#34 and peer C1–C6),
+> `ea656a1` (cli split), `cb431b6` (onboarding/hooks/watch/sync_misc split, lint clean). Verification:
+> `audit/evaluations/run_all.sh` 12/12 PASS; peer harness 6/6 PASS; 483 unit tests pass; `ruff check src` clean.
+> Deliberately unchanged: S11 (`pending()` echoes stdin — opencode plugin contract unknown) and S12 (wake is
+> at-most-once by design; the Stop-hook monitor is the backstop).
+
 **Baseline on 0.9.43 (main @ db88af9):** 482 unit tests pass, 4 skipped. Probe harness: 3 PASS (pre-existing),
 **9 FAIL (new)**.
 

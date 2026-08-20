@@ -33,7 +33,7 @@ def main():
             def attachment(self, d, i): return b"PWNED"
         import argparse
         args = argparse.Namespace(delivery_id="01D", index=0, output=None, force=False, all=False, agent=None, json=False)
-        cli._bus = lambda _a: Bus()
+        cli._common._bus = lambda _a: Bus()
         cli.cmd_attachment(args)
         if sentinel.exists():
             print("FAIL: attachment escaped the working directory"); return 1

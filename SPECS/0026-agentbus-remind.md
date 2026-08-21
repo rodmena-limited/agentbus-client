@@ -367,11 +367,42 @@ ruled the scheduler out of the original "41s early" report. Discarding it as
 untrustworthy would mean throwing away the instrument *because of the defect it
 correctly detected*.
 
-**The equivalent split for AgentBus's own fields has NOT been established** —
-it is the backend's write path, not mine, and assuming it mirrors RunFlow's is
-the same unverified inference I just had corrected. Ordering and elapsed-time
-claims over the pre-fix window stay suspect for any field not yet shown to be
-app-sourced.
+**AgentBus's own split, audited from the write paths** by the backend on
+request (rather than assumed to mirror RunFlow's — that would have been the same
+unverified inference, one repo over). The answer was narrower than my wording in
+one place and *wider* in another:
+
+| App-clock (sound throughout) | DB-clock (historically off, up to 43s) |
+|---|---|
+| `scheduled_messages.created_at` (`$12` on the INSERT), `.next_fire_at`, `.resolved_at`, `.expires_at` | `deliveries.created_at` / `read_at` / `acked_at` / `delivered_at` / `held_at`, `messages.created_at`, and **every** `delivery_reminders` column |
+
+So ordering and elapsed-time claims before ~21:00Z on 2026-08-21 are suspect for
+every **delivery, message and ack-tracking** timestamp. The `delivery_reminders`
+escalation curve is internally consistent — both operands come from the same
+clock — but its absolute values are off.
+
+**`scheduled_messages` is the exception, and only since ~04:00Z that day.** It is
+app-clock because the backend changed it in response to the "-41s early" bug:
+`next_fire_at` was app-supplied while `created_at` defaulted to Postgres `now()`,
+so a single row carried two machines' clocks and subtracting its own two fields
+gave a wrong answer. **Rows written before ~04:00Z are therefore worse than
+uniformly-skewed ones — they are internally incoherent**, and a reader cannot
+correct them with a constant offset.
+
+Verified independently from the client, through the product, by bracketing a real
+`remind` call with this machine's clock:
+
+    my clock before   22:23:25.211
+    created_at        22:23:25.358     <- inside my own request window
+    my clock after    22:23:25.490
+    due_at            22:33:25.358     <- created_at + exactly 600.000s
+
+`created_at` falling inside the request window *and* the delta being exactly the
+600s requested are both impossible if the two columns came from different clocks.
+
+The generalisable point, which is what made asking worthwhile: **`now()` appearing
+in a statement is a different question from `now()` appearing in the arithmetic**,
+and only reading the write path distinguishes them.
 
 The discriminating experiment is also **no longer available**: the skew was the
 only instrument that could tell the two clocks apart, and fixing it removed the

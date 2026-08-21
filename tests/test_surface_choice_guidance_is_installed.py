@@ -169,6 +169,30 @@ def test_no_exemption_names_a_capability_that_no_longer_exists():
     assert not stale, f"EXEMPTIONS names capabilities that no longer exist: {stale}"
 
 
+def test_every_exemption_is_actually_REACHED_by_the_matrix():
+    """An exemption must be EVALUATED, not merely well-formed.
+
+    The stale-exemption test above asks whether an exemption names a live
+    capability. This asks the harder question: does the matrix ever VISIT that
+    cell? An exemption whose (capability, surface) pair is never parametrized is
+    dead code — the skip branch never runs, the reason string is decoration, and
+    the "exemption" asserts nothing at all.
+
+    This file shipped with exactly that defect: bus_heartbeat sat in EXEMPTIONS
+    but not in CAPABILITIES, so it passed the stale check (the capability was
+    real) while never being evaluated. A check that cannot go red, hiding inside
+    the file whose purpose is catching those. The backend agent took the same
+    gap as a defect in their guard rather than a difference in shape
+    (thread 01M0GTSGPQNYHG2C7G0D39VJP8).
+    """
+    evaluated = {(cap, surface) for cap in CAPABILITIES for surface in SURFACES}
+    unreachable = set(EXEMPTIONS) - evaluated
+    assert not unreachable, (
+        f"EXEMPTIONS entries the matrix never evaluates, so their skip branch "
+        f"is dead code and they assert nothing: {unreachable}"
+    )
+
+
 def test_no_exemption_is_reasonless():
     """'Exempt because it was easier' cannot pass as a reason."""
     empty = [key for key, reason in EXEMPTIONS.items() if not (reason or "").strip()]

@@ -404,6 +404,45 @@ The generalisable point, which is what made asking worthwhile: **`now()` appeari
 in a statement is a different question from `now()` appearing in the arithmetic**,
 and only reading the write path distinguishes them.
 
+### The same question asked of the client — a negative result
+
+RunFlow rebuilt the discriminating experiment as a test (inject a synthetic
+app/DB offset, assert which column follows which clock) rather than accepting my
+claim that the fix had destroyed the only instrument. That pattern applies here,
+so it was run against this client.
+
+**The client does mix two clocks in one reminder**, by design and documented:
+
+    due_at      = SERVER clock + `--delay`   (server resolves `delay_seconds`)
+    expires_at  = CLIENT clock + `--expire`  (`_expiry_instant`, resolved from now)
+
+So with a client clock skewed by N, the expiry window is off by N relative to the
+fire time. **This is not the silent-death bug it looks like.** Probed against the
+live service with a simulated 45s-behind client (~pg-nano-03's drift tonight),
+the inversion is refused loudly:
+
+    ValidationError: expires_at must be after the first fire
+
+**And the control refutes the skew attribution entirely.** The same call is
+rejected on a healthy clock:
+
+| call (no injected skew) | result |
+|---|---|
+| `--delay 60s --expire 60s` | REJECTED — `expires_at must be after the first fire` |
+| `--delay 5m --expire 60s`  | REJECTED — expiry genuinely precedes the fire |
+| `--delay 60s --expire 5m`  | accepted, `expires-due = +240.0s` |
+
+The rejection follows from `--expire` being measured from *now* while `--delay`
+is measured from *now* as well — equal values leave no window — and has nothing
+to do with clock skew. Reporting it as a skew defect would have been a false
+attribution built on a plausible premise, which is the exact failure this whole
+record is about.
+
+**Residual, stated honestly:** on a synced fleet the mixing costs sub-second
+accuracy on the expiry window, and the dangerous boundary is server-validated.
+No code change made. Recorded because "we looked and it was fine" is a result
+worth keeping — an unexamined assumption and a checked one look identical later.
+
 The discriminating experiment is also **no longer available**: the skew was the
 only instrument that could tell the two clocks apart, and fixing it removed the
 instrument. Post-fix, an app-clock and a DB-clock field look identical.

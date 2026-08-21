@@ -36,6 +36,23 @@ def _render(row: dict) -> str:
 
 
 def cmd_remind(args: argparse.Namespace) -> int:
+    # ARGUMENT VALIDATION BEFORE THE CLIENT IS BUILT. `_bus()` resolves a
+    # credential and opens a connection; doing that first means a plain typo in
+    # the flags fails with a credential error on a machine that is not signed
+    # in, which names the wrong problem entirely. Nothing below needs the
+    # network to know the arguments are wrong.
+    if args.repeat and (getattr(args, "delay", None) or getattr(args, "at", None)):
+        other = "--delay" if args.delay else "--at"
+        print(
+            f"a recurring reminder takes its first fire from the cron itself — "
+            f"drop {other}, or drop --repeat to schedule a single message",
+            file=sys.stderr,
+        )
+        return 2
+    if getattr(args, "delay", None) and getattr(args, "at", None):
+        print("--delay and --at say the same thing two ways; pick one", file=sys.stderr)
+        return 2
+
     bus = _common._bus(args)
 
     if getattr(args, "cancel", None):
@@ -55,9 +72,6 @@ def cmd_remind(args: argparse.Namespace) -> int:
             "when? pass --delay 2h, --at '2026-08-22 09:00', or --repeat daily",
             file=sys.stderr,
         )
-        return 2
-    if args.delay and args.at:
-        print("--delay and --at say the same thing two ways; pick one", file=sys.stderr)
         return 2
 
     try:
@@ -99,15 +113,46 @@ def cmd_remind(args: argparse.Namespace) -> int:
 
 
 def cmd_reminds(args: argparse.Namespace) -> int:
+    """List reminders — LIVE ONES BY DEFAULT.
+
+    THE POINT OF THIS COMMAND IS TO FIND SOMETHING TO CANCEL, and a list where
+    every fired and cancelled reminder is mixed in with the two that are still
+    pending does not serve that. After a handful of one-shots the live entries
+    are a minority of the output, and a recurring reminder — the thing you most
+    need to find, because it fires forever until someone stops it — is buried
+    among dead rows that read almost identically.
+
+    So the default is live: `scheduled` only. `--all` shows history, and the
+    footer says how many were hidden so the filtering is never silent.
+    """
     rows = _common._bus(args).reminds(all=getattr(args, "all", False))
+    show_all = getattr(args, "all", False)
+    live = [r for r in rows if r.get("state") == "scheduled"]
+    shown = rows if show_all else live
+
     if args.json:
-        _print(rows, True)
+        # --json is the machine surface and must not lose data to a display
+        # choice: it returns whatever the server sent for the requested scope.
+        _print(shown, True)
         return 0
-    if not rows:
-        print("no scheduled reminders")
+
+    if not shown:
+        if rows and not show_all:
+            print(f"no live reminders ({len(rows)} finished — see them with --all)")
+        else:
+            print("no reminders")
         return 0
-    for row in rows:
+
+    # Recurring first: they are the ones that keep firing until cancelled, so
+    # they are what a reader is most often here to find.
+    for row in sorted(shown, key=lambda r: (not r.get("repeat"), r.get("due_at") or "")):
         print(_render(row))
+
+    hidden = len(rows) - len(shown)
+    if hidden:
+        print(f"\n({hidden} finished reminder(s) hidden — `agentbus reminds --all`)")
+    if any(r.get("repeat") for r in shown):
+        print("cancel a recurring one: agentbus remind --cancel <id>")
     return 0
 
 
@@ -187,6 +232,12 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
             "not yet sent."
         ),
     )
-    p.add_argument("--all", action="store_true", help="include ones you scheduled for others")
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="include FINISHED reminders (fired and cancelled). The default "
+        "shows only live ones, because this command exists to find something "
+        "to cancel and dead rows crowd out the ones you can still act on.",
+    )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_reminds)

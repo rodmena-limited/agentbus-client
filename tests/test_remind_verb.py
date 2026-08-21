@@ -331,3 +331,146 @@ def test_the_payload_carries_only_fields_the_server_accepts():
     bus._seal_to_self = lambda body, agent: body
     bus.remind("note", delay="2h", expire="3d", repeat="daily", timezone="Europe/London")
     assert set(spy.body) <= served, f"sends fields the server forbids: {set(spy.body) - served}"
+
+
+# ------------------------------------------------- listing, live-by-default
+#
+# Farshid: "the client must have the ability to list reminders/crons (otherwise
+# they can't cancel the old ones)". The verb existed; what it lacked was making
+# the LIVE ones findable — after a handful of one-shots the entries you can
+# still act on are a minority of the output, and a recurring reminder, the thing
+# you most need to find because it fires forever until stopped, is buried among
+# dead rows that read almost identically.
+
+
+def _reminds_output(rows, show_all=False, monkeypatch=None):
+    """Render the listing with a stubbed bus.
+
+    MONKEYPATCH, NOT A BARE ASSIGNMENT. An earlier version assigned
+    `_remind._common._bus = ...` directly, which permanently replaced the
+    accessor on a SHARED module for the rest of the session — two unrelated
+    watcher tests then failed because they got this stub instead of their own.
+    A test that breaks other tests is worse than one that fails: the damage
+    lands somewhere nobody is looking, and the file that caused it looks green.
+    """
+    from agentbus_client.cli import _remind
+
+    class _A:
+        json = False
+        all = show_all
+        agent = None
+
+    bus = type("B", (), {"reminds": lambda self, all=False: rows})()
+    monkeypatch.setattr(_remind._common, "_bus", lambda args: bus)
+    return _remind.cmd_reminds(_A())
+
+
+def test_finished_reminders_are_hidden_by_default(capsys, monkeypatch):
+    rows = [
+        {"id": "A", "state": "cancelled", "due_at": "2026-08-21T03:00:00Z"},
+        {"id": "B", "state": "scheduled", "due_at": "2026-08-21T09:00:00Z"},
+    ]
+    _reminds_output(rows, monkeypatch=monkeypatch)
+    out = capsys.readouterr().out
+    assert "B" in out
+    assert "A" not in out, "a cancelled reminder crowds out the ones you can act on"
+
+
+def test_hidden_rows_are_counted_never_silently_dropped(capsys, monkeypatch):
+    """Filtering the display must announce itself. A list that quietly omits
+    rows is how someone concludes a reminder is gone when it is merely fired."""
+    rows = [
+        {"id": "A", "state": "cancelled", "due_at": "2026-08-21T03:00:00Z"},
+        {"id": "B", "state": "scheduled", "due_at": "2026-08-21T09:00:00Z"},
+    ]
+    _reminds_output(rows, monkeypatch=monkeypatch)
+    assert "1 finished reminder(s) hidden" in capsys.readouterr().out
+
+
+def test_recurring_reminders_sort_first(capsys, monkeypatch):
+    """They fire forever until cancelled, so they are what a reader is here
+    to find."""
+    rows = [
+        {"id": "ONESHOT", "state": "scheduled", "due_at": "2026-08-21T03:00:00Z"},
+        {"id": "CRON", "state": "scheduled", "due_at": "2026-08-21T09:00:00Z",
+         "repeat": "0 9 * * *"},
+    ]
+    _reminds_output(rows, monkeypatch=monkeypatch)
+    out = capsys.readouterr().out
+    assert out.index("CRON") < out.index("ONESHOT")
+
+
+def test_an_empty_live_list_says_where_the_others_went(capsys, monkeypatch):
+    """'no reminders' when ten exist but all are finished would be a lie."""
+    _reminds_output([{"id": "A", "state": "fired", "due_at": "2026-08-21T03:00:00Z"}],
+                     monkeypatch=monkeypatch)
+    assert "see them with --all" in capsys.readouterr().out
+
+
+def test_repeat_with_a_delay_is_refused_locally():
+    """A cron already specifies its own first fire, so `--repeat` plus `--delay`
+    asks twice and the two can disagree. The server refuses the pair (422); the
+    CLI catches it first so the message names the FLAG the user typed rather
+    than the wire field they have never heard of.
+
+    Verified against the live server after the backend's fix:
+        POST {"repeat":"* * * * *","delay_seconds":60}
+        -> 422 "a recurring reminder takes its first fire from the cron
+                expression; drop delay_seconds/due_at, or drop repeat"
+    """
+    from agentbus_client.cli._parser import build_parser
+    from agentbus_client.cli._remind import cmd_remind
+
+    args = build_parser().parse_args(
+        ["remind", "-m", "x", "--repeat", "daily", "--delay", "2h"]
+    )
+    assert cmd_remind(args) == 2
+
+
+def test_a_pure_recurrence_is_allowed():
+    """`--repeat daily` with no delay must NOT be blocked by the client's
+    when-check — the cron IS the when. This was a real 422 until the backend
+    fixed it, and the client must not reintroduce the refusal locally."""
+    from agentbus_client.cli._parser import build_parser
+
+    args = build_parser().parse_args(["remind", "-m", "x", "--repeat", "daily"])
+    assert args.repeat == "daily" and not args.delay and not args.at
+
+
+def test_a_targeted_reminder_does_not_send_fields_the_route_forbids():
+    """REGRESSION: `--target` was broken while a self-note worked.
+
+    `_apply_seal` sets `html=None` because it was written for POST /v1/messages,
+    where html is a legal field. Only the TARGETED path goes through it
+    (a self-note uses `_seal_to_self`), so a targeted reminder died with
+
+        could not schedule: html: Extra inputs are not permitted
+
+    while every self-note succeeded — which is why it survived my own testing
+    and needed a second pair of eyes. Reported by macbook-admin-bd8e86.
+
+    The route forbids extra inputs, so one stray key fails the ENTIRE create.
+    Asserting the whole envelope rather than the absence of `html` alone: the
+    next field the sealer adds would break this the same way.
+    """
+    from agentbus_client.client import AgentBus
+
+    bus = AgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
+    spy = _Spy()
+    bus._request = spy
+
+    def seal_like_the_send_route(body, agent, **kw):
+        out = dict(body)
+        out["html"] = None          # what _apply_seal really does
+        out["sealed"] = True
+        return out, None
+
+    bus._seal_if_needed = seal_like_the_send_route
+    bus.remind("note", target="alice", delay="2h")
+
+    served = {
+        "target", "subject", "text", "sealed",
+        "delay_seconds", "due_at", "expires_at", "repeat", "timezone",
+    }
+    extra = set(spy.body) - served
+    assert not extra, f"sends fields the reminders route forbids: {extra}"

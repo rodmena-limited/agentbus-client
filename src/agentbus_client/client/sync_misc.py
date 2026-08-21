@@ -7,6 +7,14 @@ from collections.abc import Sequence
 from typing import Any
 
 from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
+
+# The SERVED RemindRequest field set (verified against the deployed OpenAPI).
+# The route forbids extra inputs, so anything outside this fails the whole
+# create — not just the offending field.
+_REMIND_FIELDS = frozenset(
+    {"target", "subject", "text", "sealed", "delay_seconds", "due_at",
+     "expires_at", "repeat", "timezone"}
+)
 from .errors import AgentBusError
 from .sync_verify import SyncVerifyMixin
 
@@ -182,6 +190,18 @@ class SyncMiscMixin(SyncVerifyMixin):
                 )
             else:
                 body = self._seal_to_self(body, agent)
+            # STRIP WHAT THE SEALER ADDS FOR THE SEND ROUTE BUT REMINDERS FORBID.
+            # `_apply_seal` sets html=None and (for attachments) other keys,
+            # because it was written for POST /v1/messages where those fields
+            # exist. The reminders route forbids extra inputs, so a TARGETED
+            # reminder — the only path that goes through _seal_if_needed — died
+            # with "html: Extra inputs are not permitted" while a self-note
+            # worked. Reported by macbook-admin-bd8e86 and reproduced here.
+            #
+            # Filtered rather than fixed in _apply_seal: that helper is shared
+            # with send/reply/forward, where html IS a legal field, and
+            # narrowing it there to suit one caller would break the others.
+            body = {k: v for k, v in body.items() if k in _REMIND_FIELDS}
             for key, value in (
                 ("delay_seconds", _duration_seconds(delay)),
                 ("due_at", _as_instant(at)),

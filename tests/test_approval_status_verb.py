@@ -152,7 +152,7 @@ def test_the_verb_is_registered_and_takes_an_id():
     """The whole point: reach an approval THIS process did not create."""
     from agentbus_client.cli._parser import build_parser
 
-    sub = [a for a in build_parser()._actions if a.dest == "command"][0]
+    sub = next(a for a in build_parser()._actions if a.dest == "command")
     assert "approval" in sub.choices
     args = build_parser().parse_args(["approval", "01M0X", "--wait", "30"])
     assert args.approval_id == "01M0X" and args.wait == 30

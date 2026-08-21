@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from .._timefmt import _as_instant, _duration_seconds
+from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import _max_attachment_bytes
 
@@ -232,6 +232,13 @@ class AsyncMiscMixin:
             silently lose the seal — which on this surface would mean a plaintext
             body sitting at rest until the reminder is due.
             """
+                        # ONE OF delay OR at, NEVER BOTH — the server 422s the pair, and
+            # catching it here names the conflict instead of relaying a status
+            # code. They are the same statement in two forms.
+            if delay is not None and at is not None:
+                raise ValueError(
+                    "pass delay OR at, not both — they say the same thing two ways"
+                )
             body: dict[str, Any] = {"subject": subject, "text": text}
             if target:
                 body["target"] = target
@@ -245,7 +252,7 @@ class AsyncMiscMixin:
             for key, value in (
                 ("delay_seconds", _duration_seconds(delay)),
                 ("due_at", _as_instant(at)),
-                ("expire_seconds", _duration_seconds(expire)),
+                ("expires_at", _expiry_instant(expire, delay, at)),
                 ("repeat", repeat),
                 ("repeat_until", _as_instant(repeat_until)),
                 ("timezone", timezone),

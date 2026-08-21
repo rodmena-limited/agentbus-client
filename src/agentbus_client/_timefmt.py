@@ -54,3 +54,37 @@ def _as_instant(value: Any) -> str | None:
         moment = value.astimezone(_dt.timezone.utc) if value.tzinfo else value.astimezone()
         return moment.astimezone(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
     raise ValueError(f"expected a datetime or ISO-8601 string, got {type(value).__name__}")
+
+
+def _expiry_instant(expire: Any, delay: Any = None, at: Any = None) -> str | None:
+    """Resolve `--expire` to an absolute UTC instant, per the agreed contract.
+
+    THE SERVER TAKES `expires_at`, NOT A DURATION, and that is the right call:
+    an expiry expressed as "3d" is ambiguous about 3 days from WHAT — from now,
+    or from when the reminder fires? For a reminder due in a week with a 3-day
+    expiry those are five days apart.
+
+    Resolved from NOW, deliberately: `--expire 3d` means "this is stale after
+    three days", which is a statement about the reminder's usefulness in
+    wall-clock terms, not about its schedule. `--at` with `--expire` is the one
+    case where a caller might mean otherwise, and they can pass an absolute
+    instant if so.
+
+    An absolute value (datetime or ISO string) passes through untouched.
+    """
+    if expire is None:
+        return None
+    if isinstance(expire, (_dt.datetime, str)) and not _looks_like_duration(expire):
+        return _as_instant(expire)
+    seconds = _duration_seconds(expire)
+    if seconds is None:
+        return None
+    return _as_instant(_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=seconds))
+
+
+def _looks_like_duration(value: Any) -> bool:
+    """`3d` is a duration; `2026-12-01` is not. Distinguishes the two spellings
+    `--expire` accepts, so an operator can write either."""
+    import re as _re
+
+    return isinstance(value, str) and bool(_re.fullmatch(r"\d+[smhd]?", value.strip().lower()))

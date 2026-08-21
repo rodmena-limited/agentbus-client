@@ -6,7 +6,7 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from .._timefmt import _as_instant, _duration_seconds
+from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
 from .errors import AgentBusError
 from .sync_verify import SyncVerifyMixin
 
@@ -155,6 +155,13 @@ class SyncMiscMixin(SyncVerifyMixin):
             that is the whole of its world (operator ruling, 2026-08-21): one platform
             credential, held server-side, never on a user's machine.
             """
+                        # ONE OF delay OR at, NEVER BOTH — the server 422s the pair, and
+            # catching it here names the conflict instead of relaying a status
+            # code. They are the same statement in two forms.
+            if delay is not None and at is not None:
+                raise ValueError(
+                    "pass delay OR at, not both — they say the same thing two ways"
+                )
             body: dict[str, Any] = {"subject": subject, "text": text}
             if target:
                 body["target"] = target
@@ -168,7 +175,7 @@ class SyncMiscMixin(SyncVerifyMixin):
             for key, value in (
                 ("delay_seconds", _duration_seconds(delay)),
                 ("due_at", _as_instant(at)),
-                ("expire_seconds", _duration_seconds(expire)),
+                ("expires_at", _expiry_instant(expire, delay, at)),
                 ("repeat", repeat),
                 ("repeat_until", _as_instant(repeat_until)),
                 ("timezone", timezone),

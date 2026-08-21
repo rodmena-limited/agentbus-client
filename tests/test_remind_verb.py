@@ -172,8 +172,12 @@ def test_the_payload_carries_the_schedule_not_a_local_clock_guess():
     bus._seal_to_self = lambda body, agent: body
     bus.remind("note", delay="2h", expire="3d", repeat="daily")
     assert spy.body["delay_seconds"] == 7200
-    assert spy.body["expire_seconds"] == 259200
     assert spy.body["repeat"] == "daily"
+    # CONTRACT: the server takes `expires_at` (absolute), not a duration —
+    # "3d" is ambiguous about 3 days from what, and for a reminder due next
+    # week with a 3-day expiry those readings are five days apart.
+    assert "expire_seconds" not in spy.body
+    assert spy.body["expires_at"].endswith("Z")
 
 
 def test_absent_options_are_omitted_rather_than_sent_as_null():
@@ -183,7 +187,7 @@ def test_absent_options_are_omitted_rather_than_sent_as_null():
     bus, spy = _bus_with_spy()
     bus._seal_to_self = lambda body, agent: body
     bus.remind("note", delay="2h")
-    for absent in ("repeat", "repeat_until", "timezone", "expire_seconds", "due_at"):
+    for absent in ("repeat", "repeat_until", "timezone", "expires_at", "due_at"):
         assert absent not in spy.body, f"{absent} should be omitted, not null"
 
 
@@ -235,3 +239,56 @@ def test_the_client_never_calls_the_scheduler():
                 f"{path.name} can reach the scheduler directly ({token!r}); the "
                 f"client must only talk to its own backend"
             )
+
+
+# ------------------------------------------------- the agreed wire contract
+#
+# Settled with the backend on thread 01M0H0W8H0RZG54QTYTTZV5DGV. These assert
+# the SHAPE WE AGREED, so a later refactor cannot quietly drift back to the one
+# I proposed before asking.
+
+
+def test_delay_and_at_are_refused_together():
+    """The server 422s the pair; catching it here names the conflict rather
+    than relaying a status code."""
+    bus, _spy = _bus_with_spy()
+    bus._seal_to_self = lambda body, agent: body
+    with pytest.raises(ValueError, match="not both"):
+        bus.remind("note", delay="2h", at="2026-08-21T09:00:00Z")
+
+
+def test_delay_is_sent_as_seconds_for_the_server_to_resolve():
+    """SERVER-SIDE RESOLUTION WINS, deliberately. A laptop 40s fast would
+    otherwise fire everything 40s early and nobody would ever diagnose it."""
+    bus, spy = _bus_with_spy()
+    bus._seal_to_self = lambda body, agent: body
+    bus.remind("note", delay="2h")
+    assert spy.body["delay_seconds"] == 7200
+    assert "due_at" not in spy.body, "the client must not resolve the instant itself"
+
+
+def test_an_absolute_at_is_sent_as_due_at():
+    """Only for a genuinely absolute instant the user typed."""
+    bus, spy = _bus_with_spy()
+    bus._seal_to_self = lambda body, agent: body
+    bus.remind("note", at="2026-08-21T09:00:00Z")
+    assert spy.body["due_at"] == "2026-08-21T09:00:00Z"
+    assert "delay_seconds" not in spy.body
+
+
+def test_an_absolute_expiry_date_passes_through_unconverted():
+    """`--expire 3d` is a duration; `--expire 2026-12-01` is already an
+    instant. Both spellings are accepted and must not be confused."""
+    from agentbus_client._timefmt import _expiry_instant
+
+    assert _expiry_instant("2026-12-01T00:00:00Z") == "2026-12-01T00:00:00Z"
+    assert _expiry_instant("3d").endswith("Z")
+
+
+def test_timezone_is_never_defaulted_by_the_client():
+    """The server defaults to UTC and SAYS SO. A client guessing the local zone
+    would make the same reminder mean different things on two machines."""
+    bus, spy = _bus_with_spy()
+    bus._seal_to_self = lambda body, agent: body
+    bus.remind("note", repeat="daily")
+    assert "timezone" not in spy.body

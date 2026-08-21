@@ -97,41 +97,43 @@ Against the deployed routes, through the **released 0.9.47** client.
 | `expires_at` before first fire | **refused at CREATE** | better than the delivery-time check specified here; adopted |
 | Expiry withholds a lapsed reminder | **UNTESTED** | blocked by the early-fire defect below |
 
-### Defects found, reported, open
+### Timing — resolved, and how
 
-**Reminders appear to fire ~40s EARLY. ROOT CAUSE: a 42-second clock skew** —
-the clock stamping reminder rows is behind the one serving HTTP. Not a scheduler
-bug, not the client. Same instant, from the same service:
+The 42s clock skew was real and is **FIXED**. Verified twice, and the second
+measurement is the one that counts:
 
-    GET /healthz        Date:       Fri, 21 Aug 2026 03:57:18 GMT
-    POST /v1/reminders  created_at: 2026-08-21T03:56:36.423Z    (-42s)
+**Create path** — `Date` == `created_at`, `due_at` exactly `+delay`, six samples.
 
-Three consecutive samples: -42, -42, -42. A constant offset, not jitter. The
-arithmetic follows: `delay_seconds=60` yields `due_at - created_at = 102.2s`,
-and 102 = 60 + 42 — `due_at` computed from a correct clock, `created_at` from
-the skewed one. Delivery lands at the right wall-clock moment while every
-*stored* timestamp says it should not have yet.
+**Delivery path** — a reminder *watched to its fire*, polled every 8s:
 
-Not local: this host and the API's `Date` header agree to the second, NTP
-synced. Independently seen by a tester on macOS, whose figure differed (~66s)
-precisely because the skew adds to whatever delay each caller requested.
+    created_at  04:14:20.272   due_at 04:15:50.272   (exactly +90s)
+      04:15:11  scheduled
+      04:15:36  scheduled   <- 14s BEFORE due; a 42s-early scheduler
+      04:15:44  scheduled      could not produce this observation
+      04:15:52  FIRED       <- ~2s late, correct for a sweep
 
-Hypothesis offered to the backend, not a finding: a database host clock, which
-would affect every `now()` default in the schema rather than only reminders.
-Thread `01M0H7G8QD1D720T54SNV5JA0D`.
+The negative half is what makes it trustworthy: still scheduled with 14 seconds
+to go. The check could have failed and did not.
 
-This **invalidates the expiry negative control**, and makes `--expire`
-unreliable for short windows: a window shorter than the 42s skew can never
-elapse, so a passing expiry test would be meaningless. Expiry-withholds-a-lapsed-
-reminder is **not tested and not claimed**. I nearly filed expiry itself as
-broken before isolating the clock.
+**Method note.** The original "-41s" finding was computed from two *stored*
+timestamps, both of which were themselves skewed. Only watching the state flip
+against a wall clock is immune to that. A stored timestamp cannot audit the
+clock that wrote it.
 
-**A pure recurrence is refused** — `--repeat "0 9 * * *"` with no `--delay`
-returns 422 *"supply exactly one of delay_seconds or due_at"*, though a cron
-already specifies its own first fire. Thread `01M0H72EMCA7FT8SMRGA6HQA82`.
+### Open defects
 
-Neither is shimmed client-side: a client offset counteracting a server timing
-bug becomes permanent and hides the defect.
+**Cron day-of-week is +1 — RunFlow's, not AgentBus's.** Confirmed 4/4 here;
+the backend then isolated it by removing their own service from the path and
+querying RunFlow directly, which reproduced the same +1. Reported to RunFlow.
+
+    "0 12 * * 5" (Fri) -> next_fire 2026-08-22 = SATURDAY
+
+Worst defect of the set because it is **silent**: the reminder still arrives,
+just on the wrong day forever, so it reads as the user misremembering. Not
+compensated client-side — subtracting one from a user's cron would make the
+client lie about what it scheduled and break when RunFlow fixes it.
+
+**`repeat_until` is not on the wire** — unanswered whether it is coming.
 
 ## Not verified
 

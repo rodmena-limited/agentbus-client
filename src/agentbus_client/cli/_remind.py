@@ -52,6 +52,19 @@ def cmd_remind(args: argparse.Namespace) -> int:
     if getattr(args, "delay", None) and getattr(args, "at", None):
         print("--delay and --at say the same thing two ways; pick one", file=sys.stderr)
         return 2
+    # THE SDK RAISES ValueError FOR THIS; THE CLI MUST NOT LET IT ESCAPE. An
+    # unsupported flag is a usage error, and a usage error that arrives as a
+    # Python traceback tells the reader their install is broken rather than
+    # their command is wrong. Reported by bikeroom-freebsd-operato-b124c2, who
+    # hit the raw stack trace while testing the documented refusal.
+    if getattr(args, "repeat_until", None):
+        print(
+            "--repeat-until is not supported by the server yet: a recurring "
+            "reminder has no end date and fires until you stop it.\n"
+            "  schedule it without --repeat-until, then: agentbus remind --cancel <id>",
+            file=sys.stderr,
+        )
+        return 2
 
     bus = _common._bus(args)
 

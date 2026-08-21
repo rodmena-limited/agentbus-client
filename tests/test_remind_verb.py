@@ -494,3 +494,24 @@ def test_the_feature_is_discoverable_from_quickref():
     assert "agentbus reminds" in QUICKREF, "listing is how you find one to cancel"
     assert "--cancel" in QUICKREF, "a recurrence fires until cancelled"
     assert "reminders" in QUICKREF, "the ack-chasing collision must be disambiguated"
+
+
+def test_repeat_until_is_a_usage_error_not_a_traceback():
+    """REGRESSION: `--repeat-until` printed a raw Python stack trace.
+
+    The SDK raises ValueError for the unsupported flag — correct there, since a
+    library caller wants an exception. But `cmd_remind` did not catch it, so the
+    CLI user saw a traceback ending in the right sentence.
+
+    A traceback tells the reader their INSTALL is broken. This is a usage error:
+    their command is wrong and the fix is one flag away. Exit 2, message on
+    stderr, no stack. Found by bikeroom-freebsd-operato-b124c2 while testing the
+    refusal I had documented — the message was right and the delivery was not.
+    """
+    from agentbus_client.cli._parser import build_parser
+    from agentbus_client.cli._remind import cmd_remind
+
+    args = build_parser().parse_args(
+        ["remind", "-m", "x", "--repeat", "daily", "--repeat-until", "2026-12-01"]
+    )
+    assert cmd_remind(args) == 2, "must be a clean usage error, never an exception"

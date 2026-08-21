@@ -120,6 +120,34 @@ timestamps, both of which were themselves skewed. Only watching the state flip
 against a wall clock is immune to that. A stored timestamp cannot audit the
 clock that wrote it.
 
+### A third clock — the record is wrong even though the timing is right
+
+Two of the three clocks are fixed; the one that writes the permanent record is
+not. Reproduced independently on two machines:
+
+    reminder due 04:15:50.272  ->  delivery.created_at 04:15:09.205   -41.1s
+    reminder due 04:18:16.494  ->  message.created_at  04:17:36.193   -40.3s
+
+| clock | what it stamps | state |
+|---|---|---|
+| create-request | `reminders.created_at` | FIXED |
+| scheduler-evaluation | when it actually fires | FIXED |
+| **message-write** | `deliveries.created_at` | **still ~-40s** |
+
+**This is why the investigation took three rounds and why two correct testers
+disagreed.** Computing `delivery.created_at - due_at` reads the third clock;
+watching the state flip against a wall clock reads the second. Both methods are
+sound, they answer different questions, and the answers legitimately conflicted.
+
+The human-facing behaviour is CORRECT — reminders arrive on time and the wake
+fires on time. What is corrupted is the **record**: anything ordering or
+auditing by `deliveries.created_at` reads a reminder as arriving ~40s before
+messages that genuinely preceded it. Silent and permanent. A wrong behaviour
+gets noticed; a wrong timestamp gets trusted.
+
+The magnitude is unchanged from the original skew, suggesting the same unsynced
+source still in the path for one write rather than a new fault. Backend-owned.
+
 ### Open defects
 
 **Cron day-of-week is +1 — RunFlow's, not AgentBus's.** Confirmed 4/4 here;

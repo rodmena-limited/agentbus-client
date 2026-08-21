@@ -6,6 +6,7 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
+from .._timefmt import _as_instant, _duration_seconds
 from .errors import AgentBusError
 from .sync_verify import SyncVerifyMixin
 
@@ -118,6 +119,88 @@ class SyncMiscMixin(SyncVerifyMixin):
                 params=params,
                 timeout=max(self.timeout, wait + 10) if wait else self.timeout,
             )
+
+        def remind(
+            self,
+            text: str,
+            *,
+            target: str | None = None,
+            subject: str = "",
+            delay: Any = None,
+            at: Any = None,
+            expire: Any = None,
+            repeat: str | None = None,
+            repeat_until: Any = None,
+            timezone: str | None = None,
+            agent: str | None = None,
+            idempotency_key: str | None = None,
+        ) -> dict[str, Any]:
+            """Schedule a reminder into an agent's inbox. `target=None` reminds SELF.
+
+            THE BODY IS SEALED HERE, BEFORE IT LEAVES THIS MACHINE, on an encrypted
+            workspace — the same rule `create_draft` follows (#222). The server stores
+            ciphertext it cannot read, and the scheduler behind it (RunFlow) only ever
+            carries an opaque reminder id, never the text.
+
+            That matters more for a reminder than for a message, because a reminder sits
+            at rest until it is due. A plaintext body scheduled a week out is a week of
+            exposure on a workspace whose whole purpose is that there is none — which is
+            the defect class closed for MCP drafts on 2026-08-21.
+
+            SEALED TO THE RECIPIENT, NOT TO SELF, when a target is named: the reminder is
+            delivered to THEM and must be readable by THEM. `_seal_to_self` is only right
+            for a self-note, where author and recipient are the same agent.
+
+            The client knows nothing about the scheduler. It posts to its own backend and
+            that is the whole of its world (operator ruling, 2026-08-21): one platform
+            credential, held server-side, never on a user's machine.
+            """
+            body: dict[str, Any] = {"subject": subject, "text": text}
+            if target:
+                body["target"] = target
+                body, _resolved = self._seal_if_needed(
+                    body,
+                    agent,
+                    resolve_body={"to": [target], "subject": subject},
+                )
+            else:
+                body = self._seal_to_self(body, agent)
+            for key, value in (
+                ("delay_seconds", _duration_seconds(delay)),
+                ("due_at", _as_instant(at)),
+                ("expire_seconds", _duration_seconds(expire)),
+                ("repeat", repeat),
+                ("repeat_until", _as_instant(repeat_until)),
+                ("timezone", timezone),
+            ):
+                if value is not None:
+                    body[key] = value
+            return self._request(
+                "POST",
+                "/v1/reminders",
+                json=body,
+                agent=agent,
+                idempotent=True,
+                idempotency_key=idempotency_key,
+            )
+
+        def reminds(self, *, agent: str | None = None, all: bool = False) -> list[dict[str, Any]]:
+            """Scheduled reminders — mine by default, everything I can see with all=True.
+
+            NOT `reminders()`, which is the ack-tracking surface (#265) and answers a
+            different question: that one chases messages already delivered, this one
+            lists messages not yet sent. Two features, similar words, and conflating
+            them would make both harder to reason about.
+            """
+            params = {"all": "true"} if all else None
+            result: dict[str, Any] = self._request(
+                "GET", "/v1/reminders", params=params, agent=agent
+            )
+            return result["reminders"]
+
+        def cancel_remind(self, reminder_id: str, agent: str | None = None) -> dict[str, Any]:
+            """Cancel a scheduled reminder before it fires."""
+            return self._request("DELETE", f"/v1/reminders/{reminder_id}", agent=agent)
 
         def drafts(self, agent: str | None = None) -> list[dict[str, Any]]:
             return self._request("GET", "/v1/drafts", agent=agent)["drafts"]

@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from .._timefmt import _as_instant, _duration_seconds
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import _max_attachment_bytes
 
@@ -207,6 +208,74 @@ class AsyncMiscMixin:
                 params=params,
                 timeout=max(self.timeout, wait + 10) if wait else self.timeout,
             )
+
+        async def remind(
+            self,
+            text: str,
+            *,
+            target: str | None = None,
+            subject: str = "",
+            delay: Any = None,
+            at: Any = None,
+            expire: Any = None,
+            repeat: str | None = None,
+            repeat_until: Any = None,
+            timezone: str | None = None,
+            agent: str | None = None,
+            idempotency_key: str | None = None,
+        ) -> dict[str, Any]:
+            """Async twin of AgentBus.remind — MIRRORS IT DELIBERATELY.
+
+            Same signature, same order, same sealing rule. This pair has drifted
+            before (`phonebook(label=)` on one and not the other; async `read` once
+            skipped unsealing entirely), and a caller who switches to async must not
+            silently lose the seal — which on this surface would mean a plaintext
+            body sitting at rest until the reminder is due.
+            """
+            body: dict[str, Any] = {"subject": subject, "text": text}
+            if target:
+                body["target"] = target
+                body, _resolved = await self._seal_if_needed(
+                    body,
+                    agent,
+                    resolve_body={"to": [target], "subject": subject},
+                )
+            else:
+                body = await self._seal_to_self_async(body, agent)
+            for key, value in (
+                ("delay_seconds", _duration_seconds(delay)),
+                ("due_at", _as_instant(at)),
+                ("expire_seconds", _duration_seconds(expire)),
+                ("repeat", repeat),
+                ("repeat_until", _as_instant(repeat_until)),
+                ("timezone", timezone),
+            ):
+                if value is not None:
+                    body[key] = value
+            return await self._request(
+                "POST",
+                "/v1/reminders",
+                json=body,
+                agent=agent,
+                idempotent=True,
+                idempotency_key=idempotency_key,
+            )
+
+        async def reminds(
+            self, *, agent: str | None = None, all: bool = False
+        ) -> list[dict[str, Any]]:
+            """Scheduled reminders — async twin of AgentBus.reminds."""
+            params = {"all": "true"} if all else None
+            result: dict[str, Any] = await self._request(
+                "GET", "/v1/reminders", params=params, agent=agent
+            )
+            return result["reminders"]
+
+        async def cancel_remind(
+            self, reminder_id: str, agent: str | None = None
+        ) -> dict[str, Any]:
+            """Cancel a scheduled reminder — async twin."""
+            return await self._request("DELETE", f"/v1/reminders/{reminder_id}", agent=agent)
 
         async def drafts(self, agent: str | None = None) -> list[dict[str, Any]]:
             """List this agent's drafts — async twin."""

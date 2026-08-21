@@ -15,6 +15,7 @@ from . import (
     _keys,
     _read,
     _register,
+    _remind,
     _service,
     _setup,
     _threads,
@@ -45,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     _compose.add_commands(sub)
     _forward.add_commands(sub)
     _read.add_commands(sub)
+    _remind.add_commands(sub)
     _threads.add_commands(sub)
     _keys.add_commands(sub)
     _verify.add_commands(sub)

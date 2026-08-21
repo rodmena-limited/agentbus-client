@@ -328,7 +328,25 @@ controlled measurement afterwards:
     before: −42.4s        after: +0.6s
 
 All three clocks now agree. `deliveries.created_at` is trustworthy for ordering
-and audit again, and the caveat recorded against it here is withdrawn.
+and audit **from ~21:00Z onward**, and the caveat recorded against it here is
+withdrawn for new rows.
+
+Confirmed across the fleet by the backend, and the column that matters is
+`peers`, not whether the daemon is up:
+
+    pg-nano-01..04   ntpd=YES  running=yes  synced peers=1  clock == reference
+
+A daemon running but synchronised to *nothing* shows `peers=0` and drifts exactly
+as before, while every "is ntpd running" check reports healthy — the same
+silent-success shape as the rest of this record.
+
+**Enabling NTP does not correct rows already written.** "ntpd is on now" and
+"the historical record is trustworthy" are separate claims and only the first is
+true. Anything reasoning about ordering or elapsed time *before* ~21:00Z on
+2026-08-21 inherits up to 43 seconds of error — audit logs especially, and any
+cross-host correlation between auth, ledger, tokengate, futex and runflow, since
+those sit on the hosts that drifted furthest. Recorded so it does not quietly
+become "timestamps are fine" in a month.
 
 ## Not verified
 

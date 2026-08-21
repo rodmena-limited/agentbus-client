@@ -59,9 +59,11 @@ def cmd_remind(args: argparse.Namespace) -> int:
     # hit the raw stack trace while testing the documented refusal.
     if getattr(args, "repeat_until", None):
         print(
-            "--repeat-until is not supported by the server yet: a recurring "
-            "reminder has no end date and fires until you stop it.\n"
-            "  schedule it without --repeat-until, then: agentbus remind --cancel <id>",
+            "--repeat-until does not exist, and will not: --expire IS the end "
+            "date for a recurrence.\n"
+            "  use:  agentbus remind --repeat daily --expire 30d\n"
+            "  after --expire the recurrence stops firing entirely (the upstream "
+            "schedule is cancelled, not merely withheld).",
             file=sys.stderr,
         )
         return 2
@@ -205,8 +207,10 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
         "--expire",
         default=None,
         metavar="DURATION",
-        help="do NOT deliver if it would fire later than this — a stale reminder is "
-        "worse than none. Same duration format as --delay.",
+        help="the END DATE. On a one-shot: do not deliver if it would fire later "
+        "than this — a stale reminder is worse than none. ON A RECURRENCE it is "
+        "the stop date: after it passes the schedule is cancelled upstream and "
+        "stops firing entirely. Same duration format as --delay.",
     )
     p.add_argument(
         "--repeat",
@@ -219,10 +223,9 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
         dest="repeat_until",
         default=None,
         metavar="WHEN",
-        help="NOT YET SUPPORTED SERVER-SIDE — the create is refused if you pass "
-        "it. A recurrence currently has no end date; cancel it explicitly with "
-        "--cancel. Kept in the interface because a recurrence with no end is a "
-        "commitment nobody remembers making, and this should come back.",
+        help="DOES NOT EXIST — use --expire instead, which IS the end date for "
+        "a recurrence. Kept only to redirect: a recurrence with no end is a "
+        "commitment nobody remembers making, and --expire is how you avoid it.",
     )
     p.add_argument(
         "--timezone",

@@ -515,3 +515,30 @@ def test_repeat_until_is_a_usage_error_not_a_traceback():
         ["remind", "-m", "x", "--repeat", "daily", "--repeat-until", "2026-12-01"]
     )
     assert cmd_remind(args) == 2, "must be a clean usage error, never an exception"
+
+
+def test_the_refusal_points_at_the_flag_that_actually_works(capsys):
+    """`--repeat-until` does not exist and will not — `--expire` IS the end date.
+
+    An earlier draft of this refusal said "a recurring reminder has no end date
+    and fires until you stop it", which was WRONG in the direction that costs
+    someone work: it would have sent them building a cancellation cron they do
+    not need. There IS an end date.
+
+    The backend demonstrated it rather than asserting, after disclosing they had
+    claimed it twice without ever running it — and this spec was about to carry
+    that unverified claim as documentation.
+
+    A refusal that names the alternative is the difference between a dead end and
+    a redirect.
+    """
+    from agentbus_client.cli._parser import build_parser
+    from agentbus_client.cli._remind import cmd_remind
+
+    args = build_parser().parse_args(
+        ["remind", "-m", "x", "--repeat", "daily", "--repeat-until", "2026-12-01"]
+    )
+    cmd_remind(args)
+    err = capsys.readouterr().err
+    assert "--expire" in err, "must name the flag that actually works"
+    assert "no end date" not in err, "there IS an end date; saying otherwise misleads"

@@ -30,7 +30,8 @@ SCHEDULE SOMETHING FOR LATER — including a note to yourself.
                                                --all includes finished
   agentbus remind --cancel <ID>                stop one, including a recurrence
 
-  A recurrence has NO end date yet, so it fires until you cancel it. The body is
+  --expire IS the end date for a recurrence: after it passes the schedule stops
+  firing entirely. Without one it fires until you cancel it. The body is
   sealed on THIS machine before upload, so a reminder waiting days to fire is not
   sitting in the clear.
 

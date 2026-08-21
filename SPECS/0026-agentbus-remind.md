@@ -190,7 +190,47 @@ just on the wrong day forever, so it reads as the user misremembering. Not
 compensated client-side — subtracting one from a user's cron would make the
 client lie about what it scheduled and break when RunFlow fixes it.
 
-**`repeat_until` is not on the wire** — unanswered whether it is coming.
+### `repeat_until` — settled: it does not exist and will not
+
+**`--expire` IS the end date for a recurrence.** A separate `repeat_until` would
+be a second name for a field that already exists, and the backend confirmed it is
+not coming.
+
+Correcting our own earlier framing: this is **not** "a recurrence has no end
+date". It has one. Documenting the absence would have sent people building a
+cancellation cron they do not need.
+
+Demonstrated rather than asserted — the backend exercised it live after noticing
+they had claimed it twice without ever running it, and we would have written that
+unverified claim into this spec as documentation:
+
+    repeat "* * * * *", expires_at 150s out
+      fire 1 -> delivered
+      fire 2 -> delivered
+      expires_at passes
+      state = EXPIRED, RunFlow schedule list 1 -> 0
+
+**`--expire` does both halves**, which is what makes it a real end date rather
+than a filter: the fire after expiry is not delivered, *and* the schedule is
+cancelled upstream so it stops firing at all. A version that only withheld would
+leave a recurrence firing into a void forever, consuming quota on both sides.
+
+Reproduced independently here before documenting it, on a different reminder:
+
+    repeat "* * * * *", expires_at 05:04:02 (150s out)
+      05:02  fire 1 delivered
+      05:03  fire 2 delivered
+      05:04  fire 3 delivered
+      05:04:02  expires_at passes
+      05:04:20  state still `scheduled` — the sweep had not run yet
+      05:05:10  state = EXPIRED
+      05:05:24  deliveries still 3 on a per-MINUTE cron
+
+The last line is the one that matters: a minute after expiry the count had not
+grown, so the recurrence genuinely stopped rather than being withheld while
+still firing.
+
+CLI, quickref and the `--repeat-until` refusal now redirect to `--expire`.
 
 ## Not verified
 

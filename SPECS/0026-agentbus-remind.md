@@ -313,12 +313,22 @@ and has not degraded:
 |---|---|
 | create-request | FIXED |
 | scheduler-evaluation | FIXED |
-| message-write (`deliveries.created_at`) | **still −42s** |
+| message-write (`deliveries.created_at`) | **FIXED** — see below |
 
 The useful reading is narrower than "it fired early": **the fire was on time and
-the record of it is wrong.** −42.4s now against −42s eight hours earlier also
-shows the host clocks are free-running but **not accelerating**. Pending the NTP
-approval.
+the record of it is wrong.** −42.4s against −42s eight hours earlier showed the
+host clocks were free-running but not accelerating.
+
+**RESOLVED.** Farshid fixed the NTP issue directly on 2026-08-21. Re-ran the same
+controlled measurement afterwards:
+
+    sent at 21:59:39 (local clock NTP-synced)
+    delivery row created_at 21:59:39.609   ->  +0.6s
+
+    before: −42.4s        after: +0.6s
+
+All three clocks now agree. `deliveries.created_at` is trustworthy for ordering
+and audit again, and the caveat recorded against it here is withdrawn.
 
 ## Not verified
 

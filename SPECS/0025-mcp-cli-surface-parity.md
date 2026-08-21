@@ -213,6 +213,24 @@ reaches every surface it CAN reach, and every deliberate absence is a RECORDED
 exemption. F4 had no such record, which is what made it a bug rather than a
 decision.
 
+## Release state — the F3 fix is NOT yet reachable
+
+`agentbus approval <id>` is committed (e340567) and **unreleased**. Verified
+against the published artifact, not the working tree: `pip download
+rodmena-agentbus==0.9.44` and unzip gives `grep -c '"approval"' ... -> 0`, while
+the local tree gives 1. PyPI's latest predates this work.
+
+A third tester re-verified on 0.9.43 and correctly reported the subcommand does
+not exist. **They were right and the earlier "shipped" claim in this thread was
+wrong.** Tested and verified were true; shipped was not. Merging is not
+deploying, and a claim about an artifact must be checked against the artifact a
+customer can fetch — the rule this spec quotes elsewhere, broken here by
+checking against a working tree.
+
+Until 0.9.45 is released, F3 is closed in this repo and open from every
+customer's point of view. Those are different states and the second one is the
+one that counts.
+
 ## Ownership
 
 Client repo: the CLI verb (F3), the skill rule, the client half of the matrix.

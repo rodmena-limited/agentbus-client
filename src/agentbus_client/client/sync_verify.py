@@ -28,7 +28,7 @@ class SyncVerifyMixin:
             concluded, beside what the platform said, so a disagreement is visible
             rather than averaged away.
             """
-            from . import _signing
+            from .. import _signing  # package root, NOT client/ — see below
 
             message = self.read(delivery_id, agent=agent)
             provenance = message.get("provenance") or {}

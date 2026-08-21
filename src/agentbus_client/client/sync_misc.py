@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
+from .errors import AgentBusError
+from .sync_verify import SyncVerifyMixin
 
 # The SERVED RemindRequest field set (verified against the deployed OpenAPI).
 # The route forbids extra inputs, so anything outside this fails the whole
@@ -15,8 +17,6 @@ _REMIND_FIELDS = frozenset(
     {"target", "subject", "text", "sealed", "delay_seconds", "due_at",
      "expires_at", "repeat", "timezone"}
 )
-from .errors import AgentBusError
-from .sync_verify import SyncVerifyMixin
 
 
 class SyncMiscMixin(SyncVerifyMixin):
@@ -47,6 +47,14 @@ class SyncMiscMixin(SyncVerifyMixin):
             result: dict[str, Any] = self._request(
                 "GET", f"/v1/rooms/{room}/history", params=params, agent=target
             )
+            # UNSEAL, EXACTLY AS `thread()` DOES. On an encrypted workspace the
+            # server holds ciphertext by design, so without this a caller got raw
+            # age armor back from `history --json` while every other read path
+            # rendered prose. Silent: the call SUCCEEDS and the body is unusable,
+            # which is worse than an error. Reported by
+            # bikeroom-freebsd-operato-b124c2.
+            for msg in result.get("messages") or []:
+                self.unseal_message(msg)
             return result
 
         def room_schema(self, room: str, *, agent: str | None = None) -> dict[str, Any]:

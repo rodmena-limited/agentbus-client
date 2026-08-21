@@ -9,6 +9,8 @@ from typing import Any
 import httpx
 
 from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
+from .errors import AgentBusError, TransportError, _raise_for
+from .models import _max_attachment_bytes
 
 # The SERVED RemindRequest field set (verified against the deployed OpenAPI).
 # The route forbids extra inputs, so anything outside this fails the whole
@@ -17,8 +19,6 @@ _REMIND_FIELDS = frozenset(
     {"target", "subject", "text", "sealed", "delay_seconds", "due_at",
      "expires_at", "repeat", "timezone"}
 )
-from .errors import AgentBusError, TransportError, _raise_for
-from .models import _max_attachment_bytes
 
 
 class AsyncMiscMixin:
@@ -42,6 +42,11 @@ class AsyncMiscMixin:
             result: dict[str, Any] = await self._request(
                 "GET", f"/v1/rooms/{room}/history", params=params, agent=target
             )
+            # Async twin — MIRRORS the sync unsealing deliberately. This pair has
+            # drifted on exactly this before: async `read` once skipped unsealing
+            # entirely and a caller switching to async silently got ciphertext.
+            for msg in result.get("messages") or []:
+                self.unseal_message(msg)
             return result
 
         async def room_schema(self, room: str, *, agent: str | None = None) -> dict[str, Any]:
@@ -77,7 +82,7 @@ class AsyncMiscMixin:
             strip is fragile — a display-suffix change breaks verification — but
             removing it outright would break older servers, so it stays as a fallback.
             """
-            from . import _signing
+            from .. import _signing  # package root, NOT client/ — see below
 
             message = await self.read(delivery_id, agent=agent)
             provenance = message.get("provenance") or {}

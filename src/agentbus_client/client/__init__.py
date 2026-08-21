@@ -1,6 +1,6 @@
 from .async_client import AsyncAgentBus
 from .attachments import _encode_attachments
-from .base import _Base, _key_from_disk
+from .base import DEFAULT_BASE_URL, _Base, _key_from_disk
 from .errors import (
     AgentBusError,
     AuthError,

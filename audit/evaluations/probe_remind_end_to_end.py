@@ -168,11 +168,18 @@ def main() -> int:
         "the response's zone against local",
     )
 
+    # DESCOPED BY OPERATOR DECISION, 2026-08-21, before testing began — not a
+    # pass, and not an oversight. Farshid, asked directly: "no it's not a release
+    # blocker. we don't need to test that now."
+    #
+    # KEPT IN THE OUTPUT RATHER THAN DELETED. Removing the line would make the
+    # gap invisible, which is the failure this whole probe exists to prevent. The
+    # paths remain unexercised: with 100,000 timers of headroom they cannot fire
+    # by accident, so the first time they run may be in front of a user.
     record(
-        "UNTESTED",
+        "DESCOPED",
         "429/503 refusal shapes",
-        "no deliberate trigger exists; owed by the backend. A refusal path that "
-        "has never run is an assumption with a status code",
+        "operator decision 2026-08-21: not a release blocker. Never executed",
     )
 
     for reminder_id in created:
@@ -181,8 +188,14 @@ def main() -> int:
 
     failed = [r for r in RESULTS if r[0] == "FAIL"]
     untested = [r for r in RESULTS if r[0] == "UNTESTED"]
-    print(f"\n{len(RESULTS) - len(failed) - len(untested)} passed, "
-          f"{len(failed)} failed, {len(untested)} UNTESTED (not passed)")
+    descoped = [r for r in RESULTS if r[0] == "DESCOPED"]
+    passed = len(RESULTS) - len(failed) - len(untested) - len(descoped)
+    # NEITHER untested NOR descoped COUNTS AS A PASS. They are printed
+    # separately and deliberately: a tally that folded them into "passed" would
+    # report coverage the run never had.
+    print(f"\n{passed} passed, {len(failed)} failed, "
+          f"{len(untested)} UNTESTED, {len(descoped)} DESCOPED "
+          f"(neither counts as a pass)")
     return 1 if failed else 0
 
 

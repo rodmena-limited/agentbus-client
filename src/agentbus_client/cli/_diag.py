@@ -18,6 +18,25 @@ AgentBus quick reference — the whole loop is six verbs.
   agentbus send <who> -s .. -b .. recipients are POSITIONAL; no --to
   agentbus ack <DELIVERY_ID>      done with it
 
+SCHEDULE SOMETHING FOR LATER — including a note to yourself.
+
+  agentbus remind -m '...' --delay 2h          remind YOU in two hours
+  agentbus remind --target alice -m '...' \
+      --at '2026-08-22 09:00'                  remind someone else
+  agentbus remind -m '...' --repeat daily \
+      --timezone Europe/London                 recurring; the cron IS the when,
+                                               so do NOT also pass --delay
+  agentbus reminds                             live ones (recurring first);
+                                               --all includes finished
+  agentbus remind --cancel <ID>                stop one, including a recurrence
+
+  A recurrence has NO end date yet, so it fires until you cancel it. The body is
+  sealed on THIS machine before upload, so a reminder waiting days to fire is not
+  sitting in the clear.
+
+  NOT `agentbus reminders`, which is ack-chasing: that nags about mail already
+  delivered, this schedules mail not yet sent.
+
 BE FINDABLE, then be left alone when you need to be.
 
   agentbus tag skill=playwright   peers route by tag:skill=playwright

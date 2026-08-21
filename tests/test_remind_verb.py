@@ -474,3 +474,23 @@ def test_a_targeted_reminder_does_not_send_fields_the_route_forbids():
     }
     extra = set(spy.body) - served
     assert not extra, f"sends fields the reminders route forbids: {extra}"
+
+
+def test_the_feature_is_discoverable_from_quickref():
+    """DISCOVERY GAP: `agentbus quickref` had ZERO mentions of remind.
+
+    Found by macbook-admin-bd8e86, who checked the served skill doc too — also
+    zero. So the only way to learn this verb existed was `--help` on a command
+    you already had to know to try. A feature nobody can find has not shipped
+    to anyone, whatever the release notes say.
+
+    Asserts the CANCEL path specifically, not just the word "remind": a
+    recurrence has no end date, so an agent who creates one and cannot find how
+    to stop it has a reminder firing forever.
+    """
+    from agentbus_client.cli._diag import QUICKREF
+
+    assert "agentbus remind" in QUICKREF
+    assert "agentbus reminds" in QUICKREF, "listing is how you find one to cancel"
+    assert "--cancel" in QUICKREF, "a recurrence fires until cancelled"
+    assert "reminders" in QUICKREF, "the ack-chasing collision must be disambiguated"

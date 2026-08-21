@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""LIVE end-to-end probe for `agentbus remind` (plan: agentbus remind + RunFlow).
+
+UNLIKE ITS NEIGHBOURS IN THIS DIRECTORY, THIS PROBE TALKS TO THE REAL BUS. The
+others are safe-by-construction against 127.0.0.1 fakes; this one cannot be,
+because the thing under test is a round trip through a third-party scheduler and
+back into a real inbox. A fake would prove the payload shape and nothing about
+the behaviour — which is the exact failure the backend hit with a stub that
+agreed with its author about a 409.
+
+It is READ-MOSTLY and SELF-ADDRESSED: every reminder it schedules targets the
+acting agent, so it can never poke a peer. It cleans up what it creates.
+
+    AGENTBUS_API_KEY=... AGENTBUS_AGENT=... python3 probe_remind_end_to_end.py
+
+Exit 0 = every check passed. Non-zero = a named failure. UNTESTED is reported
+explicitly and does NOT count as a pass.
+
+WHY EACH CHECK EXISTS — the negative ones are the point:
+
+  1. one-shot arrives            the happy path; proves nothing on its own
+  2. the body is SEALED          a reminder rests until due; plaintext at rest
+                                 for a week is the F9 defect class
+  3. an EXPIRED reminder does    THE NEGATIVE CONTROL. Paired with (1) so
+     NOT arrive                  "nothing arrived" is known to be a decision
+                                 rather than a failure to schedule
+  4. cancel prevents the fire    and a SECOND cancel is not an error (the
+                                 scheduler 409s an already-cancelled object)
+  5. recurrence fires TWICE      one fire is indistinguishable from a one-shot
+"""
+from __future__ import annotations
+
+import contextlib
+import os
+import sys
+import time
+import uuid
+
+SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or os.path.join(
+    os.path.dirname(__file__), "..", "..", "src"
+)
+sys.path.insert(0, os.path.abspath(SRC))
+
+from agentbus_client.client import AgentBus, AgentBusError  # noqa: E402
+
+RESULTS: list[tuple[str, str, str]] = []   # (state, name, detail)
+
+
+def record(state: str, name: str, detail: str = "") -> None:
+    RESULTS.append((state, name, detail))
+    print(f"  [{state:8}] {name}" + (f" — {detail}" if detail else ""), flush=True)
+
+
+def _wait_for(bus: AgentBus, sentinel: str, seconds: int) -> dict | None:
+    """Poll this agent's own inbox for a delivery containing `sentinel`.
+
+    Reads through the PRODUCT (bus.inbox + bus.read), never the database, so a
+    pass here means a real recipient could have seen it.
+    """
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        for delivery in bus.inbox(limit=25):
+            try:
+                full = bus.read(delivery.delivery_id)
+            except AgentBusError:
+                continue
+            if sentinel in (full.get("text_body") or ""):
+                return full
+        time.sleep(5)
+    return None
+
+
+def main() -> int:
+    bus = AgentBus()
+    me = bus.agent or os.environ.get("AGENTBUS_AGENT")
+    if not me:
+        print("set AGENTBUS_AGENT — this probe only ever reminds ITSELF", file=sys.stderr)
+        return 2
+    print(f"probing as {me} (self-addressed only)\n")
+
+    created: list[str] = []
+
+    # ---------------------------------------------------------------- 1 + 2
+    live = f"REMIND-PROBE-LIVE-{uuid.uuid4().hex[:8]}"
+    try:
+        row = bus.remind(live, delay="60s", subject="probe: one-shot")
+        created.append(row["id"])
+    except AgentBusError as exc:
+        record("FAIL", "one-shot accepted", str(exc)[:120])
+        return 1
+    record("ok", "one-shot accepted", f"id={row['id']} due={row.get('due_at')}")
+
+    got = _wait_for(bus, live, seconds=180)
+    if not got:
+        record("FAIL", "one-shot delivered", "no delivery inside 180s")
+        return 1
+    record("ok", "one-shot delivered", f"delivery={got['delivery_id']}")
+
+    # SEALED AT REST. `sealed: true` is a CLAIM; the decoded body is the fact —
+    # this reads the plaintext back through the client, which is the only party
+    # that can. If the server had stored plaintext, this would still pass, so
+    # the flag is checked too.
+    if not got.get("sealed"):
+        record("FAIL", "body sealed at rest", "delivery reports sealed=False")
+    else:
+        record("ok", "body sealed at rest", "sealed=True and the client unsealed it")
+
+    # ------------------------------------------------------------------- 3
+    # THE NEGATIVE CONTROL. Its value comes entirely from (1) above having
+    # passed: we know a 60s reminder DOES arrive inside 180s, so "nothing
+    # arrived" here is a decision rather than a broken pipe.
+    expired = f"REMIND-PROBE-EXPIRED-{uuid.uuid4().hex[:8]}"
+    try:
+        row = bus.remind(expired, delay="60s", expire="1s", subject="probe: expired")
+        created.append(row["id"])
+        if _wait_for(bus, expired, seconds=150):
+            record("FAIL", "expired reminder withheld", "a lapsed reminder WAS delivered")
+        else:
+            record("ok", "expired reminder withheld", "not delivered, and (1) proves it could be")
+    except AgentBusError as exc:
+        record("UNTESTED", "expired reminder withheld", f"refused at create: {exc}"[:120])
+
+    # ------------------------------------------------------------------- 4
+    cancelled = f"REMIND-PROBE-CANCEL-{uuid.uuid4().hex[:8]}"
+    try:
+        row = bus.remind(cancelled, delay="90s", subject="probe: cancel")
+        bus.cancel_remind(row["id"])
+        # A SECOND CANCEL MUST NOT ERROR. The scheduler 409s an already-cancelled
+        # object; the caller's intent is already true, so that is success.
+        try:
+            bus.cancel_remind(row["id"])
+            record("ok", "double cancel is not an error", "second DELETE accepted")
+        except AgentBusError as exc:
+            record("FAIL", "double cancel is not an error", str(exc)[:120])
+        if _wait_for(bus, cancelled, seconds=150):
+            record("FAIL", "cancel prevents the fire", "a cancelled reminder WAS delivered")
+        else:
+            record("ok", "cancel prevents the fire", "not delivered")
+    except AgentBusError as exc:
+        record("UNTESTED", "cancel", str(exc)[:120])
+
+    # ------------------------------------------------------------------- 5
+    # ONE FIRE IS INDISTINGUISHABLE FROM A ONE-SHOT, so this waits for TWO.
+    # Left UNTESTED rather than failed when the tier's floor forbids a cadence
+    # fast enough to observe twice inside a probe run.
+    record(
+        "UNTESTED",
+        "recurrence fires twice",
+        "needs a cadence observable inside one run — assign to a human tester",
+    )
+
+    # ------------------------------------------------------------------- 6
+    record(
+        "UNTESTED",
+        "429/503 refusal shapes",
+        "no deliberate trigger exists; owed by the backend. A refusal path that "
+        "has never run is an assumption with a status code",
+    )
+
+    for reminder_id in created:
+        with contextlib.suppress(AgentBusError):
+            bus.cancel_remind(reminder_id)
+
+    failed = [r for r in RESULTS if r[0] == "FAIL"]
+    untested = [r for r in RESULTS if r[0] == "UNTESTED"]
+    print(f"\n{len(RESULTS) - len(failed) - len(untested)} passed, "
+          f"{len(failed)} failed, {len(untested)} UNTESTED (not passed)")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

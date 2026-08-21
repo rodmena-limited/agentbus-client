@@ -232,17 +232,25 @@ class SyncMessagingMixin:
                         f"inbox page of {len(batch)} did not advance the cursor past {before}"
                     )
 
-        def read(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
+        def read(
+            self, delivery_id: str, agent: str | None = None, raw: bool = False
+        ) -> dict[str, Any]:
             """Read one delivery, unsealing it when this machine holds the key.
 
             Unsealing happens HERE rather than being an extra step the caller must
             remember: a reader that forgets it gets ciphertext and no explanation,
             and "remember to decrypt" is exactly the kind of instruction that is
             followed for a week.
+
+            `raw=True` returns the body EXACTLY as stored, skipping the unseal.
+            #39: without it, this client's own decoder is the only practical
+            witness to its own correctness — a recipient wanting to check their
+            mail against stock `age` had to hand-build a curl auth header. A
+            decoder that can only be verified by itself is a check that cannot
+            go red.
             """
-            return self.unseal_message(
-                self._request("GET", f"/v1/deliveries/{delivery_id}", agent=agent)
-            )
+            delivery = self._request("GET", f"/v1/deliveries/{delivery_id}", agent=agent)
+            return delivery if raw else self.unseal_message(delivery)
 
         def ack(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
             return self._request("POST", f"/v1/deliveries/{delivery_id}/ack", agent=agent)

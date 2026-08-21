@@ -40,7 +40,7 @@ class _MultiBus:
         self._datas = datas if datas is not None else PAYLOADS
         self.calls: list[tuple[str, int]] = []
 
-    def read(self, _delivery_id):
+    def read(self, _delivery_id, raw: bool = False):
         return {"attachments": self._metas}
 
     def attachment(self, delivery_id, index):
@@ -189,7 +189,7 @@ class _ShowBus:
     def __init__(self, delivery):
         self._delivery = delivery
 
-    def read(self, _delivery_id):
+    def read(self, _delivery_id, raw: bool = False):
         return self._delivery
 
 

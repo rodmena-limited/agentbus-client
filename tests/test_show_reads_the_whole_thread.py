@@ -55,7 +55,7 @@ class FakeBus:
         self._thread = thread
         self.thread_calls: list[str] = []
 
-    def read(self, delivery_id: str) -> dict:
+    def read(self, delivery_id: str, raw: bool = False) -> dict:
         return self._delivery
 
     def thread(self, thread_id: str) -> dict:

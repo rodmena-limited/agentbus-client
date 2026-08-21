@@ -342,11 +342,40 @@ silent-success shape as the rest of this record.
 
 **Enabling NTP does not correct rows already written.** "ntpd is on now" and
 "the historical record is trustworthy" are separate claims and only the first is
-true. Anything reasoning about ordering or elapsed time *before* ~21:00Z on
-2026-08-21 inherits up to 43 seconds of error — audit logs especially, and any
-cross-host correlation between auth, ledger, tokengate, futex and runflow, since
-those sit on the hosts that drifted furthest. Recorded so it does not quietly
-become "timestamps are fine" in a month.
+true. Recorded so it does not quietly become "timestamps are fine" in a month.
+
+**But the skew reaches only the fields written with the DATABASE's own clock**,
+and I first stated this too broadly. I told RunFlow their historical
+`fire_delay_seconds` was suspect; they checked their write path and corrected me,
+with the code and a record of mine that shows both clocks at once:
+
+    timer    fired_at           02:34:12.628   <- app clock, correct
+    delivery created_at         02:34:06.294   <- DB clock, 6.33s behind
+    fire_delay_seconds          0.229          <- computed from the app pair
+
+A delivery apparently created six seconds *before* the event that caused it,
+while the elapsed-time field stayed accurate. Their timer path computes
+`EXTRACT(EPOCH FROM (%s - fire_at))` where both operands are application-supplied
+parameters — Postgres does the arithmetic but `now()` never appears. So:
+
+| Sound throughout the skew (app clock) | Historically wrong (DB clock) |
+|---|---|
+| `fire_at`, `fired_at`, `fire_delay_seconds`, `next_fire_at`, retry backoff | `created_at`, `delivered_at`, `updated_at`, `disabled_at` |
+
+This matters beyond tidiness: `fire_delay_seconds` is the oracle that correctly
+ruled the scheduler out of the original "41s early" report. Discarding it as
+untrustworthy would mean throwing away the instrument *because of the defect it
+correctly detected*.
+
+**The equivalent split for AgentBus's own fields has NOT been established** —
+it is the backend's write path, not mine, and assuming it mirrors RunFlow's is
+the same unverified inference I just had corrected. Ordering and elapsed-time
+claims over the pre-fix window stay suspect for any field not yet shown to be
+app-sourced.
+
+The discriminating experiment is also **no longer available**: the skew was the
+only instrument that could tell the two clocks apart, and fixing it removed the
+instrument. Post-fix, an app-clock and a DB-clock field look identical.
 
 ## Not verified
 

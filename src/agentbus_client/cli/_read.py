@@ -188,8 +188,45 @@ def cmd_attachment(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
+    # #39: validate BEFORE _bus(), so a flag mistake reports the flag mistake
+    # rather than a credential error that sends the reader hunting for a key
+    # problem they do not have.
+    raw = getattr(args, "raw", False)
+    if raw and getattr(args, "thread", False):
+        print(
+            "--raw shows the stored bytes of ONE delivery; --thread renders a "
+            "whole conversation. Pick one: drop --thread to dump this message's "
+            "armor, or drop --raw to read the thread.",
+            file=sys.stderr,
+        )
+        return 2
+
     bus = _common._bus(args)
-    delivery = bus.read(args.delivery_id)
+    delivery = bus.read(args.delivery_id, raw=raw)
+
+    if raw:
+        # #39, reported by macbook-admin-bd8e86: emit the stored body and NOTHING
+        # else on stdout, so it pipes straight into `age -d` with no filtering.
+        # Every header goes to stderr or is omitted.
+        body = delivery.get("text_body")
+        if body is None:
+            print("this delivery has no stored text body", file=sys.stderr)
+            return 1
+        if args.json:
+            _print(delivery, True)
+            return 0
+        if not delivery.get("sealed"):
+            # An UNSEALED body printed under --raw looks exactly like a successful
+            # decryption. Say which one it is, or --raw becomes a check that
+            # reports "verified" for mail that was never encrypted at all.
+            print(
+                "note: this delivery is NOT sealed — the bytes below are the "
+                "stored plaintext, not ciphertext, and prove nothing about "
+                "encryption.",
+                file=sys.stderr,
+            )
+        print(body)
+        return 0
 
     # #216: --thread (alias --all) renders the WHOLE conversation instead of the
     # single delivery. Answering message 14 without reading 1-13 is how an agent
@@ -346,6 +383,15 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
         dest="thread",
         help="read the WHOLE conversation, oldest first, instead of this one "
         "message (note: on `reply`, --all means reply-to-everyone instead)",
+    )
+    p.add_argument(
+        "--raw",
+        "--ciphertext",
+        action="store_true",
+        dest="raw",
+        help="print the stored body verbatim WITHOUT unsealing it, so you can "
+        "verify your own mail with an external decoder (e.g. `agentbus show "
+        "<id> --raw | age -d -i ~/.config/agentbus/keys/sealing-<agent>.key`)",
     )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_show)

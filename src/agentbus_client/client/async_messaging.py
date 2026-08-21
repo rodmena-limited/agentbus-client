@@ -182,7 +182,9 @@ class AsyncMessagingMixin:
                     cursor = max(cursor, delivery.seq)
                     yield delivery
 
-        async def read(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
+        async def read(
+            self, delivery_id: str, agent: str | None = None, raw: bool = False
+        ) -> dict[str, Any]:
             """Read one delivery, unsealing it when this machine holds the key.
 
             SEV-4 (#234): the async twin USED to skip unsealing — a bug the sync one
@@ -190,10 +192,15 @@ class AsyncMessagingMixin:
             A caller who switched sync -> async silently got ciphertext, and
             "remember to decrypt" is exactly the instruction that gets followed for
             about a week.
+
+            `raw=True` returns the body EXACTLY as stored, skipping the unseal
+            (#39) — kept in step with the sync twin, which is the pair the parity
+            test exists to police.
             """
-            return self.unseal_message(
-                await self._request("GET", f"/v1/deliveries/{delivery_id}", agent=agent)
+            delivery = await self._request(
+                "GET", f"/v1/deliveries/{delivery_id}", agent=agent
             )
+            return delivery if raw else self.unseal_message(delivery)
 
         async def ack(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
             return await self._request("POST", f"/v1/deliveries/{delivery_id}/ack", agent=agent)

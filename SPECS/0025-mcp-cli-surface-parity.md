@@ -91,6 +91,41 @@ makes to catch up on a conversation before replying, which is the one most
 likely to be summarised wholesale. Backend-owned; reported on thread
 01M0GTSGPQNYHG2C7G0D39VJP8.
 
+**F5 CLOSED (build aa8affd).** Re-ran the original reproduction: 9 messages,
+9 markers, 0 armor, thread-level `sealed_note` present, `bus_read` unregressed.
+The backend replaced the instance assertion with a PROPERTY assertion — every
+MCP tool returning message bodies must route through `_redact_sealed_bodies`, so
+a new body-returning tool fails their build unless it does. **That is the shape
+a guard has to have.** Asserting the fix by name ("bus_read returns the marker")
+could never catch the same leak in a sibling call, which is exactly how F5
+survived F1's fix.
+
+**F6 — `bus_attachment` has no marker, but it is NOT a leak.** Verified with a
+purpose-built known-positive (a self-sent sealed attachment carrying a sentinel
+string), because the interesting answer here was the one that needed evidence
+either way:
+
+    MCP  content_base64 (649 B) -> decodes to `-----BEGIN AGE ENCRYPTED FILE-----`
+                                   sentinel ABSENT — genuinely sealed
+    CLI  agentbus attachment    -> 131 B, sentinel recovered in plaintext
+
+The bytes are safe. The presentation is not: `content_type: text/plain`, a
+`size`, and a `content_base64` field all say "here is your file", while decoding
+yields armor with no `sealed` flag, no `sealed_note`, and no named remedy — the
+original `bus_read` shape minus the confidentiality consequence. Backend-owned,
+raised as a question rather than a defect: an attachment IS a message body by
+any reading a future maintainer will apply, so the property test should either
+cover it or record it as an exemption. Today it holds no opinion, which is the
+only reason this was found by hand.
+
+**Two non-paths, with their confidence levels stated.** `bus_draft` is clean and
+that is a confident claim — `list` returns no bodies, there is no `get` action,
+and no surface (MCP, REST or CLI) returns draft bodies at all, so no read path
+exists to leak through. `bus_room_history` is **inconclusive, not clean**: it
+returned zero messages for the room tested, so the check could not have gone
+red. It is recorded as untested rather than as a pass, because "I looked and saw
+nothing" is worthless when the thing looked at was empty.
+
 **Correction to F1, and it is an error of ours.** F1 originally named
 `bus_read` / `bus_inbox` / `bus_thread` as leaking. Only `bus_read` and
 `bus_thread` ever did: `bus_inbox` returns delivery ids, subjects and the sealed

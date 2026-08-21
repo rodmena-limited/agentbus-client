@@ -180,6 +180,50 @@ def cmd_join(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_persona_outcome(result: dict, requested: str | None) -> None:
+    """Say when a requested persona did NOT take, instead of reporting success.
+
+    A WRITE THAT REPORTS SUCCESS AND DOES NOTHING IS INDISTINGUISHABLE FROM ONE
+    THAT WORKED, and this one had a victim: a peer set `--persona`, read it back
+    as null, could not tell "not wired" from "wired and dropped" — those are
+    identical from outside — and reasonably concluded the CLI was broken. They
+    filed a defect against this repo and went looking in the wrong layer. The
+    flag was fine; the server was discarding it.
+
+    Persona is admin-only POLICY (backend #264): a non-admin write is DROPPED
+    rather than rejected, deliberately, so an old client passing the field does
+    not break. Authorization is checked BEFORE validation, which is why a valid
+    lane and a nonsense one behave identically — you never reach the validator.
+    That is what made it look unwired rather than unauthorized.
+
+    The server now returns `persona_ignored` explaining the drop (backend
+    601008d, verified live). This surfaces it. Printed ONLY when the server says
+    so, so a caller who passed no persona sees nothing and it never becomes
+    noise — the same rule that keeps `secret_warning` readable.
+
+    The fallback matters as much as the happy path: against a server that
+    predates 601008d there is no `persona_ignored` field, so a silently
+    dropped persona would still print nothing. When we ASKED for a lane and the
+    agent came back without one, say so regardless of whether the server
+    explained itself.
+    """
+    if not requested:
+        return
+    advisory = result.get("persona_ignored")
+    if advisory:
+        print(f"\n  PERSONA NOT SET: {advisory}")
+        return
+    if not (result.get("agent") or {}).get("persona"):
+        # Forward-compatible branch: old server, no advisory, same silent drop.
+        print(
+            f"\n  PERSONA NOT SET: asked for '{requested}' and the agent came "
+            f"back without one.\n"
+            f"    Setting a persona needs an ADMIN-scope key (it is policy, not "
+            f"self-service).\n"
+            f"    Check your scope with `agentbus whoami`, or ask an operator."
+        )
+
+
 def cmd_register(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     # #149: --label k[=v] at register time. The SDK accepted labels all along;
@@ -327,6 +371,7 @@ def cmd_register(args: argparse.Namespace) -> int:
         print(f"  rooms:    {', '.join(result['rooms']) or '(none)'}")
         print(key_note)
         print(wired_note)
+        _print_persona_outcome(result, getattr(args, "persona", None))
         # THE RESTART IS THE DIFFERENCE BETWEEN WORKING AND NOT, so it is not a
         # footnote. The monitor reads its identity when it STARTS; this session's
         # monitor started before the identity existed and is watching nothing.

@@ -288,6 +288,38 @@ observation should be investigated rather than narrated.
 
 CLI, quickref and the `--repeat-until` refusal now redirect to `--expire`.
 
+### Long-horizon wake — VERIFIED over 8 hours
+
+Every other check in this record ran in seconds to minutes, because that is what
+fits inside a session. A reminder set at Farshid's request and held live for
+eight hours fired correctly:
+
+    due_at 12:36:56Z, delivered, decoded cleanly, sealed: true
+
+That is the only evidence the wake path survives a gap outlasting a session and
+a connection. It is now measured rather than assumed.
+
+**The delivery-row timestamp was ~42s early, and the fire was not.** Verified
+independently with a controlled measurement rather than taken from the report:
+
+    sent at 12:39:02 exactly (local clock NTP-synced, matches the HTTP Date)
+    delivery row created_at 12:38:19.552   ->  -42.4s
+
+`reminders.created_at` agreed with the HTTP `Date` to the second in the same
+minute, three samples. So the three-clock picture is unchanged after eight hours
+and has not degraded:
+
+| clock | state |
+|---|---|
+| create-request | FIXED |
+| scheduler-evaluation | FIXED |
+| message-write (`deliveries.created_at`) | **still −42s** |
+
+The useful reading is narrower than "it fired early": **the fire was on time and
+the record of it is wrong.** −42.4s now against −42s eight hours earlier also
+shows the host clocks are free-running but **not accelerating**. Pending the NTP
+approval.
+
 ## Not verified
 
 - The 429/503 refusal paths: descoped before testing. Never executed.

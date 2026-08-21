@@ -180,16 +180,24 @@ Pending operator approval (Futex `dec_e18b364a0afc4b9a9aa8c44b144fef99`).
 
 ### Open defects
 
-**Cron day-of-week is +1 — RunFlow's, not AgentBus's.** Confirmed 4/4 here;
-the backend then isolated it by removing their own service from the path and
-querying RunFlow directly, which reproduced the same +1. Reported to RunFlow.
+**Cron day-of-week was +1 — RunFlow's, not AgentBus's. NOW FIXED.**
 
-    "0 12 * * 5" (Fri) -> next_fire 2026-08-22 = SATURDAY
+Confirmed 4/4 here originally; the backend isolated it by removing their own
+service from the path and querying RunFlow directly, reproducing the same +1.
+Root cause was APScheduler's `CronTrigger.from_crontab`, whose `day_of_week` is
+0=Monday..6=Sunday against standard cron's 0=Sunday..6=Saturday.
 
-Worst defect of the set because it is **silent**: the reminder still arrives,
-just on the wrong day forever, so it reads as the user misremembering. Not
-compensated client-side — subtracting one from a user's cron would make the
-client lie about what it scheduled and break when RunFlow fixes it.
+**Re-verified against the original reproduction after the fix**, Friday
+2026-08-21:
+
+    dow=0 want Sun got Sun   dow=1 want Mon got Mon
+    dow=5 want Fri got Fri   dow=6 want Sat got Sat     4/4 PASS
+
+It was the worst defect of the set while it lasted, because it was **silent**:
+the reminder still arrived, just on the wrong day forever, so it read as the user
+misremembering. Never compensated client-side — subtracting one from a user's
+cron would have made the client lie about what it scheduled, and would have
+broken at exactly this moment.
 
 ### `repeat_until` — settled: it does not exist and will not
 

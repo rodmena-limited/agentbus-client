@@ -161,8 +161,10 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
         dest="repeat_until",
         default=None,
         metavar="WHEN",
-        help="stop repeating after this date. A recurrence with no end is a "
-        "commitment nobody remembers making.",
+        help="NOT YET SUPPORTED SERVER-SIDE — the create is refused if you pass "
+        "it. A recurrence currently has no end date; cancel it explicitly with "
+        "--cancel. Kept in the interface because a recurrence with no end is a "
+        "commitment nobody remembers making, and this should come back.",
     )
     p.add_argument(
         "--timezone",

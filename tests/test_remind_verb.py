@@ -292,3 +292,42 @@ def test_timezone_is_never_defaulted_by_the_client():
     bus._seal_to_self = lambda body, agent: body
     bus.remind("note", repeat="daily")
     assert "timezone" not in spy.body
+
+
+def test_repeat_until_is_refused_because_the_server_forbids_it():
+    """VERIFIED AGAINST THE SERVED SCHEMA, not against my proposal.
+
+    The agreed contract included `repeat_until`; the SERVED RemindRequest does
+    not carry it and forbids extra inputs. Confirmed live with a full-scope key:
+
+        POST /v1/reminders {..., "repeat_until": "..."}
+        -> 422 repeat_until: Extra inputs are not permitted
+
+    So sending it fails the ENTIRE create, not just that field. Refusing locally
+    names the reason; passing it through would turn a recurring reminder into a
+    confusing 422 about a field the user did not know was optional.
+
+    This is why the served artifact gets diffed rather than the agreement read:
+    the contract and the deployment disagreed, and only the deployment matters.
+    """
+    bus, _spy = _bus_with_spy()
+    bus._seal_to_self = lambda body, agent: body
+    with pytest.raises(ValueError, match="not accepted by the server"):
+        bus.remind("note", repeat="daily", repeat_until="2026-12-01")
+
+
+def test_the_payload_carries_only_fields_the_server_accepts():
+    """The whole payload, checked against the SERVED RemindRequest field set.
+
+    A field the server forbids fails the entire create, so this asserts the
+    envelope rather than any single key — a new field added here without a
+    server that accepts it would break every reminder, not just the one using it.
+    """
+    served = {
+        "target", "subject", "text", "sealed",
+        "delay_seconds", "due_at", "expires_at", "repeat", "timezone",
+    }
+    bus, spy = _bus_with_spy()
+    bus._seal_to_self = lambda body, agent: body
+    bus.remind("note", delay="2h", expire="3d", repeat="daily", timezone="Europe/London")
+    assert set(spy.body) <= served, f"sends fields the server forbids: {set(spy.body) - served}"

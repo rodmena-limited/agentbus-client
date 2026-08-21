@@ -235,6 +235,16 @@ class AsyncMiscMixin:
                         # ONE OF delay OR at, NEVER BOTH — the server 422s the pair, and
             # catching it here names the conflict instead of relaying a status
             # code. They are the same statement in two forms.
+            # repeat_until IS NOT ON THE WIRE. The served RemindRequest forbids
+            # extra inputs (verified: 422 extra_forbidden), so sending it fails
+            # the whole create. Refused here with the reason rather than passed
+            # through to become a confusing server error.
+            if repeat_until is not None:
+                raise ValueError(
+                    "repeat_until is not accepted by the server yet — a recurring "
+                    "reminder currently has no end date. Track it and cancel with "
+                    "cancel_remind(), or omit it."
+                )
             if delay is not None and at is not None:
                 raise ValueError(
                     "pass delay OR at, not both — they say the same thing two ways"
@@ -254,7 +264,6 @@ class AsyncMiscMixin:
                 ("due_at", _as_instant(at)),
                 ("expires_at", _expiry_instant(expire, delay, at)),
                 ("repeat", repeat),
-                ("repeat_until", _as_instant(repeat_until)),
                 ("timezone", timezone),
             ):
                 if value is not None:

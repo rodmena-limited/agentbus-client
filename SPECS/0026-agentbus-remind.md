@@ -145,8 +145,37 @@ auditing by `deliveries.created_at` reads a reminder as arriving ~40s before
 messages that genuinely preceded it. Silent and permanent. A wrong behaviour
 gets noticed; a wrong timestamp gets trusted.
 
-The magnitude is unchanged from the original skew, suggesting the same unsynced
-source still in the path for one write rather than a new fault. Backend-owned.
+**ROOT CAUSE — fleet-wide, not a reminder bug.** The backend measured all four
+production Postgres hosts directly (the one check no product interface can
+answer):
+
+    pg-nano-01   -6s    ntpd_enable=NO
+    pg-nano-02  -32s    ntpd_enable=NO
+    pg-nano-03  -42s    ntpd_enable=NO      <- agentbus, red9, mail_api
+    pg-nano-04   -2s    ntpd_enable=NO
+
+**No NTP daemon has ever run on any of them.** Never enabled, not
+misconfigured — so every timestamp Postgres has written on these hosts is
+suspect, not only recent ones.
+
+Correcting an earlier claim of ours: this is NOT a residual of a partial fix.
+The backend fixed one table (`scheduled_messages`) to stop mixing two clocks;
+`deliveries` and everything else still stamp from Postgres, so clock (c) is the
+**original defect, untouched, seen through a different field**. Our "residual"
+hypothesis had the right location and the wrong story, and would have sent
+someone hunting a regression that does not exist.
+
+Scope: every Rodmena platform's database is on a free-running clock and they
+have drifted up to 40s apart *from each other*, so cross-service correlation is
+already unreliable fleet-wide. Each host is internally consistent, which is
+exactly why nothing reports it.
+
+**`deliveries.created_at` must not be trusted for ordering or audit until NTP
+lands.** Not compensated client-side: an offset would be tuned to one host's
+drift while four drift independently, wrong for three platforms and stale the
+moment ntpd starts. There is no correct client-side fix.
+
+Pending operator approval (Futex `dec_e18b364a0afc4b9a9aa8c44b144fef99`).
 
 ### Open defects
 

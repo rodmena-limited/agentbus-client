@@ -110,7 +110,8 @@ measurement is the one that counts:
       04:15:11  scheduled
       04:15:36  scheduled   <- 14s BEFORE due; a 42s-early scheduler
       04:15:44  scheduled      could not produce this observation
-      04:15:52  FIRED       <- ~2s late, correct for a sweep
+      04:15:52  FIRED       <- ~2s late; the delay is RunFlow's tick,
+                                not an AgentBus sweep (there is none)
 
 The negative half is what makes it trustworthy: still scheduled with 14 seconds
 to go. The check could have failed and did not.
@@ -222,13 +223,60 @@ Reproduced independently here before documenting it, on a different reminder:
       05:03  fire 2 delivered
       05:04  fire 3 delivered
       05:04:02  expires_at passes
-      05:04:20  state still `scheduled` — the sweep had not run yet
+      05:04:20  state still `scheduled` — A DEFECT, see below
       05:05:10  state = EXPIRED
       05:05:24  deliveries still 3 on a per-MINUTE cron
 
 The last line is the one that matters: a minute after expiry the count had not
 grown, so the recurrence genuinely stopped rather than being withheld while
 still firing.
+
+#### That 05:04:20 line was a bug report, and it was filed as a caveat
+
+It was recorded here as testing methodology — "the sweep had not run yet, so
+sample with margin". **Wrong twice:**
+
+1. **There is no sweep.** `deliver()` was the only place a row became `expired`,
+   and AgentBus owns no clock by design — the state was waiting for the NEXT
+   FIRE, not a timer. A plausible mechanism was invented to explain an
+   observation, and the investigation stopped because the invention was
+   satisfying. Identical failure to the "residual of a half-landed fix" story
+   about the clock earlier the same night.
+
+2. **The lag scaled with the cron interval.** A per-minute cron is the one
+   cadence where it is nearly invisible:
+
+       * * * * *      up to 60s      <- what was measured, read as a curiosity
+       0 9 * * *      up to 24 HOURS
+       0 9 * * mon    up to 7 DAYS
+
+   A weekly reminder would report `state: scheduled`, and appear in the
+   scheduled list, for a **week** after expiring — so anyone polling state to
+   decide whether to re-arm gets the wrong answer for seven days.
+
+   Every tester used a per-minute cron all night, because it is the only cadence
+   observable inside a test run. **We were all testing in the blind spot.**
+
+**Fixed** (backend `ec506da`): expiry is evaluated **on read**, so state is
+truthful within seconds of the deadline rather than at the next fire.
+`expires_pending_reap` exposes the remaining asymmetry honestly — the read is
+truthful about the deadline while the upstream schedule stays armed until the
+next fire reaps it.
+
+An hourly cron with a short `--expire` is refused at create (*"expires_at is not
+after the first fire"*), so the long-interval case cannot be exercised without
+waiting hours. Read-on-access makes it correct regardless — **a guarantee should
+not depend on being observable.**
+
+Verified independently against the fix, on a per-minute recurrence expiring
+05:14:48 — read 5 seconds later, well before the next fire at 05:15:
+
+    state: expired   pending_reap: True
+
+Under the old code that row read `scheduled` until 05:15.
+
+**The lesson is not "sample with margin."** It is that an unexplained
+observation should be investigated rather than narrated.
 
 CLI, quickref and the `--repeat-until` refusal now redirect to `--expire`.
 

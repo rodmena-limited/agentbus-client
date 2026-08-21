@@ -221,15 +221,174 @@ def cmd_drafts(args: argparse.Namespace) -> int:
     return 0
 
 
+# The server's terminal set (backend vendors/futex.py:27). ONLY `approved` is a
+# go; every other terminal value is a denial. Kept as a literal rather than
+# inferred from "not approved", because the two questions are different: a
+# status we have never heard of is not a denial, it is a status we must not
+# guess about.
+_TERMINAL = frozenset(
+    {"approved", "rejected", "cancelled", "timed_out", "changes_requested"}
+)
+
+
+def _print_reviewer_reasoning(outcome: object) -> None:
+    """Print WHY a human denied this, from the REAL Futex outcome shape.
+
+    Written against a live rejected approval (01M0GKM6R5QZRQ874P4FQXM1T1) and
+    corrected TWICE against it, because both earlier drafts printed nothing on a
+    denial that carried a perfectly good explanation:
+
+      1. First draft guessed flat `reason`/`feedback` keys. No such keys exist.
+      2. Second draft looked for `reasons`/`justifications` at the TOP of
+         `outcome`. They live one level deeper, under `outcome["outcome"]`.
+
+    Both are the same silent-absence failure: the lookup ran, found no such key,
+    and reported "no reasoning" with full confidence. `d.get(x)` returning None
+    means "no such key" as often as "no such value", which is exactly why this
+    was checked against a known-positive rather than reasoned about.
+
+    The real shape:
+
+        outcome = {
+          "status": "rejected",
+          "feedback_for_agent": {"message": "...", "reason_codes": ["OTHER"]},
+          "outcome": {
+            "result": "rejected",
+            "reasons":        [{"code": "OTHER", "text": "...", "actor_id": ...}],
+            "justifications": [{"text": "...", "actor_id": ...}],
+          },
+        }
+
+    `feedback_for_agent` is the field named for this job, so it is printed
+    first. Everything is optional — an approval settled by expiry carries no
+    human reasoning at all, and that is not an error.
+    """
+    if not isinstance(outcome, dict):
+        return
+    printed = False
+
+    feedback = outcome.get("feedback_for_agent")
+    if isinstance(feedback, dict):
+        message = feedback.get("message")
+        if message:
+            codes = feedback.get("reason_codes") or []
+            suffix = f" ({', '.join(str(c) for c in codes)})" if codes else ""
+            print(f"  feedback{suffix}: {message}")
+            printed = True
+
+    inner = outcome.get("outcome")
+    if isinstance(inner, dict):
+        for key, label in (("reasons", "reason"), ("justifications", "justification")):
+            for entry in inner.get(key) or []:
+                if not isinstance(entry, dict):
+                    continue
+                text = entry.get("text")
+                if not text:
+                    continue
+                # The reviewer's feedback message is frequently the SAME string
+                # as the reason text; printing it twice reads like two people
+                # objected.
+                if printed and key == "reasons" and text == (
+                    (feedback or {}).get("message") if isinstance(feedback, dict) else None
+                ):
+                    continue
+                code = entry.get("code")
+                print(f"  {label}{f' ({code})' if code else ''}: {text}")
+                who = entry.get("actor_id")
+                if who:
+                    print(f"    - {who}")
+                printed = True
+
+    if not printed:
+        # SAY THAT THERE WAS NONE, rather than print nothing. Silence here is
+        # indistinguishable from the bug this function has already had twice.
+        print("  (no reviewer reasoning recorded)")
+
+
+def _report_approval(settled: dict) -> int:
+    """Print an approval's outcome and turn it into an exit code.
+
+    THREE OUTCOMES, NOT TWO, and collapsing them is the defect this function
+    exists to prevent:
+
+      approved                      -> 0, proceed
+      any other TERMINAL status     -> 1, a DECISION that says no
+      waited_out (still pending)    -> 7, NOBODY ANSWERED YET
+
+    `waited_out` must never share an exit code with a denial. `timed_out` is the
+    human's window closing — a denial. Our own `--wait` elapsing is not a
+    decision at all, and a script that treats "no answer yet" as "no" will
+    abandon work the reviewer was still considering, while one that treats it as
+    "yes" proceeds unauthorised. The old `--wait` returned `0 if approved else 1`
+    and could not tell them apart.
+
+    `cancelled` is live: the backend delivered nothing to the requester on
+    cancellation until build e34edad (its `_deliver_outcome` had one call site,
+    the Futex webhook, and a cancellation has no webhook). Reported by the
+    backend agent on thread 01M0GTSGPQNYHG2C7G0D39VJP8.
+    """
+    status = str(settled.get("status") or "unknown")
+
+    # A pending row handed back because OUR wait elapsed. The server sets this
+    # flag precisely so the caller can distinguish it; honour that.
+    if settled.get("waited_out"):
+        print(f"still pending after the wait — NOBODY HAS DECIDED YET ({status})")
+        print("  this is NOT a decision. Do not proceed, and do not read it as a")
+        print("  refusal: wait again, or stop and say the approval is unanswered.")
+        return 7
+
+    if status == "approved":
+        print("approved")
+        return 0
+
+    if status in _TERMINAL:
+        print(f"{status} — DO NOT PROCEED. Anything but 'approved' is a denial.")
+        _print_reviewer_reasoning(settled.get("outcome"))
+        return 1
+
+    # Not terminal and not waited_out: still open, and the caller did not wait.
+    print(f"{status} — not decided yet")
+    print(f"  wait for it:  agentbus approval {settled.get('id', '<id>')} --wait 300")
+    return 7
+
+
 def cmd_approve(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     result = bus.request_approval(args.title, kind=args.kind, summary=args.summary)
     print(f"approval {result['id']} is {result['status']}")
     if args.wait:
-        settled = bus.approval(result["id"], wait=args.wait)
-        print(f"-> {settled['status']}")
-        return 0 if settled["status"] == "approved" else 1
+        return _report_approval(bus.approval(result["id"], wait=args.wait))
+    # NAME THE COMMAND THAT FINISHES THE JOB. Without --wait this returns while
+    # the approval is still open, and an agent that stops here has raised a gate
+    # and walked through it. `agentbus approval <id>` did not exist until now,
+    # so there was nothing to point at.
+    print(f"  check it:  agentbus approval {result['id']} --wait 300")
+    print("  NOT approved yet — do not proceed on the strength of this id.")
     return 0
+
+
+def cmd_approval(args: argparse.Namespace) -> int:
+    """Report an approval's status by id — the CLI twin of `bus_approval_status`.
+
+    THE GAP THIS CLOSES: `agentbus approve --wait` can only wait on an approval
+    it just minted, because it passes its own create-response id straight
+    through. A session that restarted, or that was handed an id by a peer, had
+    no CLI route to that approval at all — the SDK had `bus.approval(id, wait=)`
+    and nothing surfaced it. MCP has had `bus_approval_status` throughout, so
+    this was a surface gap rather than a missing capability (issuedb #37,
+    SPECS/0025).
+    """
+    settled = _common._bus(args).approval(args.approval_id, wait=args.wait)
+    if getattr(args, "json", False):
+        # The machine-readable surface must still CARRY THE VERDICT in its exit
+        # code — a script that pipes this to jq is exactly the caller that must
+        # not mistake a denial for a pending decision.
+        _print(settled, True)
+        if settled.get("waited_out"):
+            return 7
+        status = str(settled.get("status") or "")
+        return 0 if status == "approved" else (1 if status in _TERMINAL else 7)
+    return _report_approval(settled)
 
 
 def add_commands(sub: argparse._SubParsersAction) -> None:
@@ -274,6 +433,39 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
     p.add_argument("title")
     p.add_argument("--kind", default="generic")
     p.add_argument("--summary", default=None)
-    p.add_argument("--wait", type=int, default=0)
+    p.add_argument(
+        "--wait",
+        type=int,
+        default=0,
+        metavar="SECONDS",
+        help="BLOCK until a human decides, and exit on the outcome. Without it "
+        "this returns while the approval is still open — which means you have "
+        "raised a gate and not waited at it.",
+    )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_approve)
+
+    p = sub.add_parser(
+        "approval",
+        help="check an approval by id (the CLI twin of MCP's bus_approval_status)",
+        description=(
+            "Report the status of an approval you already have an id for — one "
+            "raised by an earlier session, or handed to you by a peer. "
+            "`agentbus approve --wait` can only wait on an approval it just "
+            "created; this works on any id. "
+            "Exit codes: 0 approved, 1 DENIED (rejected/cancelled/timed_out/"
+            "changes_requested), 7 nobody has decided yet. 1 and 7 are different "
+            "answers and must not be treated alike."
+        ),
+    )
+    p.add_argument("approval_id")
+    p.add_argument(
+        "--wait",
+        type=int,
+        default=0,
+        metavar="SECONDS",
+        help="block until it is decided (server caps the wait; exit 7 if the "
+        "wait elapses with no decision)",
+    )
+    _accept_common_flags_after_subcommand(p)
+    p.set_defaults(func=cmd_approval)

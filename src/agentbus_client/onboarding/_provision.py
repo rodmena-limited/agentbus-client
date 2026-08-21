@@ -302,6 +302,37 @@ def _provision_project_agent(
     report.extend(provenance)
     report.append(f"registered: {name}  ({result['address']})")
 
+    # F10, SECOND PATH. `agentbus register --persona` learned to report a
+    # silently-dropped persona; SETUP did not, and setup is the command people
+    # actually run — it is what the skill and the docs tell a new agent to type.
+    # So the fix landed on the quieter entrypoint and missed the loud one.
+    #
+    # Farshid hit exactly this: `agentbus setup claude --role retunnel-tester
+    # --persona test-engineer` printed a full success panel with no persona line
+    # at all, and the session that came up reported `persona: null`. Nothing in
+    # that output was false; the panel simply had no opinion about the one flag
+    # that had not worked, so a clean-looking setup silently did nine things and
+    # dropped the tenth.
+    #
+    # Persona is admin-only POLICY (backend #264): a non-admin write is DROPPED
+    # rather than rejected, so an old client passing it does not break. Same
+    # advisory shape as the register path, and the same forward-compatible
+    # fallback for servers predating the `persona_ignored` field.
+    requested_persona = getattr(args, "persona", None)
+    if requested_persona:
+        advisory = result.get("persona_ignored")
+        if advisory:
+            report.append(f"PERSONA NOT SET: {advisory}")
+        elif not (result.get("agent") or {}).get("persona"):
+            report.append(
+                f"PERSONA NOT SET: asked for '{requested_persona}' and the agent "
+                f"came back without one. Setting a persona needs an ADMIN-scope "
+                f"key (it is policy, not self-service) — check yours with "
+                f"`agentbus whoami`, or ask an operator."
+            )
+        else:
+            report.append(f"persona: {requested_persona}")
+
     # 3. Ensure the agent's own bound key exists (mint with the operator key
     #    if needed — minting de-escalates; this is its designed use).
     if _agent_key(name) is None:

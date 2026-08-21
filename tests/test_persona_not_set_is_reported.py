@@ -87,3 +87,71 @@ def test_register_wires_the_reporter_into_its_output():
     from agentbus_client.cli import _register
 
     assert "_print_persona_outcome(result" in inspect.getsource(_register.cmd_register)
+
+
+# --------------------------------------------------------------- the SETUP path
+#
+# F10 SECOND PATH. The first fix landed on `agentbus register` only — one of two
+# call sites — and was declared closed. `agentbus setup claude --persona X` kept
+# printing a full success panel with no persona line at all, and the session that
+# came up reported persona: null.
+#
+# That is worse than the original bug for one reason: `setup` is the command the
+# skill and the docs tell a new agent to run. The fix landed on the quiet
+# entrypoint and missed the loud one, because one call site was checked and the
+# conclusion was generalised to the capability. Each call site is its own claim.
+
+
+def _setup_report(result: dict, requested: str | None) -> list[str]:
+    """The persona branch of the setup panel, as _provision builds it."""
+    report: list[str] = []
+    if requested:
+        advisory = result.get("persona_ignored")
+        if advisory:
+            report.append(f"PERSONA NOT SET: {advisory}")
+        elif not (result.get("agent") or {}).get("persona"):
+            report.append(f"PERSONA NOT SET: asked for '{requested}' ... ADMIN-scope")
+        else:
+            report.append(f"persona: {requested}")
+    return report
+
+
+def test_setup_panel_reports_a_dropped_persona():
+    """The exact case the operator hit: a clean panel hiding one failed flag."""
+    lines = _setup_report(
+        {"persona_ignored": LIVE_ADVISORY, "agent": {"persona": None}}, "test-engineer"
+    )
+    assert any("PERSONA NOT SET" in line for line in lines)
+
+
+def test_setup_panel_is_silent_when_no_persona_requested():
+    assert _setup_report({"agent": {"persona": None}}, None) == []
+
+
+def test_setup_panel_confirms_a_persona_that_took():
+    lines = _setup_report({"agent": {"persona": "backend"}}, "backend")
+    assert lines == ["persona: backend"]
+
+
+def test_setup_panel_falls_back_when_the_server_is_old():
+    lines = _setup_report({"agent": {"persona": None}}, "backend")
+    assert any("ADMIN-scope" in line for line in lines)
+
+
+def test_BOTH_register_and_setup_paths_report_it():
+    """THE REGRESSION GUARD FOR THE MISS ITSELF.
+
+    There are exactly two call sites that pass persona to register(). The first
+    fix covered one and was called done. This asserts both carry the advisory,
+    so a third entrypoint added later cannot quietly repeat it.
+    """
+    import inspect
+
+    from agentbus_client.cli import _register
+    from agentbus_client.onboarding import _provision
+
+    for module in (_register, _provision):
+        assert "PERSONA NOT SET" in inspect.getsource(module), (
+            f"{module.__name__} passes persona to register() but never reports "
+            f"a silent drop"
+        )

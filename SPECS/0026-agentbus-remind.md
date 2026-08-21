@@ -99,18 +99,32 @@ Against the deployed routes, through the **released 0.9.47** client.
 
 ### Defects found, reported, open
 
-**Reminders fire ~41s EARLY on the one-shot path**, consistently:
+**Reminders appear to fire ~40s EARLY. ROOT CAUSE: a 42-second clock skew** —
+the clock stamping reminder rows is behind the one serving HTTP. Not a scheduler
+bug, not the client. Same instant, from the same service:
 
-    due 03:49:06.318  delivered 03:48:25.716   -40.6s
-    due 03:50:54.835  delivered 03:50:13.900   -40.9s
+    GET /healthz        Date:       Fri, 21 Aug 2026 03:57:18 GMT
+    POST /v1/reminders  created_at: 2026-08-21T03:56:36.423Z    (-42s)
 
-Systematic, not jitter. **Not** present on the recurring path (fires matched
-their cron within ~2s on two machines), so it looks specific to
-`delay_seconds` resolution. Thread `01M0H74ZSHX6PAH7S2RT6ZBGW9`.
+Three consecutive samples: -42, -42, -42. A constant offset, not jitter. The
+arithmetic follows: `delay_seconds=60` yields `due_at - created_at = 102.2s`,
+and 102 = 60 + 42 — `due_at` computed from a correct clock, `created_at` from
+the skewed one. Delivery lands at the right wall-clock moment while every
+*stored* timestamp says it should not have yet.
 
-This **invalidates the expiry negative control**: a reminder firing 41s early
-cannot lapse inside a short window, so expiry-withholds-a-lapsed-reminder has
-not been tested and is not claimed.
+Not local: this host and the API's `Date` header agree to the second, NTP
+synced. Independently seen by a tester on macOS, whose figure differed (~66s)
+precisely because the skew adds to whatever delay each caller requested.
+
+Hypothesis offered to the backend, not a finding: a database host clock, which
+would affect every `now()` default in the schema rather than only reminders.
+Thread `01M0H7G8QD1D720T54SNV5JA0D`.
+
+This **invalidates the expiry negative control**, and makes `--expire`
+unreliable for short windows: a window shorter than the 42s skew can never
+elapse, so a passing expiry test would be meaningless. Expiry-withholds-a-lapsed-
+reminder is **not tested and not claimed**. I nearly filed expiry itself as
+broken before isolating the clock.
 
 **A pure recurrence is refused** — `--repeat "0 9 * * *"` with no `--delay`
 returns 422 *"supply exactly one of delay_seconds or due_at"*, though a cron

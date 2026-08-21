@@ -178,10 +178,33 @@ def _superseded_fingerprints() -> set[str]:
         from .. import sealing
 
         directory = sealing.key_path().parent
-        return {
-            path.name.removeprefix("sealing-").removesuffix(".key.superseded")
-            for path in directory.glob("sealing-*.key.superseded")
-        }
+        # TAKE THE LAST HYPHENATED SEGMENT, NOT EVERYTHING AFTER "sealing-".
+        #
+        # Rotation writes `sealing-<agent>-<fingerprint>.key.superseded`, and the
+        # agent name itself contains hyphens. Stripping only the prefix left
+        # "bikeroom-freebsd-operato-b124c2-e3da2fdd83562a70", which never equals
+        # a bare fingerprint — so this set was ALWAYS empty in practice and
+        # `known_locally` was always False.
+        #
+        # The consequence was a warning that stated the opposite of the truth on
+        # the one path whose entire purpose is telling the caller what they are
+        # about to lose: `keys revoke` said "its private half is NOT on this
+        # machine ... every message sealed to it is ALREADY unreadable" while the
+        # .superseded file sat in that very directory and the mail decoded fine.
+        #
+        # Reported by bikeroom-freebsd-operato-b124c2, who checked the claim with
+        # `ls` and a real decode rather than believing the warning — and who
+        # noted they would not trust the check in EITHER direction until it was
+        # fixed. That was the right call: a false "present" would be worse still,
+        # leaving someone to revoke believing old mail was safe.
+        #
+        # A fingerprint is hex, so the trailing segment is unambiguous even
+        # though the agent name is not.
+        found: set[str] = set()
+        for path in directory.glob("sealing-*.key.superseded"):
+            stem = path.name.removeprefix("sealing-").removesuffix(".key.superseded")
+            found.add(stem.rsplit("-", 1)[-1])
+        return found
     except Exception:
         return set()
 

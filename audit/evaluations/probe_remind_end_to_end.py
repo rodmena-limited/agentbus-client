@@ -173,9 +173,33 @@ def main() -> int:
     # blocker. we don't need to test that now."
     #
     # KEPT IN THE OUTPUT RATHER THAN DELETED. Removing the line would make the
-    # gap invisible, which is the failure this whole probe exists to prevent. The
-    # paths remain unexercised: with 100,000 timers of headroom they cannot fire
-    # by accident, so the first time they run may be in front of a user.
+    # gap invisible, which is the failure this whole probe exists to prevent.
+    #
+    # THE RISK IS NOT WHAT I FIRST WROTE DOWN. Corrected by runflow-3858c4 and
+    # verified against their source; my original paragraph was wrong twice:
+    #
+    #   503  LARGELY UNREACHABLE ON OUR TIER. Paid tiers set
+    #        meter_allow_when_unavailable=True (tiers.py:336,354), so an
+    #        unreachable meter FAILS OPEN and the submit is allowed. The
+    #        503-on-metering path is a FREE-tier behaviour we cannot reach. A
+    #        genuine over-quota denial still refuses on every tier — being over
+    #        quota is an answer, not an outage.
+    #
+    #   429  REACHABLE AT ORDINARY VOLUMES, and NOT via the quota. Every mutating
+    #        endpoint passes a per-tenant token bucket independent of quota:
+    #        100 burst then 50/sec (config.py:435,439). "100,000 timers of
+    #        headroom" — my own reasoning — covers the QUOTA 429 and misses this
+    #        one entirely. One timer per reminder means our create rate IS the
+    #        user reminder rate, so a backlog drain, a migration arming existing
+    #        reminders, or a retry storm hits 429 with 99,900 timers unused.
+    #
+    #        NOT VISIBLE IN GET /api/v1/tenant/quotas — I checked; the response
+    #        carries no rate or burst field, so a consumer reading their own
+    #        quotas would never discover this limit exists.
+    #
+    #        Handling is cheap: back off and re-issue with the SAME idempotency
+    #        key. A dedup consumes no quota and returns the existing timer, so a
+    #        retried create after a 429 cannot double-arm a reminder.
     record(
         "DESCOPED",
         "429/503 refusal shapes",

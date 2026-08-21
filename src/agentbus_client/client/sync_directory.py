@@ -45,7 +45,16 @@ class SyncDirectoryMixin:
             payload: dict[str, Any] = {
                 "name": name,
                 "capabilities": list(capabilities or []),
-                "labels": labels or {},
+                # NOT `labels or {}`. Coercing None to {} erases the distinction
+                # the SERVER relies on: it uses model_fields_set to tell "the
+                # caller sent {}" (asked to clear -> tell them labels merge)
+                # from "the caller never mentioned labels" (asked for nothing ->
+                # stay silent). Sending {} unconditionally made every register
+                # look like a clear request, so the backend's F11 advisory fired
+                # on plain re-registers — noise on the commonest call, which is
+                # how an advisory stops being read before it reaches the one
+                # caller who needed it. Caught by a negative control, not review.
+                **({"labels": labels} if labels is not None else {}),
                 "unlisted": unlisted,
             }
             if persona:

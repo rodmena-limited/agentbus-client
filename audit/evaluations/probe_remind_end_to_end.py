@@ -150,6 +150,24 @@ def main() -> int:
     )
 
     # ------------------------------------------------------------------- 6
+    # TIMEZONE IS UNFALSIFIABLE FROM A UTC BOX, and saying so is the whole point.
+    # With --timezone omitted, "the server defaulted to UTC" and "the server
+    # silently used my machine's local zone" are OBSERVATIONALLY IDENTICAL when
+    # that local zone IS UTC. A green here would mean nothing. Caught by
+    # bikeroom-freebsd-operato-b124c2, who declined to test it from a UTC box
+    # rather than report a meaningless pass — the empty-room problem wearing a
+    # clock. It needs a tester on a non-UTC machine.
+    import time as _t
+
+    local_utc = _t.timezone == 0 and not _t.daylight
+    record(
+        "UNTESTED",
+        "timezone default is UTC (omitted flag)",
+        "this box is UTC — the two behaviours are indistinguishable from here; "
+        "needs a non-UTC seat" if local_utc else "run from a non-UTC box: compare "
+        "the response's zone against local",
+    )
+
     record(
         "UNTESTED",
         "429/503 refusal shapes",

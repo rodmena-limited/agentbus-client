@@ -29,64 +29,163 @@ def _commands() -> set[str]:
     return set(sub.choices)
 
 
-# ---------------------------------------------------------------- F3: the twin
+# ------------------------------------------------------------------ surfaces
+#
+# The surfaces THIS repo ships. The backend's guard owns llms.txt, MCP and the
+# two skills; the split is "the matrix lives where the artifact changes".
 
-def test_every_mcp_tool_has_a_cli_twin_or_a_recorded_exemption():
-    """The matrix, from the CLI side.
+SURFACES = ("CLI", "SDK")
 
-    MCP tool -> the CLI command that reaches the same capability. A tool mapped
-    to None is a RECORDED exemption with its reason, never a silent hole — SPEC
-    186: "If a capability is deliberately absent from a surface, then that
-    absence shall be a recorded decision, not an oversight."
+
+# ------------------------------------------------------------- capabilities
+#
+# One row per capability, one probe per surface — mirroring the shape of the
+# backend's guard (tests/test_every_capability_reaches_every_surface.py in the
+# agentbus repo) deliberately, so the two matrices read the same way instead of
+# inventing a second dialect. The key IS the MCP tool name, so a reader can line
+# the two files up without guessing.
+#
+# ON PROBE PRECISION, their rule and ours: a probe is a SPECIFIC token at a
+# definition site — a registered subcommand, a method on the client class —
+# never a bare word a docstring might use in a sentence. Probes are checked
+# against a known-negative below, so one that matches everything fails this file
+# rather than turning the matrix green.
+
+CAPABILITIES: dict[str, dict[str, str]] = {
+    "bus_register": {"CLI": "register", "SDK": "register"},
+    "bus_whoami": {"CLI": "whoami", "SDK": "whoami"},
+    "bus_phonebook": {"CLI": "phonebook", "SDK": "phonebook"},
+    "bus_send": {"CLI": "send", "SDK": "send"},
+    "bus_reply": {"CLI": "reply", "SDK": "reply"},
+    "bus_inbox": {"CLI": "inbox", "SDK": "inbox"},
+    "bus_read": {"CLI": "show", "SDK": "read"},
+    "bus_ack": {"CLI": "ack", "SDK": "ack"},
+    "bus_thread": {"CLI": "thread", "SDK": "thread"},
+    "bus_label": {"CLI": "labels", "SDK": "label"},
+    "bus_tag": {"CLI": "tag", "SDK": "tag"},
+    "bus_attachment": {"CLI": "attachment", "SDK": "attachment"},
+    "bus_draft": {"CLI": "draft", "SDK": "create_draft"},
+    "bus_status": {"CLI": "status", "SDK": "status"},
+    "bus_busy": {"CLI": "busy", "SDK": "busy"},
+    "bus_request_approval": {"CLI": "approve", "SDK": "request_approval"},
+    # F3 — the gap this ticket closed. No twin on either surface until e340567
+    # surfaced the SDK method that had been there all along.
+    "bus_approval_status": {"CLI": "approval", "SDK": "approval"},
+    # A ROW, not merely an EXEMPTIONS entry. An exemption whose capability is
+    # absent from the matrix is never parametrized, so its skip branch is dead
+    # code and the "exemption" asserts nothing at all — a check that cannot go
+    # red, hiding inside the file whose job is to catch those. The probes are
+    # the names it WOULD have if it were ever un-exempted.
+    "bus_heartbeat": {"CLI": "heartbeat", "SDK": "heartbeat"},
+}
+
+
+# --------------------------------------------------------------- exemptions
+#
+# A DELIBERATE absence, WITH the reason. Anything here is a decision someone
+# defended; anything NOT here must be present. Keyed (capability, surface),
+# matching the backend's dict[(capability, surface), reason].
+
+EXEMPTIONS: dict[tuple[str, str], str] = {
+    ("bus_heartbeat", "CLI"): (
+        "Deliberately MCP-only, confirmed by the backend agent on thread "
+        "01M0GTSGPQNYHG2C7G0D39VJP8. The CLI's liveness story is `agentbus "
+        "watch` + `agentbus health` — a supervised local process, which fits "
+        "the problem better than a manual poke."
+    ),
+    # NO SDK EXEMPTION. AgentBus.heartbeat() exists and always has — an
+    # earlier draft of this file exempted it on both surfaces "for the same
+    # reason", which was a guess, not a check. The known-negative in
+    # test_the_matrix_mechanism_can_tell_present_from_absent caught it: the
+    # assertion that bus_heartbeat is absent from the SDK failed, because it is
+    # not absent. A false exemption is worse than a missing one — it records a
+    # deliberate decision that nobody made, about a capability that shipped.
+}
+
+KNOWN_CAPABILITIES = set(CAPABILITIES)
+
+
+def _sdk_has(name: str) -> bool:
+    from agentbus_client.client import AgentBus
+
+    return callable(getattr(AgentBus, name, None))
+
+
+def _surface_has(capability: str, surface: str) -> bool:
+    probe = CAPABILITIES[capability][surface]
+    return probe in _commands() if surface == "CLI" else _sdk_has(probe)
+
+
+@pytest.mark.parametrize("capability", sorted(CAPABILITIES))
+@pytest.mark.parametrize("surface", SURFACES)
+def test_every_capability_reaches_every_surface(capability, surface):
+    """The matrix. A missing cell fails the build unless EXEMPTIONS explains it."""
+    if (capability, surface) in EXEMPTIONS:
+        pytest.skip(f"exempt: {EXEMPTIONS[(capability, surface)]}")
+    assert _surface_has(capability, surface), (
+        f"{capability} does not reach the {surface} surface and no EXEMPTIONS "
+        f"entry explains why. Add it to the surface, or record the absence "
+        f"with a reason."
+    )
+
+
+# ---------------------------------------------------- the honesty tests
+#
+# Mirrored from the backend's guard. These keep the matrix from passing
+# vacuously, and they are the half most easily left out — a matrix with no
+# honesty tests is a check that cannot go red.
+
+
+def test_a_probe_that_appears_nowhere_matches_nothing():
+    """A probe must not be able to pass by matching everything."""
+    assert "zzz-no-such-subcommand" not in _commands()
+    assert not _sdk_has("zzz_no_such_method")
+
+
+def test_the_matrix_mechanism_can_tell_present_from_absent():
+    """Known-positive AND known-negative for `_surface_has` itself.
+
+    If the lookup were wired to something that always returned True, every row
+    above would pass while asserting nothing. Both directions are checked, since
+    only the negative can catch that.
     """
-    twin = {
-        "bus_register": "register",
-        "bus_whoami": "whoami",
-        "bus_phonebook": "phonebook",
-        "bus_send": "send",
-        "bus_reply": "reply",
-        "bus_inbox": "inbox",
-        "bus_read": "show",
-        "bus_ack": "ack",
-        "bus_thread": "thread",
-        "bus_label": "labels",
-        "bus_tag": "tag",
-        "bus_attachment": "attachment",
-        "bus_draft": "draft",
-        "bus_verify_sender": "verify-sender",
-        "bus_status": "status",
-        "bus_busy": "busy",
-        "bus_room_history": "history",
-        "bus_room_schema": "schema",
-        "bus_usage": "usage",
-        "bus_request_approval": "approve",
-        # F3 — the gap this ticket closed. It had no twin at all until e340567.
-        "bus_approval_status": "approval",
-        # EXEMPTION, confirmed by the backend agent on thread
-        # 01M0GTSGPQNYHG2C7G0D39VJP8: bus_heartbeat is deliberately MCP-only.
-        # The CLI's liveness story is `agentbus watch` + `agentbus health`,
-        # which suits a supervised local process better than a manual poke.
-        # There is no `agentbus heartbeat` and there should not be.
-        "bus_heartbeat": None,
-    }
-    commands = _commands()
-    missing = {
-        tool: verb for tool, verb in twin.items() if verb is not None and verb not in commands
-    }
-    assert not missing, f"MCP tools whose CLI twin vanished: {missing}"
+    assert _surface_has("bus_send", "CLI") and _surface_has("bus_send", "SDK")
+    # bus_heartbeat is absent from the CLI (the exempt cell) and PRESENT on the
+    # SDK, so this one capability exercises the mechanism in both directions.
+    assert not _surface_has("bus_heartbeat", "CLI")
+    assert _surface_has("bus_heartbeat", "SDK"), (
+        "AgentBus.heartbeat() exists; if this fails the SDK lost a method and "
+        "the CLI-only exemption below needs re-examining, not extending."
+    )
 
 
-def test_the_heartbeat_exemption_is_real_not_a_forgotten_command():
-    """Asserts the exemption in the direction that can actually fail.
+def test_no_exemption_names_a_capability_that_no_longer_exists():
+    """An exemption must not outlive its subject.
 
-    If someone adds `agentbus heartbeat`, the exemption above becomes a lie and
-    this test says so — rather than the map quietly documenting a hole that no
-    longer exists.
+    Precisely how SPEC 186's guard rotted: the artifact moved, the record
+    stayed, and the record went on asserting something true about nothing.
+    """
+    stale = {cap for cap, _s in EXEMPTIONS if cap not in KNOWN_CAPABILITIES}
+    assert not stale, f"EXEMPTIONS names capabilities that no longer exist: {stale}"
+
+
+def test_no_exemption_is_reasonless():
+    """'Exempt because it was easier' cannot pass as a reason."""
+    empty = [key for key, reason in EXEMPTIONS.items() if not (reason or "").strip()]
+    assert not empty, f"exemptions with no reason: {empty}"
+
+
+def test_the_heartbeat_exemption_is_asserted_in_the_direction_that_can_fail():
+    """If someone adds `agentbus heartbeat`, the exemption has become a lie.
+
+    An exemption asserted only as "absent" is half a test: it stays green both
+    when the absence is deliberate and when someone quietly ended it.
     """
     assert "heartbeat" not in _commands()
 
 
-# ------------------------------------------------- F3: three outcomes, not two
+# ---------------------------------------------------------------- F3: the twin
+# ---------------------------------------------------------------- F3: the twin
 
 def test_approval_verb_reaches_an_id_this_process_did_not_create():
     """The whole point of F3: `approve --wait` can only wait on its own id."""

@@ -23,8 +23,8 @@ the read half was missed in the first draft of this spec:
 *Writing* — `bus_send` REFUSES. The four write verbs (send, reply, forward,
 draft) are CLI-only.
 
-*Reading* — `bus_read` / `bus_inbox` / `bus_thread` SUCCEED and return
-**ciphertext**. Reproduced by `bikeroom-freebsd-operato-b124c2` and confirmed
+*Reading* — `bus_read` and `bus_thread` SUCCEED and return **ciphertext**
+(`bus_inbox` never did — see the correction under F5). Reproduced by `bikeroom-freebsd-operato-b124c2` and confirmed
 independently here on delivery 01M0GV4P5R8A1EFXR73P4JACC3: `text_body` came back
 as `-----BEGIN AGE ENCRYPTED FILE-----`, while `agentbus show` on the same
 delivery renders the prose. Unsealed metadata (whoami, phonebook, status, ack,
@@ -78,6 +78,29 @@ constrained enum `[a-z][a-z0-9-]{0,31}`, NOT free text — recorded here so the
 guard does not "fix" it into a second free-text identity field. The free-text
 role that peers ask for is what tags already do (256-char values); the reporter
 reviewed that reasoning and withdrew the free-text proposal.
+
+**F5 — the read-side fix was scoped to `bus_read`; `bus_thread` still leaks.**
+Backend build 73abd30 replaced the armored body on `bus_read` with
+`[sealed body — not readable from MCP; run \`agentbus show <id>\` locally]`,
+verified on the original repro delivery (01M0GV4P5R8A1EFXR73P4JACC3). But
+`bus_thread` still returns every message's full multi-KB
+`-----BEGIN AGE ENCRYPTED FILE-----` blob, in the same session where `bus_read`
+returns the marker, and without the top-level `sealed_note` that `bus_inbox`
+carries. The leak moved rather than closed — and it moved to the call an agent
+makes to catch up on a conversation before replying, which is the one most
+likely to be summarised wholesale. Backend-owned; reported on thread
+01M0GTSGPQNYHG2C7G0D39VJP8.
+
+**Correction to F1, and it is an error of ours.** F1 originally named
+`bus_read` / `bus_inbox` / `bus_thread` as leaking. Only `bus_read` and
+`bus_thread` ever did: `bus_inbox` returns delivery ids, subjects and the sealed
+flags with no bodies at all, plus a `sealed_note`. Two of those three names were
+asserted from the shape of the problem rather than from a run — the same
+silent-absence failure this spec catalogues, committed while cataloguing it. The
+backend tested before coding and scoped their fix to their own evidence rather
+than to our claim, which is why no effort was spent on a leak that did not
+exist. **A capability list is a set of claims, and each name needs its own
+reproduction.**
 
 **Not a defect: the approval path is not duplicated work.** MCP imports backend
 services in-process and never imports `agentbus_client`; the client speaks HTTP
@@ -142,6 +165,9 @@ How to tell you have hit F1 rather than an empty message: the delivery carries
   returns ciphertext / `agentbus show` renders prose — same delivery, same
   workspace. A test that only exercises the send half would miss the read half,
   which is the half that fails silently.
+- The marker probe must point at EVERY body-returning MCP tool, not only the one
+  where a leak was first found. F5 exists because the fix and its test were both
+  aimed at `bus_read` alone.
 
 ## Scope note
 

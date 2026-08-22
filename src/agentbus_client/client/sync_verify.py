@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import _max_attachment_bytes
 
+if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from ._mixin_base import SyncClientBase as _MixinBase
+else:  # runtime: no new base, no MRO change, no import cycle
+    _MixinBase = object
 
-class SyncVerifyMixin:
+
+class SyncVerifyMixin(_MixinBase):
     """Methods of SyncMiscMixin carved out for the file-size cap (review #23).
 
     Mixed back into SyncMiscMixin; relies on the attributes its __init__ sets."""

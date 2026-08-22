@@ -26,7 +26,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -50,6 +50,12 @@ from ._watch_handlers import (
     print_line,
 )
 from .client import AgentBus, AgentBusError, AuthError
+
+if TYPE_CHECKING:  # #48
+    from ._watch_base import WatcherBase as _WatcherBase
+else:  # runtime: no new base, no MRO change
+    _WatcherBase = object
+
 
 RECONNECT_BACKOFF = (1, 2, 5, 10, 30, 60)
 
@@ -90,7 +96,7 @@ _DRAIN_LOCK_TIMEOUT_SECONDS = 10.0
 EXIT_DEAD_WAKE_SOCKET = 7
 
 
-class WatcherStateMixin:
+class WatcherStateMixin(_WatcherBase):
     """Methods of Watcher carved out for the file-size cap (review #23).
 
     Mixed back into Watcher; relies on the attributes its __init__ sets."""

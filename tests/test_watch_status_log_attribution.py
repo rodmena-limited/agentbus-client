@@ -80,7 +80,9 @@ def test_a_legacy_log_is_reported_but_NOT_claimed_as_this_watchers(runtime) -> N
 def test_the_state_keyed_log_wins_when_both_exist(runtime) -> None:
     (runtime / "a.log").write_text("legacy")
     (runtime / "a-st.json.pid.log").write_text("keyed")
-    path, is_ours = cli._existing_logfile("a", "st.json.pid")
+    found = cli._existing_logfile("a", "st.json.pid")
+    assert found is not None, "the keyed log exists, so a lookup must find it"
+    path, is_ours = found
     assert path.name == "a-st.json.pid.log"
     assert is_ours is True
 
@@ -90,7 +92,9 @@ def test_a_legacy_watcher_owns_the_legacy_log(runtime) -> None:
     genuinely its own. Flagging that one as unattributed would be a false
     warning, and false warnings are how real ones stop being read."""
     (runtime / "a.log").write_text("legacy")
-    path, is_ours = cli._existing_logfile("a", None)
+    found = cli._existing_logfile("a", None)
+    assert found is not None, "the legacy log exists, so a lookup must find it"
+    path, is_ours = found
     assert path.name == "a.log"
     assert is_ours is True
 

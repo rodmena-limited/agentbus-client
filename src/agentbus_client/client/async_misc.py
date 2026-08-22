@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import _max_attachment_bytes
+
+if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from ._mixin_base import AsyncClientBase as _MixinBase
+else:  # runtime: no new base, no MRO change, no import cycle
+    _MixinBase = object
+
 
 # The SERVED RemindRequest field set (verified against the deployed OpenAPI).
 # The route forbids extra inputs, so anything outside this fails the whole
@@ -30,7 +36,7 @@ _REMIND_FIELDS = frozenset(
 )
 
 
-class AsyncMiscMixin:
+class AsyncMiscMixin(_MixinBase):
     async def room_history(
         self,
         room: str,

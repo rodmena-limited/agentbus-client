@@ -66,7 +66,7 @@ def _make_watcher(bus, on_message, slow_drain: bool = False) -> watch.Watcher:
             time.sleep(0.05)
             return real_drain()
 
-        w._drain = slow  # type: ignore[method-assign]
+        w._drain = slow
     return w
 
 

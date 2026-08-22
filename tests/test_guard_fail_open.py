@@ -76,7 +76,7 @@ def _run_hook(monkeypatch: pytest.MonkeyPatch, stdin: str, **env: str) -> dict[s
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
-    return hk.pre_tool_use(None)  # type: ignore[arg-type]
+    return hk.pre_tool_use(None)
 
 
 def _capture(monkeypatch: pytest.MonkeyPatch, **env: str) -> tuple[dict[str, Any], str]:

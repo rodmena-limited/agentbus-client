@@ -87,7 +87,7 @@ class _StubClient:
         self.script = list(script)
         self.calls = 0
 
-    def request(self, *_a, **_k):  # type: ignore[override]
+    def request(self, *_a, **_k):
         self.calls += 1
         step = self.script.pop(0)
         if isinstance(step, Exception):

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from ._mixin_base import SyncClientBase as _MixinBase
+else:  # runtime: no new base, no MRO change, no import cycle
+    _MixinBase = object
 
 
-class SyncDirectoryMixin:
+class SyncDirectoryMixin(_MixinBase):
     def register(
         self,
         name: str | None = None,
@@ -179,7 +184,7 @@ class SyncDirectoryMixin:
             # as repeated query params.
             params["label"] = [label] if isinstance(label, str) else list(label)
         result: dict[str, Any] = self._request("GET", "/v1/agents", params=params)
-        return result["agents"]  # type: ignore[no-any-return]
+        return result["agents"]
 
     def tag(
         self,

@@ -35,7 +35,7 @@ def test_notice_lands_on_stderr_not_stdout() -> None:
         patch.object(sys, "stdout", captured_out),
         patch.object(sys, "stderr", captured_err),
     ):
-        out = bus._sign_if_possible(payload, resolved=None, agent="test-agent")  # type: ignore[arg-type]
+        out = bus._sign_if_possible(payload, resolved=None, agent="test-agent")
 
     # Payload passes through unsigned (as before) — behaviour unchanged.
     assert out is payload

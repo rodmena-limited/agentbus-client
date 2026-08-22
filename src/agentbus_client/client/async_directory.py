@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from ._mixin_base import AsyncClientBase as _MixinBase
+else:  # runtime: no new base, no MRO change, no import cycle
+    _MixinBase = object
 
 
-class AsyncDirectoryMixin:
+class AsyncDirectoryMixin(_MixinBase):
     async def register(
         self,
         name: str | None = None,

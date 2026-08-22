@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -11,8 +11,13 @@ from .attachments import _encode_attachments
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
 
+if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from ._mixin_base import AsyncClientBase as _MixinBase
+else:  # runtime: no new base, no MRO change, no import cycle
+    _MixinBase = object
 
-class AsyncMessagingMixin:
+
+class AsyncMessagingMixin(_MixinBase):
     async def send(
         self,
         to: Sequence[str] | str,

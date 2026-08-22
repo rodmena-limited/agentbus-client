@@ -55,8 +55,24 @@ jobs:
     steps:
       - name: Install
         run: uv sync --frozen --all-groups
-      - name: Mypy
+      # src/ STRICT, nothing disabled.
+      - name: Mypy (src, strict)
         run: uv run mypy
+      # tests/ too, with the fake-related codes named explicitly rather than
+      # hidden in config: the suite is built on doubles (a _Bus for AgentBus, a
+      # _FakeStreamResponse for httpx.Response), and making them satisfy the
+      # real types would mean subclassing production classes in tests — which is
+      # how a fake stops being a fake.
+      - name: Mypy (tests)
+        run: >
+          uv run mypy tests
+          --disable-error-code=arg-type
+          --disable-error-code=method-assign
+          --disable-error-code=override
+          --disable-error-code=exit-return
+          --disable-error-code=no-redef
+          --disable-error-code=assignment
+          --disable-error-code=return-value
 
   limits:
     # House rules that no tool enforces. Both were breached in the week before

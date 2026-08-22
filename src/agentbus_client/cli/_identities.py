@@ -89,8 +89,10 @@ def cmd_identities(args: argparse.Namespace) -> int:
         # device — which is exactly the signal the SEV-1 wanted surfaced.
         by_name: dict[str, dict[str, Any]] = {}
         with contextlib.suppress(Exception):
-            for entry in bus.phonebook():
-                by_name[entry.get("name")] = entry
+            for peer in bus.phonebook():
+                peer_name = peer.get("name")
+                if peer_name:
+                    by_name[str(peer_name)] = peer
         this_device = None
         if acting and acting in by_name:
             this_device = by_name[acting].get("device_hash")
@@ -100,8 +102,8 @@ def cmd_identities(args: argparse.Namespace) -> int:
                 row["wake_channel_state"] = health.get("wake_channel_state")
                 row["watcher_alive"] = health.get("watcher_alive")
                 row["last_seen_at"] = health.get("last_seen_at")
-            entry = by_name.get(row["agent"]) or {}
-            dev = entry.get("device_hash")
+            peer_row = by_name.get(row["agent"]) or {}
+            dev = peer_row.get("device_hash")
             row["device_hash"] = dev
             # None on either side means "cannot tell" — never assert a match
             # we have not earned, and never cry elsewhere on missing data.

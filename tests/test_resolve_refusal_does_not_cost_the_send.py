@@ -45,7 +45,7 @@ def test_a_refused_resolve_leaves_the_payload_alone_instead_of_raising(status: i
     def _refuse(*_a: Any, **_k: Any) -> Any:
         raise AgentBusError("nope", code="permission_denied", status=status)
 
-    bus._request = _refuse  # type: ignore[method-assign]
+    bus._request = _refuse
     # #220: the sealer hands back the resolver's answer too, so a reply can
     # sign over what the SERVER will store. A refusal means no answer at all.
     out, resolved = bus._seal_if_needed(dict(PAYLOAD), None)
@@ -66,7 +66,7 @@ def test_an_unexpected_failure_still_propagates() -> None:
     def _boom(*_a: Any, **_k: Any) -> Any:
         raise AgentBusError("server exploded", status=500)
 
-    bus._request = _boom  # type: ignore[method-assign]
+    bus._request = _boom
     with pytest.raises(AgentBusError):
         bus._seal_if_needed(dict(PAYLOAD), None)
 
@@ -88,7 +88,7 @@ def test_sealing_still_happens_when_resolve_answers(tmp_path: Path, monkeypatch)
             "external": [],
         }
 
-    bus._request = _resolve  # type: ignore[method-assign]
+    bus._request = _resolve
     out, resolved = bus._seal_if_needed(dict(PAYLOAD), None)
 
     assert resolved is not None, "a successful resolve must hand its answer back"

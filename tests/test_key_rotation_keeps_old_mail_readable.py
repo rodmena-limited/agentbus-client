@@ -58,7 +58,7 @@ def _rotate() -> tuple[str, str]:
 
     old = sealing.load_private_key() or ""
     cli._keys_rotate(
-        _NoServer(),  # type: ignore[arg-type]
+        _NoServer(),
         argparse.Namespace(keys_action="rotate", label="t", yes=True, json=False, agent="a"),
         "a",
         cli._this_machines_fingerprint(),

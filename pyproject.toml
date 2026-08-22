@@ -76,6 +76,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentbus_client"]
+# PEP 561: without this marker the annotations we ship are INVISIBLE to
+# consumers — mypy reports "module is installed, but missing library stubs or
+# py.typed marker" and silently types the whole client as Any. Our own test
+# suite hit exactly that (119 errors), which is how it was found.
+[tool.hatch.build.targets.wheel.force-include]
+"src/agentbus_client/py.typed" = "agentbus_client/py.typed"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -90,10 +96,19 @@ select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RUF"]
 ignore = ["E501"]  # line-length already enforced above
 
 [tool.mypy]
-python_version = "3.9"
+# mypy dropped 3.9 support; the CI matrix still RUNS pytest on 3.9,
+# which is what `requires-python = ">=3.9"` actually promises.
+python_version = "3.10"
 strict_optional = true
 warn_unused_ignores = true
-files = ["src", "tests"]
+# src is checked STRICTLY with nothing disabled. tests/ is checked too, but in
+# a separate CI step with the fake-related codes named explicitly — mypy cannot
+# express a per-module override here, because its patterns must be
+# fully-qualified module names and tests/ is not a package. Splitting the
+# invocation says out loud which relaxations apply to which tree, instead of
+# hiding a blanket exclusion in config.
+files = ["src"]
+
 
 [tool.ruff.lint.per-file-ignores]
 # Tests insert <repo>/src on sys.path BEFORE importing the package under test,

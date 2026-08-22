@@ -142,9 +142,12 @@ class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMi
 
         # REG-10: fetch (or create) the semaphore for THIS loop.
         loop = asyncio.get_running_loop()
-        bulkheads: dict[int, asyncio.Semaphore] = getattr(self, "_async_bulkheads_by_loop", None)
+        bulkheads: dict[int, asyncio.Semaphore] | None = getattr(
+            self, "_async_bulkheads_by_loop", None
+        )
         if bulkheads is None:
-            bulkheads = self._async_bulkheads_by_loop = {}
+            bulkheads = {}
+            self._async_bulkheads_by_loop: dict[int, asyncio.Semaphore] = bulkheads
         loop_id = id(loop)
         sem = bulkheads.get(loop_id)
         if sem is None:

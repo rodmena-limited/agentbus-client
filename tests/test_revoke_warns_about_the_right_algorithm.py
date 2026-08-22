@@ -57,7 +57,7 @@ def _revoke(bus: _Bus, fingerprint: str, mine: str | None = None) -> str:
     args = argparse.Namespace(fingerprint=fingerprint, yes=False, reason=None, json=False)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = cli._keys_revoke(bus, args, "an-agent", mine)  # type: ignore[arg-type]
+        rc = cli._keys_revoke(bus, args, "an-agent", mine)
     assert rc == 2, "the warning path must refuse without --yes"
     return buf.getvalue()
 
@@ -141,9 +141,9 @@ def test_the_algorithm_is_asked_of_the_server_not_guessed() -> None:
     algorithm from the string would reintroduce the bug silently.
     """
     bus = _Bus()
-    assert cli._key_algorithm(bus, "an-agent", _Bus.SIGNING) == "ed25519"  # type: ignore[arg-type]
-    assert cli._key_algorithm(bus, "an-agent", _Bus.SEALING) == "age"  # type: ignore[arg-type]
-    assert cli._key_algorithm(bus, "an-agent", "ffffffffffffffff") == "unknown"  # type: ignore[arg-type]
+    assert cli._key_algorithm(bus, "an-agent", _Bus.SIGNING) == "ed25519"
+    assert cli._key_algorithm(bus, "an-agent", _Bus.SEALING) == "age"
+    assert cli._key_algorithm(bus, "an-agent", "ffffffffffffffff") == "unknown"
     assert any((params or {}).get("algorithm") == "ed25519" for _m, _p, params in bus.calls), (
         "the ed25519 list was never consulted"
     )

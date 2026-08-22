@@ -163,10 +163,14 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
             # it counted sockets and called that a wake channel.
             "X-AgentBus-Wake-Capable": "1" if self.wake_capable else "0",
         }
+        # httpx wants str values; a None header is "not set", not an empty one.
+        stream_headers = {k: v for k, v in headers.items() if v is not None}
         client = httpx.Client(timeout=httpx.Timeout(STREAM_READ_DEADLINE, connect=15.0))
         with (
             client,
-            client.stream("GET", f"{self.bus.base_url}/v1/stream", headers=headers) as response,
+            client.stream(
+                "GET", f"{self.bus.base_url}/v1/stream", headers=stream_headers
+            ) as response,
         ):
             try:
                 response.raise_for_status()

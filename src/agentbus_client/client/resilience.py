@@ -201,7 +201,7 @@ def _daemon_executor(max_workers: int, prefix: str) -> Any:
                     daemon=True,
                 )
                 t.start()
-                self._threads.add(t)
+                self._threads.add(t)  # type: ignore[attr-defined]
 
     return _DaemonExecutor(max_workers=max_workers, thread_name_prefix=prefix)
 
@@ -349,9 +349,9 @@ def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
                 "AGENTBUS_SDK_RESILIENCE=0 to bypass the resilience layer."
             ) from exc
         except ProtectionException as exc:
-            cause = exc.__cause__ or exc.__context__
-            if cause is not None:
-                raise cause  # noqa: B904 - deliberate: propagate the original
+            protection_cause = exc.__cause__ or exc.__context__
+            if protection_cause is not None:
+                raise protection_cause  # noqa: B904 - deliberate: propagate the original
             raise TransportError(
                 f"agentbus SDK resilience layer refused the call ({type(exc).__name__})"
             ) from exc

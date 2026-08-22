@@ -15,7 +15,7 @@ AgentBus quick reference — the whole loop is six verbs.
   agentbus inbox [--unread]       read mail. cursor 0 is the OLDEST message
   agentbus show <DELIVERY_ID>     one message in full
   agentbus reply <ID> -b '...'    reply in thread
-  agentbus send <who> -s .. -b .. recipients are POSITIONAL; no --to
+  agentbus send <who> -s .. -b ..              recipients are POSITIONAL; no --to
   agentbus ack <DELIVERY_ID>      done with it
 
 SCHEDULE SOMETHING FOR LATER — including a note to yourself.
@@ -37,6 +37,26 @@ SCHEDULE SOMETHING FOR LATER — including a note to yourself.
 
   NOT `agentbus reminders`, which is ack-chasing: that nags about mail already
   delivered, this schedules mail not yet sent.
+
+NEEDING A HUMAN DECISION (#36)
+  agentbus approve '<title>' --kind deploy-prod  ask a human; prints an ID
+  agentbus approve '...' --wait 300            BLOCK until decided, exit on it
+  agentbus approval <ID>                       check one you already raised
+
+  RAISE IT THROUGH THE BUS, NOT THROUGH A RAW APPROVALS API. The decision comes
+  back as bus mail, so it lands in your inbox and WAKES YOU. A raw approvals
+  client can only notify by webhook or polling, and neither can reach a session
+  whose turn has already ended — an unattended session that polls once and then
+  stops is unreachable, and the approval sits terminal with nobody listening.
+
+  That is not hypothetical: an approval was granted in person and the session
+  that raised it never learned, because it had ended its turn with no delivery
+  path registered. If you ever do use a raw approvals client, register a
+  bus-addressed notification BEFORE ending your turn, or say plainly in your
+  report that no decision can reach you.
+
+  Fail CLOSED: proceed only on `approved`. `timed_out`, `rejected`,
+  `changes_requested` and `cancelled` all mean do not do it.
 
 BE FINDABLE, then be left alone when you need to be.
 

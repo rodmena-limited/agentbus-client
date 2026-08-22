@@ -14,15 +14,12 @@ import io
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client import cli  # noqa: E402
-from agentbus_client.client import AgentBusError  # noqa: E402
+from agentbus_client import cli
+from agentbus_client.client import AgentBusError
 
 
 class _BatchBus:
@@ -41,7 +38,12 @@ class _BatchBus:
             self._errors.pop(0)
         if self._responses:
             return self._responses.pop(0)
-        return {"id": f"01M{len(self.calls):03d}", "delivery_count": 1, "thread_id": "01T", "cc": []}
+        return {
+            "id": f"01M{len(self.calls):03d}",
+            "delivery_count": 1,
+            "thread_id": "01T",
+            "cc": [],
+        }
 
 
 def _args(**over):
@@ -65,7 +67,7 @@ def test_batch_of_three_sends_all_and_returns_zero(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
-        '\n'.join(
+        "\n".join(
             [
                 json.dumps({"to": "a", "subject": "s1", "text": "one"}),
                 json.dumps({"to": ["b"], "subject": "s2", "text": "two"}),
@@ -76,10 +78,10 @@ def test_batch_of_three_sends_all_and_returns_zero(monkeypatch, capsys):
     assert cli.cmd_send_batch(_args()) == 0
     # Three send calls in order.
     assert [c["to"] for c in bus.calls] == ["a", ["b"], ["c", "d"]]
-    lines = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert len(lines) == 3
-    assert [l["index"] for l in lines] == [0, 1, 2]
-    assert all(l["ok"] for l in lines)
+    assert [line["index"] for line in lines] == [0, 1, 2]
+    assert all(line["ok"] for line in lines)
 
 
 def test_bus_is_instantiated_ONCE_across_the_whole_batch(monkeypatch, capsys):
@@ -95,7 +97,7 @@ def test_bus_is_instantiated_ONCE_across_the_whole_batch(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", counting_bus)
     _pipe_stdin(
         monkeypatch,
-        '\n'.join([json.dumps({"to": "a", "subject": "s", "text": "hi"}) for _ in range(5)]),
+        "\n".join([json.dumps({"to": "a", "subject": "s", "text": "hi"}) for _ in range(5)]),
     )
     cli.cmd_send_batch(_args())
     assert instantiations == 1, f"bus was instantiated {instantiations} times; must be 1"
@@ -109,7 +111,7 @@ def test_a_failed_send_does_not_stop_the_batch(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
-        '\n'.join(
+        "\n".join(
             [
                 json.dumps({"to": "a", "subject": "s1", "text": "one"}),
                 json.dumps({"to": "b", "subject": "s2", "text": "two"}),
@@ -119,9 +121,9 @@ def test_a_failed_send_does_not_stop_the_batch(monkeypatch, capsys):
     )
     # Batch exits non-zero because there was an error, but every line was tried.
     assert cli.cmd_send_batch(_args()) == 1
-    lines = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert len(lines) == 3
-    assert [l["ok"] for l in lines] == [True, False, True]
+    assert [line["ok"] for line in lines] == [True, False, True]
     assert lines[1]["error"]["type"] == "AgentBusError"
     assert "server said nope" in lines[1]["error"]["message"]
 
@@ -131,7 +133,7 @@ def test_stop_on_error_stops_immediately(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
-        '\n'.join(
+        "\n".join(
             [
                 json.dumps({"to": "a", "subject": "s1"}),
                 json.dumps({"to": "b", "subject": "s2"}),
@@ -149,7 +151,7 @@ def test_malformed_json_line_is_reported_not_crashed(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
-        '\n'.join(
+        "\n".join(
             [
                 json.dumps({"to": "a", "subject": "ok"}),
                 "not-json-{",  # malformed
@@ -158,7 +160,7 @@ def test_malformed_json_line_is_reported_not_crashed(monkeypatch, capsys):
         ),
     )
     assert cli.cmd_send_batch(_args()) == 1
-    lines = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert lines[1]["ok"] is False
     assert lines[1]["error"]["type"] == "input_parse_error"
 
@@ -168,7 +170,7 @@ def test_missing_to_field_is_reported(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(monkeypatch, json.dumps({"subject": "no-to", "text": "hi"}))
     assert cli.cmd_send_batch(_args()) == 1
-    lines = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert lines[0]["error"]["type"] == "missing_to"
 
 
@@ -177,10 +179,12 @@ def test_blank_lines_are_tolerated(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
-        json.dumps({"to": "a", "subject": "s"}) + "\n\n\n" + json.dumps({"to": "b", "subject": "s"}),
+        json.dumps({"to": "a", "subject": "s"})
+        + "\n\n\n"
+        + json.dumps({"to": "b", "subject": "s"}),
     )
     assert cli.cmd_send_batch(_args()) == 0
-    lines = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert len(lines) == 2
 
 
@@ -201,7 +205,7 @@ def test_fire_and_forget_response_is_normalised_per_line(monkeypatch, capsys):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
         monkeypatch,
-        '\n'.join(
+        "\n".join(
             [
                 json.dumps({"to": "a", "subject": "s", "guarantee": "fire_and_forget"}),
                 json.dumps({"to": "b", "subject": "s", "guarantee": "fire_and_forget"}),
@@ -209,7 +213,7 @@ def test_fire_and_forget_response_is_normalised_per_line(monkeypatch, capsys):
         ),
     )
     cli.cmd_send_batch(_args())
-    lines = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert lines[0]["result"]["status"] == "accepted"
     assert lines[1]["result"]["status"] == "accepted"
     assert lines[1]["result"]["reached"] == 2

@@ -24,7 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client import cli  # noqa: E402
+from agentbus_client import cli
 
 
 def _invoke(manager: str | None, which: dict[str, str | None], system: str = "FreeBSD"):

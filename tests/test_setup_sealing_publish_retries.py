@@ -21,10 +21,6 @@ Two invariants this file pins:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-import pytest
-
 from agentbus_client import onboarding
 
 
@@ -107,9 +103,7 @@ def test_backoff_delays_grow(monkeypatch):
     slept: list[float] = []
     monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
 
-    bus = _BusRecording(
-        [RuntimeError("f0"), RuntimeError("f1"), {"fingerprint": "z"}]
-    )
+    bus = _BusRecording([RuntimeError("f0"), RuntimeError("f1"), {"fingerprint": "z"}])
     result = onboarding._sealing_publish_with_retry(bus, "e", "pk")
 
     assert result == {"fingerprint": "z"}

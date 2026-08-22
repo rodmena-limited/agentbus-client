@@ -38,9 +38,9 @@ def test_transient_errors_classify_as_transient() -> None:
     # via a proxy/gateway mid-deploy; only 503 becomes ServiceUnavailable).
     # These MUST retry or a deploy fails every in-flight call definitively.
     for status in (500, 502, 504):
-        assert _is_transient_sdk_error(
-            client_module.AgentBusError("gateway", status=status)
-        ), f"bare AgentBusError status {status} MUST be transient"
+        assert _is_transient_sdk_error(client_module.AgentBusError("gateway", status=status)), (
+            f"bare AgentBusError status {status} MUST be transient"
+        )
 
 
 def test_non_transient_errors_classify_as_definitive() -> None:

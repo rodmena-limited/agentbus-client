@@ -152,6 +152,5 @@ def test_BOTH_register_and_setup_paths_report_it():
 
     for module in (_register, _provision):
         assert "PERSONA NOT SET" in inspect.getsource(module), (
-            f"{module.__name__} passes persona to register() but never reports "
-            f"a silent drop"
+            f"{module.__name__} passes persona to register() but never reports a silent drop"
         )

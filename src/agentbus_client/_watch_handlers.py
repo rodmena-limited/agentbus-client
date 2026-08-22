@@ -63,7 +63,6 @@ _DRAIN_LOCK_TIMEOUT_SECONDS = 10.0
 EXIT_DEAD_WAKE_SOCKET = 7
 
 
-
 # ------------------------------------------------------------------ handlers
 
 

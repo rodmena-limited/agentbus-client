@@ -155,4 +155,3 @@ def _ack_window_seconds(ack_window: Any, *, default_when_set: bool) -> int | Non
             "after that the sender should just re-send if it still matters"
         )
     return seconds
-

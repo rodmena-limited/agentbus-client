@@ -31,7 +31,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-import agentbus_client.hooks.claude_code as hk  # noqa: E402
+import agentbus_client.hooks.claude_code as hk
 
 
 class _Resp:

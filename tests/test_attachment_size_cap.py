@@ -18,10 +18,9 @@ from __future__ import annotations
 import pytest
 
 from agentbus_client import client as client_module
+from agentbus_client import sealing as _sealing
 from agentbus_client.client import AgentBusError
 
-
-from agentbus_client import sealing as _sealing
 _AGE_PUBLIC_KEY = _sealing.generate_keypair()[1]  # a real, valid age public key
 
 
@@ -124,14 +123,13 @@ def test_the_oversize_check_does_not_open_the_file(tmp_path, monkeypatch) -> Non
 # ------------------------------------------------------ post-seal inflation (F7 follow-up)
 
 
-
-
 # ------------------------------------------------------ encrypted-seal inflation (F7 follow-up)
 
 
 # A real, valid age public key for the seal tests. Generated at module load
 # (age keygen is fast). Tests that don't patch seal_for_bytes need it.
 from agentbus_client import sealing as _sealing
+
 _AGE_PUBLIC_KEY = _sealing.generate_keypair()[1]
 
 
@@ -146,7 +144,6 @@ def test_encrypted_seal_inflation_is_caught_before_upload(monkeypatch):
     import base64 as _b64
 
     from agentbus_client.client import AgentBus, AgentBusError
-    from agentbus_client import client as _client
 
     # Use the REAL default cap (the autouse fixture raises it to 1 GiB).
     monkeypatch.delenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", raising=False)
@@ -154,11 +151,13 @@ def test_encrypted_seal_inflation_is_caught_before_upload(monkeypatch):
 
     # A raw file just under the real 10 MiB cap, sealed at 1.806x -> over.
     raw_payload = {
-        "attachments": [{
-            "filename": "near-cap.bin",
-            "content_base64": _b64.b64encode(b"X" * (6 * 1024 * 1024)).decode(),
-            "content_type": "application/octet-stream",
-        }],
+        "attachments": [
+            {
+                "filename": "near-cap.bin",
+                "content_base64": _b64.b64encode(b"X" * (6 * 1024 * 1024)).decode(),
+                "content_type": "application/octet-stream",
+            }
+        ],
     }
     resolved = {
         "encrypted": True,
@@ -183,18 +182,19 @@ def test_encrypted_fast_pre_seal_reject_skips_the_seal(monkeypatch):
     import base64 as _b64
 
     from agentbus_client.client import AgentBus, AgentBusError
-    from agentbus_client import client as _client
 
     monkeypatch.delenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", raising=False)
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
 
     # 8 MiB raw * 1.806 = ~14.5 MiB wire, well over the real 10 MiB cap.
     raw_payload = {
-        "attachments": [{
-            "filename": "huge.bin",
-            "content_base64": _b64.b64encode(b"X" * (8 * 1024 * 1024)).decode(),
-            "content_type": "application/octet-stream",
-        }],
+        "attachments": [
+            {
+                "filename": "huge.bin",
+                "content_base64": _b64.b64encode(b"X" * (8 * 1024 * 1024)).decode(),
+                "content_type": "application/octet-stream",
+            }
+        ],
     }
     resolved = {
         "encrypted": True,
@@ -208,7 +208,7 @@ def test_encrypted_fast_pre_seal_reject_skips_the_seal(monkeypatch):
 
     with monkeypatch.context() as m:
         m.setattr("agentbus_client.sealing.seal_for_bytes", seal_should_never_run)
-        
+
         with pytest.raises(AgentBusError) as exc:
             bus._apply_seal(raw_payload, resolved)
 

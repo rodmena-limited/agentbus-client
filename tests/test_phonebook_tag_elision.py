@@ -22,7 +22,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client.cli import _format_tags  # noqa: E402
+from agentbus_client.cli import _format_tags
 
 
 def test_short_tag_list_is_untouched():

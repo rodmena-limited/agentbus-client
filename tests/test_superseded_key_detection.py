@@ -66,9 +66,9 @@ def test_an_empty_directory_is_empty_not_an_error(keys_dir):
 def test_unrelated_files_are_ignored(keys_dir):
     """The CURRENT key and signing keys must not be mistaken for superseded
     ones — the warning turns on exactly that distinction."""
-    (keys_dir / "sealing-alice-ffff0000ffff0000.key").touch()       # current
-    (keys_dir / "signing-alice.key").touch()                        # wrong algorithm
-    (keys_dir / "alice.env").touch()                                # credential
+    (keys_dir / "sealing-alice-ffff0000ffff0000.key").touch()  # current
+    (keys_dir / "signing-alice.key").touch()  # wrong algorithm
+    (keys_dir / "alice.env").touch()  # credential
     assert _superseded_fingerprints() == set()
 
 

@@ -94,4 +94,3 @@ def _raise_for(response: httpx.Response) -> None:
     else:
         cls = _ERRORS.get(response.status_code, AgentBusError)
     raise cls(detail, code=code, status=response.status_code, body=body)
-

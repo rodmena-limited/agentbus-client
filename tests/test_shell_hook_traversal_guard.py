@@ -20,8 +20,6 @@ import os
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from agentbus_client import onboarding
 
 
@@ -34,7 +32,7 @@ def _run_snippet(snippet: str, home: Path, agent: str) -> str:
     # Neutralise the exec so the script terminates instead of running the monitor.
     snippet = snippet.replace("exec agentbus-hook monitor", "echo KEY=${AGENTBUS_API_KEY:-NONE}")
     # Append an echo to reveal what got sourced (the real snippets don't print it).
-    snippet += '; echo KEY=${AGENTBUS_API_KEY:-NONE}'
+    snippet += "; echo KEY=${AGENTBUS_API_KEY:-NONE}"
     env = {
         "HOME": str(home),
         "AGENTBUS_AGENT": agent,
@@ -57,9 +55,7 @@ def _seed(home: Path) -> None:
     (cfg / "operator.env").write_text(
         "export AGENTBUS_API_KEY=ab_sk_OPERATOR_SECRET_SHOULD_NOT_BE_SOURCED\n"
     )
-    (cfg / "keys" / "legit-agent.env").write_text(
-        "export AGENTBUS_API_KEY=ab_sk_LEGIT_BOUND_KEY\n"
-    )
+    (cfg / "keys" / "legit-agent.env").write_text("export AGENTBUS_API_KEY=ab_sk_LEGIT_BOUND_KEY\n")
 
 
 def test_session_start_cmd_blocks_traversal(tmp_path):

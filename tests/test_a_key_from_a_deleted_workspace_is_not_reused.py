@@ -18,10 +18,6 @@ right workspace one line before failing on a different, invisible credential.
 
 from __future__ import annotations
 
-import inspect
-
-from agentbus_client import onboarding
-
 
 def _guard() -> str:
     src = _onboarding_source()

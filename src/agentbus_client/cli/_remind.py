@@ -121,8 +121,10 @@ def cmd_remind(args: argparse.Namespace) -> int:
         until = str(result.get("repeat_until") or "")[:10]
         print(f"  repeats:     {result['repeat']}" + (f" until {until}" if until else " (no end)"))
     if result.get("expires_at"):
-        print(f"  expires:     {str(result['expires_at'])[:19].replace('T', ' ')}"
-              " (not delivered after this)")
+        print(
+            f"  expires:     {str(result['expires_at'])[:19].replace('T', ' ')}"
+            " (not delivered after this)"
+        )
     print(f"  cancel:      agentbus remind --cancel {result['id']}")
     return 0
 

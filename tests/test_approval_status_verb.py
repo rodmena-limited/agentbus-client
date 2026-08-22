@@ -50,9 +50,7 @@ def test_approved_is_the_only_zero():
     assert _report_approval({"id": "a", "status": "approved"}) == 0
 
 
-@pytest.mark.parametrize(
-    "status", ["rejected", "cancelled", "timed_out", "changes_requested"]
-)
+@pytest.mark.parametrize("status", ["rejected", "cancelled", "timed_out", "changes_requested"])
 def test_every_other_terminal_status_is_a_denial(status, capsys):
     """All four non-approved terminal states exit 1, not 0 and not 7.
 
@@ -131,8 +129,14 @@ def test_absent_reasoning_says_so_rather_than_printing_nothing(capsys):
 
 
 def test_printer_tolerates_junk_without_raising(capsys):
-    for junk in (None, "a string", 42, [], {"outcome": "not-a-dict"},
-                 {"outcome": {"reasons": ["not-a-dict"]}}):
+    for junk in (
+        None,
+        "a string",
+        42,
+        [],
+        {"outcome": "not-a-dict"},
+        {"outcome": {"reasons": ["not-a-dict"]}},
+    ):
         _print_reviewer_reasoning(junk)
     assert capsys.readouterr().out  # said "none recorded" rather than crashing
 

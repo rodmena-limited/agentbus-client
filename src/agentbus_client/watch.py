@@ -91,7 +91,6 @@ _DRAIN_LOCK_TIMEOUT_SECONDS = 10.0
 EXIT_DEAD_WAKE_SOCKET = 7
 
 
-
 class Watcher(WatcherStateMixin, WatcherDrainMixin):
     def __init__(
         self,
@@ -165,9 +164,10 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
             "X-AgentBus-Wake-Capable": "1" if self.wake_capable else "0",
         }
         client = httpx.Client(timeout=httpx.Timeout(STREAM_READ_DEADLINE, connect=15.0))
-        with client, client.stream(
-            "GET", f"{self.bus.base_url}/v1/stream", headers=headers
-        ) as response:
+        with (
+            client,
+            client.stream("GET", f"{self.bus.base_url}/v1/stream", headers=headers) as response,
+        ):
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
@@ -318,8 +318,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
             # stderr line so the operator can see the deferral happened.
             tag = str(exc) or f"({type(exc).__name__})"
             print(
-                f"agentbus watch: startup drain deferred ({tag}); "
-                "entering reconnect loop",
+                f"agentbus watch: startup drain deferred ({tag}); entering reconnect loop",
                 file=sys.stderr,
                 flush=True,
             )

@@ -31,7 +31,6 @@ import pytest
 
 from agentbus_client.client import AgentBusError, TransportError
 
-
 IS_PRE_311 = sys.version_info < (3, 11)
 
 

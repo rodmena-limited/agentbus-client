@@ -14,8 +14,6 @@ import argparse
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 import agentbus_client.cli as cli_module
 from agentbus_client import onboarding
 

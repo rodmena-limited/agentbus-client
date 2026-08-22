@@ -63,7 +63,9 @@ def _is_transient_rewake_error(exc: BaseException) -> bool:
     # network error — unwrap, or every exhausted poll is recorded as a success
     # and the breaker never opens (review #23, issuedb #24).
     exc = _root_cause(exc)
-    if isinstance(exc, (ConnectionError, TimeoutError, OSError, ServiceUnavailable, TransportError)):
+    if isinstance(
+        exc, (ConnectionError, TimeoutError, OSError, ServiceUnavailable, TransportError)
+    ):
         return True
     return isinstance(exc, AgentBusError) and exc.status in (502, 503, 504)
 

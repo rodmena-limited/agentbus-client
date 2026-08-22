@@ -57,7 +57,6 @@ _DRAIN_LOCK_TIMEOUT_SECONDS = 10.0
 EXIT_DEAD_WAKE_SOCKET = 7
 
 
-
 def _dead_wake_socket_reason() -> str | None:
     """Is the session socket this watcher injects into still alive?
 

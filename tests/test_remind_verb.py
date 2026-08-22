@@ -25,6 +25,7 @@ from agentbus_client.cli._parser import build_parser
 
 # ------------------------------------------------------------------ durations
 
+
 @pytest.mark.parametrize(
     "given,seconds",
     [("90m", 5400), ("2h", 7200), ("3d", 259200), ("45", 45), (3600, 3600)],
@@ -59,6 +60,7 @@ def test_nonsense_duration_is_refused_locally():
 
 # ------------------------------------------------------------------- instants
 
+
 def test_aware_datetime_converts_to_utc():
     moment = dt.datetime(2026, 8, 21, 9, 0, tzinfo=dt.timezone(dt.timedelta(hours=2)))
     assert _as_instant(moment) == "2026-08-21T07:00:00Z"
@@ -87,6 +89,7 @@ def test_a_wrong_type_is_refused_rather_than_stringified():
 
 # ----------------------------------------------------------------- the parser
 
+
 def _parse(*argv):
     return build_parser().parse_args(["remind", *argv])
 
@@ -97,9 +100,20 @@ def test_target_is_optional_because_self_notes_are_the_common_case():
 
 def test_every_documented_flag_is_accepted():
     args = _parse(
-        "-m", "ship it", "--target", "alice", "--delay", "2h",
-        "--expire", "3d", "--repeat", "daily",
-        "--repeat-until", "2026-12-01", "--timezone", "Europe/London",
+        "-m",
+        "ship it",
+        "--target",
+        "alice",
+        "--delay",
+        "2h",
+        "--expire",
+        "3d",
+        "--repeat",
+        "daily",
+        "--repeat-until",
+        "2026-12-01",
+        "--timezone",
+        "Europe/London",
     )
     assert args.target == "alice" and args.delay == "2h" and args.expire == "3d"
     assert args.repeat == "daily" and args.repeat_until == "2026-12-01"
@@ -115,6 +129,7 @@ def test_remind_and_reminders_are_different_commands():
 
 
 # --------------------------------------------------------- the sealing rule
+
 
 class _Spy:
     def __init__(self, sealed_marker="-----BEGIN AGE ENCRYPTED FILE-----"):
@@ -144,7 +159,7 @@ def test_a_self_note_seals_to_self_not_to_a_recipient():
 
     def fake_seal_to_self(body, agent):
         called["self"] = True
-        return body        # must return the BODY; `x or body` returns True here
+        return body  # must return the BODY; `x or body` returns True here
 
     bus._seal_to_self = fake_seal_to_self
     bus.remind("note", delay=dt.timedelta(hours=2))
@@ -193,6 +208,7 @@ def test_absent_options_are_omitted_rather_than_sent_as_null():
 
 # -------------------------------------------------------------- twin parity
 
+
 def test_the_async_twin_has_the_same_signature():
     """Asserted, not assumed. This pair has drifted on smaller details."""
     import inspect
@@ -226,11 +242,11 @@ def test_the_client_never_calls_the_scheduler():
 
     root = pathlib.Path(__file__).resolve().parents[1] / "src" / "agentbus_client"
     forbidden = (
-        "runflow.rodmena.app",      # its host
-        "RUNFLOW_API_KEY",          # its credential
-        "/api/v1/timers",           # its API
+        "runflow.rodmena.app",  # its host
+        "RUNFLOW_API_KEY",  # its credential
+        "/api/v1/timers",  # its API
         "/api/v1/schedules",
-        "rak_",                     # its key prefix
+        "rak_",  # its key prefix
     )
     for path in root.rglob("*.py"):
         body = path.read_text()
@@ -324,8 +340,15 @@ def test_the_payload_carries_only_fields_the_server_accepts():
     server that accepts it would break every reminder, not just the one using it.
     """
     served = {
-        "target", "subject", "text", "sealed",
-        "delay_seconds", "due_at", "expires_at", "repeat", "timezone",
+        "target",
+        "subject",
+        "text",
+        "sealed",
+        "delay_seconds",
+        "due_at",
+        "expires_at",
+        "repeat",
+        "timezone",
     }
     bus, spy = _bus_with_spy()
     bus._seal_to_self = lambda body, agent: body
@@ -392,8 +415,12 @@ def test_recurring_reminders_sort_first(capsys, monkeypatch):
     to find."""
     rows = [
         {"id": "ONESHOT", "state": "scheduled", "due_at": "2026-08-21T03:00:00Z"},
-        {"id": "CRON", "state": "scheduled", "due_at": "2026-08-21T09:00:00Z",
-         "repeat": "0 9 * * *"},
+        {
+            "id": "CRON",
+            "state": "scheduled",
+            "due_at": "2026-08-21T09:00:00Z",
+            "repeat": "0 9 * * *",
+        },
     ]
     _reminds_output(rows, monkeypatch=monkeypatch)
     out = capsys.readouterr().out
@@ -402,8 +429,9 @@ def test_recurring_reminders_sort_first(capsys, monkeypatch):
 
 def test_an_empty_live_list_says_where_the_others_went(capsys, monkeypatch):
     """'no reminders' when ten exist but all are finished would be a lie."""
-    _reminds_output([{"id": "A", "state": "fired", "due_at": "2026-08-21T03:00:00Z"}],
-                     monkeypatch=monkeypatch)
+    _reminds_output(
+        [{"id": "A", "state": "fired", "due_at": "2026-08-21T03:00:00Z"}], monkeypatch=monkeypatch
+    )
     assert "see them with --all" in capsys.readouterr().out
 
 
@@ -421,9 +449,7 @@ def test_repeat_with_a_delay_is_refused_locally():
     from agentbus_client.cli._parser import build_parser
     from agentbus_client.cli._remind import cmd_remind
 
-    args = build_parser().parse_args(
-        ["remind", "-m", "x", "--repeat", "daily", "--delay", "2h"]
-    )
+    args = build_parser().parse_args(["remind", "-m", "x", "--repeat", "daily", "--delay", "2h"])
     assert cmd_remind(args) == 2
 
 
@@ -461,7 +487,7 @@ def test_a_targeted_reminder_does_not_send_fields_the_route_forbids():
 
     def seal_like_the_send_route(body, agent, **kw):
         out = dict(body)
-        out["html"] = None          # what _apply_seal really does
+        out["html"] = None  # what _apply_seal really does
         out["sealed"] = True
         return out, None
 
@@ -469,8 +495,15 @@ def test_a_targeted_reminder_does_not_send_fields_the_route_forbids():
     bus.remind("note", target="alice", delay="2h")
 
     served = {
-        "target", "subject", "text", "sealed",
-        "delay_seconds", "due_at", "expires_at", "repeat", "timezone",
+        "target",
+        "subject",
+        "text",
+        "sealed",
+        "delay_seconds",
+        "due_at",
+        "expires_at",
+        "repeat",
+        "timezone",
     }
     extra = set(spy.body) - served
     assert not extra, f"sends fields the reminders route forbids: {extra}"

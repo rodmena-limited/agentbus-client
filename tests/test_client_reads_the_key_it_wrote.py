@@ -138,10 +138,7 @@ def test_disk_wins_over_env_when_agent_is_named_dotenv_poisoning_defense(home):
     _write(home / "keys" / "a1.env", "ab_sk_BOUND")
     os.environ["AGENTBUS_API_KEY"] = "ab_sk_ENV_POISONED"
     try:
-        assert (
-            client_module.AgentBus(base_url="https://x", agent="a1").api_key
-            == "ab_sk_BOUND"
-        )
+        assert client_module.AgentBus(base_url="https://x", agent="a1").api_key == "ab_sk_BOUND"
     finally:
         del os.environ["AGENTBUS_API_KEY"]
 
@@ -154,10 +151,7 @@ def test_env_still_wins_in_the_unnamed_agent_operator_cli_path(home):
     os.environ["AGENTBUS_API_KEY"] = "ab_sk_ENV_WINS_HERE"
     try:
         # no agent named
-        assert (
-            client_module.AgentBus(base_url="https://x").api_key
-            == "ab_sk_ENV_WINS_HERE"
-        )
+        assert client_module.AgentBus(base_url="https://x").api_key == "ab_sk_ENV_WINS_HERE"
     finally:
         del os.environ["AGENTBUS_API_KEY"]
 

@@ -4,6 +4,7 @@ Every helper and command is re-exported here so `agentbus_client.cli.<name>` kee
 resolving; tests that patch a helper do so on the module that DEFINES it
 (`cli._common._bus`, `cli._keys._local_signing_fingerprint`, ...).
 """
+
 from __future__ import annotations
 
 from . import (

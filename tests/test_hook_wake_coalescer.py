@@ -12,7 +12,14 @@ import time
 from agentbus_client._coalesce import Coalescer, is_envelope
 
 
-def _msg(delivery_id: str = "01D", *, subject: str = "s", priority: str = "normal", thread_id: str = "01T", agent_seq: int = 1):
+def _msg(
+    delivery_id: str = "01D",
+    *,
+    subject: str = "s",
+    priority: str = "normal",
+    thread_id: str = "01T",
+    agent_seq: int = 1,
+):
     return {
         "delivery_id": delivery_id,
         "message_id": f"m-{delivery_id}",
@@ -173,9 +180,7 @@ def test_arrivals_faster_than_quiet_still_flush_before_hard_cap() -> None:
 
     assert len(seen) >= 2  # at least leading + one envelope
     # The tail must have flushed — buffer should not still be holding.
-    total_delivered = sum(
-        1 if not is_envelope(x) else x["count"] for x in seen
-    )
+    total_delivered = sum(1 if not is_envelope(x) else x["count"] for x in seen)
     assert total_delivered == 6
 
 
@@ -314,9 +319,7 @@ def test_concurrent_handle_calls_are_serialized() -> None:
     time.sleep(0.4)  # let the tail flush
     c.close()
 
-    total_delivered = sum(
-        1 if not is_envelope(x) else x["count"] for x in seen
-    )
+    total_delivered = sum(1 if not is_envelope(x) else x["count"] for x in seen)
     assert total_delivered == 80, f"lost or duplicated messages: {total_delivered}"
     # And every id is unique.
     ids: list[str] = []

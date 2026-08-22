@@ -33,7 +33,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client.hooks import claude_code  # noqa: E402
+from agentbus_client.hooks import claude_code
 
 AGENT = "bikeroom-freebsd-operato-dd8bca"
 OURS = "11c10641-87e1-4d50-bdf5-299f9af49657"
@@ -45,7 +45,9 @@ def claim(tmp_path, monkeypatch):
     """Redirect the claim file into a tmp dir and pin our session id."""
     monkeypatch.setenv("AGENTBUS_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", OURS)
-    monkeypatch.setattr(claude_code._session, "_identity_claim_path", lambda a: tmp_path / f"claim-{a}.json")
+    monkeypatch.setattr(
+        claude_code._session, "_identity_claim_path", lambda a: tmp_path / f"claim-{a}.json"
+    )
     return tmp_path / f"claim-{AGENT}.json"
 
 

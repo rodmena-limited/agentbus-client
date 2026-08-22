@@ -46,11 +46,14 @@ def _lazy_imports() -> list[tuple[str, str, int]]:
                 if isinstance(inner, ast.ImportFrom) and inner.level:
                     rel = path.relative_to(ROOT.parent)
                     pkg = ".".join(rel.with_suffix("").parts[:-1])
-                    base = pkg if rel.stem == "__init__" else pkg
+                    base = pkg
                     for alias in inner.names:
                         found.append(
-                            (base, "." * inner.level + (inner.module or "") + f".{alias.name}",
-                             inner.lineno)
+                            (
+                                base,
+                                "." * inner.level + (inner.module or "") + f".{alias.name}",
+                                inner.lineno,
+                            )
                         )
     return found
 
@@ -101,9 +104,13 @@ def test_room_history_unseals_like_thread_does():
     from agentbus_client.client import async_misc, sync_misc
 
     for module in (sync_misc, async_misc):
-        src = inspect.getsource(module.__dict__[
-            "AsyncMiscMixin" if module is async_misc else "SyncMiscMixin"
-        ]) if any(k.endswith("MiscMixin") for k in module.__dict__) else inspect.getsource(module)
+        src = (
+            inspect.getsource(
+                module.__dict__["AsyncMiscMixin" if module is async_misc else "SyncMiscMixin"]
+            )
+            if any(k.endswith("MiscMixin") for k in module.__dict__)
+            else inspect.getsource(module)
+        )
         i = src.index("room_history")
         window = src[i : src.index("def ", i + 200)]
         assert "unseal_message" in window, (

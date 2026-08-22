@@ -149,7 +149,10 @@ def _pid_cmdline(pid: int) -> str | None:
     try:
         out = _sp.run(
             ["ps", "-o", "args=", "-p", str(pid)],
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         ).stdout.strip()
     except (OSError, _sp.SubprocessError):
         return None
@@ -168,7 +171,9 @@ def _pid_is_watcher(pid: int, agent: str) -> bool:
     line = _pid_cmdline(pid)
     if not line:
         return False
-    return "agentbus" in line and " watch " in f" {line} " and bool(_agent_flag_re(agent).search(line))
+    return (
+        "agentbus" in line and " watch " in f" {line} " and bool(_agent_flag_re(agent).search(line))
+    )
 
 
 def _watch_pids(agent: str) -> dict[str, int]:

@@ -44,7 +44,7 @@ def cmd_send_batch(args: argparse.Namespace) -> int:
     if not lines:
         print(
             "agentbus send-batch: no input on stdin. Pipe one JSON object per "
-            "line: {\"to\": [...], \"subject\": \"...\", \"text\": \"...\"}",
+            'line: {"to": [...], "subject": "...", "text": "..."}',
             file=sys.stderr,
         )
         return 2
@@ -101,9 +101,7 @@ def cmd_send_batch(args: argparse.Namespace) -> int:
                 # (parsed by _parse_duration) or seconds.
                 require_ack=bool(item.get("require_ack", False)),
                 ack_window=(
-                    _parse_duration(item["ack_window"])
-                    if item.get("ack_window")
-                    else None
+                    _parse_duration(item["ack_window"]) if item.get("ack_window") else None
                 ),
             )
         except AgentBusError as exc:

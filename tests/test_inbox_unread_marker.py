@@ -27,8 +27,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client import cli  # noqa: E402
-from agentbus_client.client import Delivery  # noqa: E402
+from agentbus_client import cli
+from agentbus_client.client import Delivery
 
 
 def _delivery(seq: int, *, read: bool, state: str = "delivered") -> Delivery:

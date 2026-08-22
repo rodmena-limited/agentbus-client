@@ -46,7 +46,11 @@ def test_thread_calls_unseal_on_every_message() -> None:
         result = bus.thread("01T")
 
     assert called_with == ["sealed-body-1", "sealed-body-2", "sealed-body-3"]
-    assert [m["text_body"] for m in result["messages"]] == ["opened-01M1", "opened-01M2", "opened-01M3"]
+    assert [m["text_body"] for m in result["messages"]] == [
+        "opened-01M1",
+        "opened-01M2",
+        "opened-01M3",
+    ]
 
 
 def test_thread_survives_a_response_with_no_messages_key() -> None:
@@ -68,7 +72,6 @@ def test_thread_uses_the_same_unseal_helper_as_read() -> None:
     # The helper marks damaged bodies with `sealed_unreadable` — a thread
     # response with a damaged message must carry the SAME field on the SAME
     # message dict, not a separate error format.
-    from agentbus_client import sealing
 
     def damaged_unseal(msg):
         msg["sealed_unreadable"] = "the sealed body is damaged: not-age"

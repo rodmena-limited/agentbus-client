@@ -24,7 +24,6 @@ peer suspected) lands here first.
 from __future__ import annotations
 
 import argparse
-from unittest.mock import MagicMock
 
 from agentbus_client import cli
 
@@ -51,7 +50,9 @@ class _CapturingBus:
 
 
 def _tag_args(*positional, remove=None, agent=None, json=False):
-    return argparse.Namespace(set=list(positional), remove=list(remove or []), agent=agent, json=json)
+    return argparse.Namespace(
+        set=list(positional), remove=list(remove or []), agent=agent, json=json
+    )
 
 
 def _register_args(**over):

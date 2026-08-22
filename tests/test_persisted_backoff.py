@@ -25,13 +25,11 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from agentbus_client import watch as watch_module
-from agentbus_client.watch import Watcher, RECONNECT_BACKOFF
+from agentbus_client.watch import Watcher
 
 
 class _FakeBus:

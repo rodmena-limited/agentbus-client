@@ -26,9 +26,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client.client.async_client import AsyncAgentBus
 from agentbus_client.client import errors as client_errors
 from agentbus_client.client import resilience as client_resilience
+from agentbus_client.client.async_client import AsyncAgentBus
 from agentbus_client.client.resilience import _AsyncCircuitBreaker
 
 
@@ -247,6 +247,7 @@ def test_half_open_probe_failure_reopens_immediately(monkeypatch):
 def test_outer_deadline_surfaces_transport_error():
     """A retry sequence that exceeds the deadline must raise TransportError
     (mirroring the sync future.result(timeout=) translation), not hang."""
+
     async def hang():
         await asyncio.sleep(0.5)
         raise AssertionError("should have been cut off by the deadline")

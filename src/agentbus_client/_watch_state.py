@@ -90,7 +90,6 @@ _DRAIN_LOCK_TIMEOUT_SECONDS = 10.0
 EXIT_DEAD_WAKE_SOCKET = 7
 
 
-
 class WatcherStateMixin:
     """Methods of Watcher carved out for the file-size cap (review #23).
 

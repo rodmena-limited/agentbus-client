@@ -24,7 +24,6 @@ import pytest
 
 from agentbus_client import cli as cli_module
 
-
 SECRET = "ab_sk_0c3ad1f9ebb614ac_SUPERSECRETTAILNOBODYSHOULDSEE"
 
 
@@ -98,7 +97,8 @@ def test_reports_which_identity_this_directory_acts_as(tmp_path, monkeypatch, ca
     one the directory listing cannot answer."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _seed(tmp_path, ["peer-a", "peer-b"])
-    monkeypatch.setattr(cli_module._common, "_bus", lambda _a: pytest.fail("must not need a bus without --remote")
+    monkeypatch.setattr(
+        cli_module._common, "_bus", lambda _a: pytest.fail("must not need a bus without --remote")
     )
     from agentbus_client import onboarding
 
@@ -185,7 +185,11 @@ class _DevBus:
         return rows
 
     def health(self, target):
-        return {"wake_channel_state": "live", "watcher_alive": True, "last_seen_at": "2026-08-18T00:00:00Z"}
+        return {
+            "wake_channel_state": "live",
+            "watcher_alive": True,
+            "last_seen_at": "2026-08-18T00:00:00Z",
+        }
 
 
 def test_elsewhere_fires_when_an_identity_lives_on_another_device(tmp_path, monkeypatch, capsys):

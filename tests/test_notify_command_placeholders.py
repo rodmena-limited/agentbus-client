@@ -13,12 +13,10 @@ production.
 from __future__ import annotations
 
 import subprocess
-from unittest.mock import patch
 
 import pytest
 
 from agentbus_client import watch as watch_module
-
 
 # Every placeholder documented in watch.notify_command's docstring and in
 # the served skill. If you add one, add it here; if you remove one, this

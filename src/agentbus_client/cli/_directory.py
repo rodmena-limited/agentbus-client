@@ -159,7 +159,9 @@ def cmd_phonebook(args: argparse.Namespace) -> int:
     # compatible — old servers don't return the field, so the column does
     # not appear and the layout is byte-identical to pre-persona output.
     has_persona = any(a.get("persona") for a in agents)
-    persona_width = max((len(a.get("persona") or "") for a in agents), default=0) if has_persona else 0
+    persona_width = (
+        max((len(a.get("persona") or "") for a in agents), default=0) if has_persona else 0
+    )
     rendered = [(a, _format_tags(a.get("labels"), limit=TAG_CAP)) for a in agents]
     tag_width = min(max((len(t) for _a, t in rendered), default=0), TAG_CAP)
     elided = 0
@@ -408,4 +410,3 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("liveness", help="who is responsive, not merely reachable")
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_liveness)
-

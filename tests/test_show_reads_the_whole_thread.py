@@ -178,8 +178,8 @@ def test_thread_render_says_so_instead_of_dumping_ciphertext():
     messages sealed only to OTHER recipients. Found on a live 5-message
     thread where 3 opened and 2 did not.
     """
-    import io
     import contextlib
+    import io
 
     from agentbus_client import cli
 

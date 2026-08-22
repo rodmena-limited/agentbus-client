@@ -259,7 +259,9 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
             # A CONNECT failure opens the circuit at once (peer review C5): the
             # network is gone, and making the next ten tool calls each re-discover
             # that is what a user feels as "the client freezes on network drop".
-            if last_at and (count >= _FAST_FAIL_THRESHOLD or state.get("reason") == "connect_failure"):
+            if last_at and (
+                count >= _FAST_FAIL_THRESHOLD or state.get("reason") == "connect_failure"
+            ):
                 # REG-1 (round-3 audit): last_at is written with time.gmtime()
                 # (UTC — see record_gate_degraded), so it MUST be parsed back as
                 # UTC. time.mktime() interprets local; on BST that reads the

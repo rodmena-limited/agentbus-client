@@ -26,14 +26,11 @@ or a missing guard — somewhere else.
 
 from __future__ import annotations
 
-import json
 import threading
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 
 # ------------------------------------------------------- REG-8d traversal
 
@@ -170,15 +167,24 @@ def test_backoff_does_not_block_forever_on_an_in_flight_drain(tmp_path, monkeypa
 @pytest.mark.parametrize(
     "exc_factory,label",
     [
-        (lambda: __import__(
-            "agentbus_client.client", fromlist=["AgentBusError"]
-        ).AgentBusError("bad gateway", status=502), "bare AgentBusError (502/504)"),
-        (lambda: __import__(
-            "agentbus_client.client", fromlist=["ServiceUnavailable"]
-        ).ServiceUnavailable("503"), "ServiceUnavailable"),
-        (lambda: __import__(
-            "agentbus_client.client", fromlist=["QuotaExceeded"]
-        ).QuotaExceeded("429"), "QuotaExceeded"),
+        (
+            lambda: __import__("agentbus_client.client", fromlist=["AgentBusError"]).AgentBusError(
+                "bad gateway", status=502
+            ),
+            "bare AgentBusError (502/504)",
+        ),
+        (
+            lambda: __import__(
+                "agentbus_client.client", fromlist=["ServiceUnavailable"]
+            ).ServiceUnavailable("503"),
+            "ServiceUnavailable",
+        ),
+        (
+            lambda: __import__("agentbus_client.client", fromlist=["QuotaExceeded"]).QuotaExceeded(
+                "429"
+            ),
+            "QuotaExceeded",
+        ),
         (lambda: RuntimeError("something nobody predicted"), "unforeseen shape"),
     ],
 )
@@ -191,7 +197,9 @@ def test_rewake_poll_survives_every_typed_api_error(exc_factory, label, monkeypa
     The call site documents `"" on any failure`. That guarantee is now real."""
     from agentbus_client import rewake
 
-    monkeypatch.setattr(rewake, "_unread_text", lambda agent, wait=0: (_ for _ in ()).throw(exc_factory()))
+    monkeypatch.setattr(
+        rewake, "_unread_text", lambda agent, wait=0: (_ for _ in ()).throw(exc_factory())
+    )
 
     poll = rewake._build_resilient_poll("some-agent", wait=0)
     result = poll()  # must not raise

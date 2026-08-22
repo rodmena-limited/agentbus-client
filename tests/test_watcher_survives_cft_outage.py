@@ -29,18 +29,14 @@ exact traceback macbook observed on Python 3.10.20.
 from __future__ import annotations
 
 import concurrent.futures
-import io
-import sys
-import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from agentbus_client import client as client_module
 from agentbus_client.client import AgentBusError, TransportError
-from agentbus_client.watch import Watcher, DeadWakeSocket
-
+from agentbus_client.watch import DeadWakeSocket, Watcher
 
 # ---------------------------------------------------- Fix #1: boundary translation
 
@@ -49,6 +45,7 @@ def test_run_with_resilience_translates_cft_to_transport_error():
     """The SINGLE FIX that closes the whole class. Every downstream `except
     TransportError` now catches network stalls on every Python version, at
     every call site, including ones nobody audited."""
+
     def timing_out_call():
         raise RuntimeError("should not reach here")
 
@@ -66,9 +63,9 @@ def test_run_with_resilience_translates_cft_to_transport_error():
     with (
         patch.object(client_module.resilience, "_sdk_bulkhead", lambda: _FakeBulkhead()),
         patch.object(client_module.resilience, "_sdk_safety_net", lambda: lambda f: f),
+        pytest.raises(TransportError) as exc,
     ):
-        with pytest.raises(TransportError) as exc:
-            client_module._run_with_resilience(timing_out_call, timeout=0.01)
+        client_module._run_with_resilience(timing_out_call, timeout=0.01)
 
     # The original CFT is preserved as the cause so callers can still
     # introspect if they want to.
@@ -266,6 +263,7 @@ def test_run_startup_stamps_client_version_immediately(tmp_path, monkeypatch):
     # State file MUST exist and have client_version — not require a
     # cursor advance.
     import json
+
     state_file = tmp_path / "state.json"
     assert state_file.exists(), "startup did not write the state file"
     data = json.loads(state_file.read_text())
@@ -281,6 +279,7 @@ def test_cmd_watch_whoami_startup_catches_any_exception():
     fails the watcher must still launch and enter backoff.
     """
     import inspect
+
     from agentbus_client import cli as cli_module
 
     src = inspect.getsource(cli_module.cmd_watch)
@@ -294,6 +293,7 @@ def test_cmd_watch_whoami_startup_catches_any_exception():
 def test_cmd_watch_catches_escaped_auth_error(monkeypatch, tmp_path):
     """AuthError escaping Watcher.run() returns exit code 8 (terminal)."""
     import argparse
+
     from agentbus_client import cli as cli_module
     from agentbus_client import watch as watch_module
     from agentbus_client.client import AuthError
@@ -322,6 +322,7 @@ def test_cmd_watch_catches_escaped_auth_error(monkeypatch, tmp_path):
 def test_cmd_watch_catches_escaped_service_unavailable(monkeypatch, tmp_path):
     """ServiceUnavailable/AgentBusError escaping Watcher.run() returns exit code 3 (retryable)."""
     import argparse
+
     from agentbus_client import cli as cli_module
     from agentbus_client import watch as watch_module
     from agentbus_client.client import ServiceUnavailable
@@ -363,8 +364,8 @@ def test_run_propagates_confirmed_revocation_from_stream(tmp_path, monkeypatch):
     which this test turns into a loud failure instead of an infinite loop."""
     from unittest.mock import patch
 
-    from agentbus_client.client import AuthError
     from agentbus_client import watch as watch_module
+    from agentbus_client.client import AuthError
 
     bus = _FakeBus()
     w = _watcher(bus, tmp_path)
@@ -378,9 +379,9 @@ def test_run_propagates_confirmed_revocation_from_stream(tmp_path, monkeypatch):
     with (
         patch.object(watch_module.Watcher, "_stream_once", _revoked),
         patch.object(watch_module.Watcher, "_backoff_and_drain", _must_not_backoff),
+        pytest.raises(AuthError),
     ):
-        with pytest.raises(AuthError):
-            w.run()
+        w.run()
 
 
 def test_run_propagates_revocation_from_startup_drain(tmp_path, monkeypatch):
@@ -404,7 +405,7 @@ class _FakeStreamResponse:
     def __init__(self, status_code: int):
         self.status_code = status_code
 
-    def __enter__(self) -> "_FakeStreamResponse":
+    def __enter__(self) -> _FakeStreamResponse:
         return self
 
     def __exit__(self, *exc: object) -> bool:
@@ -425,7 +426,7 @@ class _FakeStreamClient:
     def __init__(self, status_code: int):
         self._status = status_code
 
-    def __enter__(self) -> "_FakeStreamClient":
+    def __enter__(self) -> _FakeStreamClient:
         return self
 
     def __exit__(self, *exc: object) -> bool:
@@ -438,7 +439,6 @@ class _FakeStreamClient:
 def test_stream_once_confirmed_401_raises_auth_error(tmp_path, monkeypatch):
     """GET /v1/stream returning 401 with a REST-confirmed revocation raises
     AuthError (-> exit 8), not httpx.HTTPStatusError folded into backoff."""
-    import httpx
 
     from agentbus_client import watch as watch_module
 

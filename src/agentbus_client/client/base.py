@@ -210,7 +210,9 @@ class _Base:
             return payload
         return signed
 
-    def _apply_seal(self, payload: dict[str, Any], resolved: dict[str, Any], agent: str | None = None) -> dict[str, Any]:
+    def _apply_seal(
+        self, payload: dict[str, Any], resolved: dict[str, Any], agent: str | None = None
+    ) -> dict[str, Any]:
         """Turn a resolve answer into a sealed payload. NO I/O, so both the sync
         and async clients share it.
 
@@ -377,6 +379,7 @@ class _Base:
                 "this agent published a key, or to other recipients"
             )
         return message
+
 
 def _key_from_disk(agent: str | None) -> str:
     """The credential this client already wrote, read back from where it put it.

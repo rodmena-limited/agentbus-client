@@ -211,6 +211,7 @@ def test_the_heartbeat_exemption_is_asserted_in_the_direction_that_can_fail():
 # ---------------------------------------------------------------- F3: the twin
 # ---------------------------------------------------------------- F3: the twin
 
+
 def test_approval_verb_reaches_an_id_this_process_did_not_create():
     """The whole point of F3: `approve --wait` can only wait on its own id."""
     args = build_parser().parse_args(["approval", "01M0PEER", "--wait", "60"])
@@ -232,6 +233,7 @@ def test_denial_and_no_answer_do_not_share_an_exit_code():
 
 
 # ------------------------------------------- F1: the CLI is the sealing surface
+
 
 @pytest.mark.parametrize("verb", ["send", "reply", "forward", "draft", "show", "inbox", "thread"])
 def test_the_cli_carries_every_verb_mcp_cannot_serve_on_an_encrypted_workspace(verb):
@@ -261,6 +263,7 @@ def test_the_client_can_unseal_which_is_the_capability_mcp_structurally_lacks():
 
 
 # ------------------------------------------------- local-only stays local-only
+
 
 @pytest.mark.parametrize(
     "verb", ["setup", "signin", "keys", "watch", "service", "doctor", "identity", "join"]

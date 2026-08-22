@@ -27,7 +27,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client.cli import _format_tags  # noqa: E402
+from agentbus_client.cli import _format_tags
 
 # The exact labels from the measured row, which is what makes this a regression
 # test rather than an invented case.

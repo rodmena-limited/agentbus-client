@@ -39,7 +39,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client.hooks import claude_code  # noqa: E402
+from agentbus_client.hooks import claude_code
 
 SENDER = "peer-abc123 via AgentBus"
 SUBJECT = "Re: the thing"

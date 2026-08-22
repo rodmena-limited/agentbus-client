@@ -96,6 +96,12 @@ warn_unused_ignores = true
 files = ["src", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
+# Tests insert <repo>/src on sys.path BEFORE importing the package under test,
+# so module-level imports legitimately follow executable code. Contorting them
+# to satisfy E402 would mean importing the INSTALLED client instead of this
+# checkout — the exact "which artifact am I testing" trap this suite exists to
+# catch.
+"tests/*.py" = ["E402"]
 # Re-export modules: every import IS the API surface (review #23 file-size split).
 "src/agentbus_client/cli/__init__.py" = ["F401", "F403"]
 "src/agentbus_client/onboarding/__init__.py" = ["F401", "F403"]

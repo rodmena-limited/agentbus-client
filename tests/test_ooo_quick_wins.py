@@ -1,28 +1,24 @@
 """Quick-win fixes from the joint AgentBus test round with agentbus-ui-c760a1:
 
-  F8  (#5)  `agentbus attachment --all` fetches every attachment on a delivery
-  F11 (#6)  `agentbus show` labels the on-wire size honestly, not as plaintext
-  F13 (#7)  `agentbus send --guarantee fire_and_forget --json` returns a stable
-            {status, guarantee, ...} shape instead of {}
-  F14 (#8)  `agentbus verify` prints `UNSIGNED — no signature attached to
-            verify` instead of the `UNSIGNED — unsigned` glitch
+F8  (#5)  `agentbus attachment --all` fetches every attachment on a delivery
+F11 (#6)  `agentbus show` labels the on-wire size honestly, not as plaintext
+F13 (#7)  `agentbus send --guarantee fire_and_forget --json` returns a stable
+          {status, guarantee, ...} shape instead of {}
+F14 (#8)  `agentbus verify` prints `UNSIGNED — no signature attached to
+          verify` instead of the `UNSIGNED — unsigned` glitch
 """
 
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client import cli  # noqa: E402
-
+from agentbus_client import cli
 
 # --------------------------------------------------------------------- F8
 
@@ -144,7 +140,9 @@ class _VerifyBus:
 
 
 def test_unsigned_verdict_does_not_repeat_the_word(monkeypatch, capsys):
-    monkeypatch.setattr(cli._common, "_bus",
+    monkeypatch.setattr(
+        cli._common,
+        "_bus",
         lambda _a: _VerifyBus(
             {
                 "verified": False,
@@ -166,7 +164,9 @@ def test_unsigned_verdict_does_not_repeat_the_word(monkeypatch, capsys):
 def test_cannot_verify_still_carries_the_reason(monkeypatch, capsys):
     """Regression: the CANNOT VERIFY branch used the same headline+reason
     pattern; make sure it still names why the tool could not check."""
-    monkeypatch.setattr(cli._common, "_bus",
+    monkeypatch.setattr(
+        cli._common,
+        "_bus",
         lambda _a: _VerifyBus(
             {
                 "verified": False,
@@ -289,7 +289,9 @@ def test_fire_and_forget_json_preserves_real_server_fields(monkeypatch, capsys):
 def test_durable_send_is_unchanged(monkeypatch, capsys):
     """Guarantee=durable (or None) must not get the fire_and_forget status
     marker glued on."""
-    monkeypatch.setattr(cli._common, "_bus",
+    monkeypatch.setattr(
+        cli._common,
+        "_bus",
         lambda _a: _SendBus(
             {
                 "id": "01M",

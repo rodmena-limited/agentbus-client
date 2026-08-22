@@ -131,7 +131,7 @@ def cmd_identities(args: argparse.Namespace) -> int:
             dev = r.get("device_hash")
             # Mark the rows that matter. A short hash is enough to eyeball
             # "these are all the same box"; ELSEWHERE is the actionable bit.
-            dev_s = (dev[:16] if dev else "-")
+            dev_s = dev[:16] if dev else "-"
             if r.get("elsewhere"):
                 dev_s += " ELSEWHERE"
             line += f"   {state:<9} {alive_s:<6} {dev_s:<17} {r.get('last_seen_at') or '-'}"

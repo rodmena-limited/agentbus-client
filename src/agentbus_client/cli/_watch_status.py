@@ -171,6 +171,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
         # field) and the CLI's own version is the alternative comparison
         # anchor.
         from .. import __version__ as _cli_ver
+
         for st, pid in pids.items():
             watcher_ver = _read_running_client_version(agent, st, for_pid=pid)
             ver_note = f" running={watcher_ver}" if watcher_ver else ""

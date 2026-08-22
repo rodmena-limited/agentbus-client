@@ -38,7 +38,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     sub = parser.add_subparsers(dest="command", required=True)
 
-
     # One module per command family; each wires its own subcommands.
     _register.add_commands(sub)
     _directory.add_commands(sub)
@@ -56,8 +55,6 @@ def build_parser() -> argparse.ArgumentParser:
     _diag.add_commands(sub)
     _setup.add_commands(sub)
     return parser
-
-
 
 
 def main(argv: list[str] | None = None) -> int:

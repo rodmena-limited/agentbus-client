@@ -25,8 +25,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from agentbus_client import cli as cli_module
 
 
@@ -183,9 +181,7 @@ def test_matching_pid_is_trusted(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     cfg = tmp_path / ".config" / "agentbus"
     cfg.mkdir(parents=True, exist_ok=True)
-    (cfg / "my-state.json").write_text(
-        json.dumps({"client_version": "0.9.28", "pid": 4242})
-    )
+    (cfg / "my-state.json").write_text(json.dumps({"client_version": "0.9.28", "pid": 4242}))
 
     got = cli_module._read_running_client_version("test-agent", "my-state.json.pid", for_pid=4242)
     assert got == "0.9.28"
@@ -209,6 +205,7 @@ def test_watcher_stamps_its_own_pid(tmp_path):
     """The write half of the contract: Watcher._save_cursor must record the
     PID so the read half above has something to verify against."""
     import os
+
     from agentbus_client.watch import Watcher
 
     class _Bus:

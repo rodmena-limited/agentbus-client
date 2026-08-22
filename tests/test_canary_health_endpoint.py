@@ -11,13 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from agentbus_client import cli as cli_module
 from agentbus_client.client import AgentBus, AgentBusError
-
 
 LIVE_RESPONSE = {
     "agent": "target-agent",
@@ -168,7 +165,6 @@ def test_cli_health_no_target_and_no_acting_agent_exits_two(monkeypatch, capsys)
 
 def test_cli_health_verb_registered_in_parser():
     """A verb nobody can invoke is not a verb."""
-    import inspect
     src = _cli_source()
     assert '"health"' in src or "'health'" in src
     assert "cmd_health" in src

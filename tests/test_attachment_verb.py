@@ -24,7 +24,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client import cli  # noqa: E402
+from agentbus_client import cli
 
 PAYLOAD = b"\x89PNG\r\n\x1a\n" + b"binary\x00bytes" * 40
 META = {"filename": "shot.png", "size": len(PAYLOAD)}
@@ -145,8 +145,6 @@ def test_the_verb_is_registered_in_the_parser():
     """A command nobody can invoke is not a command."""
     parser = cli.build_parser() if hasattr(cli, "build_parser") else None
     if parser is None:
-        import inspect
-
         assert '"attachment"' in _cli_source(), "the subparser is not registered"
 
 
@@ -177,6 +175,7 @@ def test_attachment_write_does_not_escape_cwd(tmp_path, monkeypatch):
     class _HostileBus:
         def read(self, delivery_id):
             return {"attachments": [{"filename": "../OUTSIDE/PWNED.txt", "size": 5}]}
+
         def attachment(self, delivery_id, index):
             return b"PWNED"
 
@@ -192,8 +191,16 @@ def test_attachment_write_does_not_escape_cwd(tmp_path, monkeypatch):
 
 def _args(**over):
     import argparse as _a
-    base = {"delivery_id": "01D", "index": 0, "output": None, "force": False,
-            "all": False, "agent": None, "json": False}
+
+    base = {
+        "delivery_id": "01D",
+        "index": 0,
+        "output": None,
+        "force": False,
+        "all": False,
+        "agent": None,
+        "json": False,
+    }
     base.update(over)
     return _a.Namespace(**base)
 

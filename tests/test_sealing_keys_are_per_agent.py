@@ -30,8 +30,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client import sealing  # noqa: E402
-from agentbus_client.sealing import CannotDecrypt  # noqa: E402
+from agentbus_client import sealing
+from agentbus_client.sealing import CannotDecrypt
 
 
 @pytest.fixture()
@@ -170,9 +170,7 @@ def test_seal_to_self_requires_acting_agent_when_unbound(monkeypatch) -> None:
 
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
     bus = AgentBus(api_key="ab_sk_x", base_url="https://x")
-    monkeypatch.setattr(
-        bus, "_request", lambda *a, **k: {"encrypted": True, "keys": {}}
-    )
+    monkeypatch.setattr(bus, "_request", lambda *a, **k: {"encrypted": True, "keys": {}})
     with pytest.raises(AgentBusError) as exc:
         bus._seal_to_self({"text": "hi"}, None)
     assert "no acting agent" in str(exc.value)

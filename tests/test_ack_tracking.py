@@ -22,7 +22,6 @@ import pytest
 from agentbus_client import cli as cli_module
 from agentbus_client.client import AgentBus, AsyncAgentBus, _ack_window_seconds
 
-
 # --------------------------------------------------------------- SDK
 
 
@@ -143,10 +142,20 @@ def test_parse_duration_invalid_raises_clear_error():
 
 def _send_args(**over):
     base = {
-        "to": ["a"], "cc": None, "priority": None, "subject": "s", "body": "b",
-        "attach": [], "require_available": False, "payload": None,
-        "guarantee": None, "derived_from": [], "json": True,
-        "require_ack": False, "ack_window": None, "agent": None,
+        "to": ["a"],
+        "cc": None,
+        "priority": None,
+        "subject": "s",
+        "body": "b",
+        "attach": [],
+        "require_available": False,
+        "payload": None,
+        "guarantee": None,
+        "derived_from": [],
+        "json": True,
+        "require_ack": False,
+        "ack_window": None,
+        "agent": None,
     }
     base.update(over)
     return argparse.Namespace(**base)
@@ -202,11 +211,16 @@ def test_cli_send_batch_require_ack_per_item(monkeypatch, capsys):
 
     import io
     import sys as _sys
+
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
-    monkeypatch.setattr(_sys, "stdin", io.StringIO(
-        '{"to": "a", "subject": "x", "text": "y", "require_ack": true}\n'
-        '{"to": "b", "subject": "x", "text": "y", "require_ack": true, "ack_window": "90m"}\n'
-    ))
+    monkeypatch.setattr(
+        _sys,
+        "stdin",
+        io.StringIO(
+            '{"to": "a", "subject": "x", "text": "y", "require_ack": true}\n'
+            '{"to": "b", "subject": "x", "text": "y", "require_ack": true, "ack_window": "90m"}\n'
+        ),
+    )
     monkeypatch.setattr(_sys.stdin, "isatty", lambda: False, raising=False)
 
     cli_module.cmd_send_batch(_args_())
@@ -245,8 +259,8 @@ class _RemBus:
 
 
 def _render(fn, args):
-    import io
     import contextlib
+    import io
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -255,13 +269,18 @@ def _render(fn, args):
 
 
 def test_reminders_owing_renders_sender_view(monkeypatch):
-    rows = [{
-        "delivery_id": "01D1", "subject": "please confirm schema",
-        "required_by": "2026-08-19T00:00:00Z", "attempts_so_far": 2,
-        "last_attempt_at": "2026-08-18T00:05:00Z",
-        "next_attempt_at": "2026-08-18T00:45:00Z", "thread_id": "01T",
-        "recipient_name": "peer-b",
-    }]
+    rows = [
+        {
+            "delivery_id": "01D1",
+            "subject": "please confirm schema",
+            "required_by": "2026-08-19T00:00:00Z",
+            "attempts_so_far": 2,
+            "last_attempt_at": "2026-08-18T00:05:00Z",
+            "next_attempt_at": "2026-08-18T00:45:00Z",
+            "thread_id": "01T",
+            "recipient_name": "peer-b",
+        }
+    ]
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _RemBus(owing=rows))
     out = _render(cli_module.cmd_reminders, _rem_args(owed=False))
     assert "owing" in out
@@ -271,17 +290,28 @@ def test_reminders_owing_renders_sender_view(monkeypatch):
 
 
 def test_reminders_owed_shows_sender(monkeypatch):
-    import io, contextlib
-    rows = [{
-        "delivery_id": "01D2", "subject": "rerun with these flags",
-        "required_by": "2026-08-19T00:00:00Z", "attempts_so_far": 0,
-        "last_attempt_at": None, "next_attempt_at": "2026-08-18T00:10:00Z",
-        "thread_id": "01T", "sender_name": "peer-a",
-    }]
+    import contextlib
+    import io
+
+    rows = [
+        {
+            "delivery_id": "01D2",
+            "subject": "rerun with these flags",
+            "required_by": "2026-08-19T00:00:00Z",
+            "attempts_so_far": 0,
+            "last_attempt_at": None,
+            "next_attempt_at": "2026-08-18T00:10:00Z",
+            "thread_id": "01T",
+            "sender_name": "peer-a",
+        }
+    ]
 
     class _B:
-        def reminders_owed(self): return rows
-        def reminders_owing(self): return []
+        def reminders_owed(self):
+            return rows
+
+        def reminders_owing(self):
+            return []
 
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
     buf = io.StringIO()
@@ -294,16 +324,29 @@ def test_reminders_owed_shows_sender(monkeypatch):
 
 
 def test_reminders_json_output(monkeypatch):
-    import io, json as _json, contextlib
-    rows = [{
-        "delivery_id": "01D", "subject": "sub", "required_by": "r",
-        "attempts_so_far": 1, "last_attempt_at": None, "next_attempt_at": "n",
-        "thread_id": "t", "sender_name": "peer",
-    }]
+    import contextlib
+    import io
+    import json as _json
+
+    rows = [
+        {
+            "delivery_id": "01D",
+            "subject": "sub",
+            "required_by": "r",
+            "attempts_so_far": 1,
+            "last_attempt_at": None,
+            "next_attempt_at": "n",
+            "thread_id": "t",
+            "sender_name": "peer",
+        }
+    ]
 
     class _B:
-        def reminders_owed(self): return rows
-        def reminders_owing(self): return []
+        def reminders_owed(self):
+            return rows
+
+        def reminders_owing(self):
+            return []
 
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
     buf = io.StringIO()

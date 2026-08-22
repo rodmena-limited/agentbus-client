@@ -3,6 +3,7 @@
 Every name is re-exported here so `agentbus_client.onboarding.<name>` keeps resolving;
 tests that patch a helper do so on the module that defines it.
 """
+
 from __future__ import annotations
 
 from . import (

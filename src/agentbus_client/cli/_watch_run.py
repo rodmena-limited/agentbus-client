@@ -172,7 +172,10 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 argv += [f"--{flag}", str(value)]
         # Forward coalescer knobs so a daemonised watcher matches the
         # caller's tuning (issuedb #9).
-        for flag, dest in (("coalesce-window", "coalesce_window"), ("coalesce-quiet", "coalesce_quiet")):
+        for flag, dest in (
+            ("coalesce-window", "coalesce_window"),
+            ("coalesce-quiet", "coalesce_quiet"),
+        ):
             value = getattr(args, dest, None)
             if value is not None:
                 argv += [f"--{flag}", str(value)]
@@ -230,6 +233,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # state file records client_version — surfaces make the failure mode
     # discoverable at the FIRST place someone would look.
     from .. import __version__ as _client_ver
+
     print(
         f"agentbus watch {_client_ver}: {agent} on {bus.base_url} (state: {state})",
         file=sys.stderr,
@@ -290,7 +294,9 @@ def cmd_watch(args: argparse.Namespace) -> int:
             # also returns 8, but catching it HERE means cmd_watch controls
             # its own exit codes and a refactor to main() cannot silently
             # change what the monitor sees.
-            print(f"agentbus watch: credential rejected ({exc.code}: {exc.detail})", file=sys.stderr)
+            print(
+                f"agentbus watch: credential rejected ({exc.code}: {exc.detail})", file=sys.stderr
+            )
             return 8
         except AgentBusError as exc:
             # SPECS/0020: ANY other bus error that escapes the Watcher's own
@@ -310,7 +316,10 @@ def cmd_watch(args: argparse.Namespace) -> int:
             print(f"agentbus watch: bus error ({tag}); monitor should retry", file=sys.stderr)
             return 3
         except WatchTerminated:
-            print("agentbus watch: SIGTERM received; flushing pending wakes and stopping", file=sys.stderr)
+            print(
+                "agentbus watch: SIGTERM received; flushing pending wakes and stopping",
+                file=sys.stderr,
+            )
             return 143
     finally:
         # Flush any buffered coalesced envelope so a graceful shutdown never

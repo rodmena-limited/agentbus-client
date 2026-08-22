@@ -184,7 +184,9 @@ def cmd_undeliverable(args: argparse.Namespace) -> int:
     was quarantined" from an auth failure.
     """
     try:
-        result = _common._bus(args)._request("GET", f"/v1/admin/undeliverable?limit={int(args.limit)}")
+        result = _common._bus(args)._request(
+            "GET", f"/v1/admin/undeliverable?limit={int(args.limit)}"
+        )
     except AgentBusError as exc:
         # NAMED, not swallowed. An empty list here would be indistinguishable
         # from "nothing bounced", which is the precise mistake this verb exists
@@ -226,9 +228,7 @@ def cmd_drafts(args: argparse.Namespace) -> int:
 # inferred from "not approved", because the two questions are different: a
 # status we have never heard of is not a denial, it is a status we must not
 # guess about.
-_TERMINAL = frozenset(
-    {"approved", "rejected", "cancelled", "timed_out", "changes_requested"}
-)
+_TERMINAL = frozenset({"approved", "rejected", "cancelled", "timed_out", "changes_requested"})
 
 
 def _print_reviewer_reasoning(outcome: object) -> None:
@@ -288,8 +288,11 @@ def _print_reviewer_reasoning(outcome: object) -> None:
                 # The reviewer's feedback message is frequently the SAME string
                 # as the reason text; printing it twice reads like two people
                 # objected.
-                if printed and key == "reasons" and text == (
-                    (feedback or {}).get("message") if isinstance(feedback, dict) else None
+                if (
+                    printed
+                    and key == "reasons"
+                    and text
+                    == ((feedback or {}).get("message") if isinstance(feedback, dict) else None)
                 ):
                     continue
                 code = entry.get("code")

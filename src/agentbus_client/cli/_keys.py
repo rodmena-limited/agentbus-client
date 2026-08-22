@@ -65,6 +65,22 @@ def _keys_sign(
     return 0
 
 
+def _published_signing_keys(bus: AgentBus, agent: str) -> list[dict]:
+    """Published ed25519 keys for `agent`, or [] — never a raised error (#43).
+
+    A listing that dies because ONE of two lookups failed tells the reader less
+    than one that shows the half it has. Returns [] on 404 (none published) and
+    on any other failure, because this is a display path: an inability to ask is
+    reported as an empty section next to a populated one, which is visibly
+    different from a clean 'none'.
+    """
+    try:
+        data = bus._request("GET", f"/v1/agents/{agent}/pubkey", params={"algorithm": "ed25519"})
+    except AgentBusError:
+        return []
+    return list(data.get("keys") or [])
+
+
 def _keys_list(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str | None) -> int:
     try:
         data = bus._request("GET", f"/v1/agents/{agent}/pubkey")
@@ -81,14 +97,30 @@ def _keys_list(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str | 
             args.json,
         )
         return 0
+    # #43: SIGNING KEYS TOO. This listed sealing keys only while `keys --help`
+    # promised "every published key", and the omission was silent — a peer
+    # audited three identities with it, concluded none had a signing key, and
+    # was wrong about all three. A wrong NEGATIVE from a view that structurally
+    # cannot produce a positive.
+    signing = _published_signing_keys(bus, agent)
+
     if args.json:
-        _print({**data, "this_machine": mine}, True)
+        _print({**data, "signing_keys": signing, "this_machine": mine}, True)
         return 0
     keys = data.get("keys") or []
-    print(f"{agent} — {len(keys)} sealing key(s)")
+    print(f"{agent} — {len(keys)} sealing key(s), {len(signing)} signing key(s)")
     for entry in keys:
         here = "  <- THIS MACHINE" if entry["fingerprint"] == mine else ""
-        print(f"  {entry['fingerprint']}  {entry.get('label') or '-'}{here}")
+        print(f"  sealing  {entry['fingerprint']}  {entry.get('label') or '-'}{here}")
+    for entry in signing:
+        print(f"  signing  {entry['fingerprint']}  {entry.get('label') or '-'}")
+    if not signing:
+        # State the ABSENCE explicitly. "No line" is what misled the audit:
+        # nothing distinguished "has none" from "was never asked".
+        print(
+            "  signing  (none published — peers get `unverifiable` rather than a\n"
+            "           positive identity check on your mail. Fix: agentbus keys sign)"
+        )
     if mine and not any(e["fingerprint"] == mine for e in keys):
         print(
             "\n  This machine holds a private key whose public half is NOT published,"

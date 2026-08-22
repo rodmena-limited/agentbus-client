@@ -148,7 +148,10 @@ def pending(_: argparse.Namespace) -> int:
     # without touching the bus.
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     if _is_harness_notification(raw):
-        print(raw, end="")
+        # #35: exit silently. Claude Code APPENDS this hook's stdout to the
+        # prompt context, so echoing the payload injects session_id,
+        # transcript_path, cwd and the user's own prompt back into the model's
+        # context — every turn, in every session with the hook installed.
         return 0
 
     agent = _resolve_agent()
@@ -234,8 +237,9 @@ def pending(_: argparse.Namespace) -> int:
 
     if printed_warning:
         print()
-    if raw:
-        print(raw, end="")
+    # #35: the stdin payload is NOT echoed. Whatever this hook prints becomes
+    # part of the prompt, so stdout is reserved for the unread-mail notice —
+    # the only thing a reader of that turn should see from us.
 
     return 0
 

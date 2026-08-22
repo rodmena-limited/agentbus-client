@@ -101,4 +101,10 @@ class AgentBus(_Base, SyncMessagingMixin, SyncDirectoryMixin, SyncMiscMixin):
         if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
             # Explicit opt-out for a caller with its own resilience layer.
             return _do_request()
-        return _run_with_resilience(_do_request, timeout=budget)
+        # #45: retry a 5xx only when a repeat is SAFE. A GET/HEAD is safe by
+        # definition; a mutating call is safe only when we minted an
+        # idempotency key for it, because a 5xx says the server FAILED, not
+        # that it did nothing. Without this, one `register` produced four 500s
+        # and four chances to half-create an identity.
+        safe_to_repeat = method.upper() in {"GET", "HEAD", "OPTIONS"} or idempotent
+        return _run_with_resilience(_do_request, timeout=budget, idempotent=safe_to_repeat)

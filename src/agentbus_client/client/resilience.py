@@ -102,6 +102,23 @@ def _root_cause(exc: BaseException) -> BaseException:
     return exc
 
 
+class _NonIdempotent(Exception):
+    """Marker wrapper: this call must not be retried on a 5xx (#45).
+
+    A 5xx says the server failed, NOT that it did nothing. For a call that
+    creates something and carries no idempotency key, a retry after a partial
+    write is a second half-created object — and for `register` the object is an
+    IDENTITY, the one thing on this bus that must never be silently duplicated.
+    Observed: one register call produced FOUR 500s with four distinct server
+    error ids, invisible to the caller because only the last one surfaced.
+    """
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.__cause__ = cause
+        self.original: BaseException = cause
+
+
 def _is_transient_sdk_error(exc: BaseException) -> bool:
     """RETRY classifier: what an attempt may be retried on.
 
@@ -111,8 +128,10 @@ def _is_transient_sdk_error(exc: BaseException) -> bool:
     retried. The 5xx branch is a STATUS check because only 503 maps to
     ServiceUnavailable; 500/502/504 surface as a bare AgentBusError.
     """
+    if isinstance(exc, _NonIdempotent):
+        return False
     exc = _root_cause(exc)
-    if isinstance(exc, _Abandoned):
+    if isinstance(exc, (_Abandoned, _NonIdempotent)):
         return False
     if isinstance(exc, (TransportError, ServiceUnavailable)):
         return True
@@ -302,7 +321,7 @@ except Exception:  # pragma: no cover - fallback for unusual interpreters
     atexit.register(_abandon_inflight_on_exit)
 
 
-def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
+def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: bool = True) -> Any:
     """Run a sync callable through the retry/breaker/bulkhead stack.
 
     Every library-specific outcome is translated at this boundary so callers only
@@ -328,7 +347,18 @@ def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
     def _attempt() -> Any:
         if cancel.is_set():
             raise _Abandoned("the caller's deadline already fired; not issuing another attempt")
-        return fn()
+        if idempotent:
+            return fn()
+        # #45: a 5xx means the server failed, not that it did nothing. Wrap it
+        # so the retry classifier refuses it; the breaker still counts it, and
+        # the ORIGINAL error is what the caller sees (__cause__ is unwrapped by
+        # _root_cause at the boundary).
+        try:
+            return fn()
+        except AgentBusError as exc:
+            if 500 <= exc.status <= 599:
+                raise _NonIdempotent(exc) from exc
+            raise
 
     guarded = _sdk_safety_net()(_attempt)
 
@@ -336,6 +366,11 @@ def _run_with_resilience(fn: Any, timeout: float | None = None) -> Any:
         _CURRENT_CANCEL.flag = cancel
         try:
             return guarded()
+        except _NonIdempotent as exc:
+            # #45: the marker exists only to stop the RETRY classifier. The
+            # caller must still see the real error — a wrapper leaking out
+            # would turn a plain 500 into an exception type nobody handles.
+            raise exc.original from None
         except RetryLimitReached as exc:
             cause = _root_cause(exc)
             if cause is not exc:

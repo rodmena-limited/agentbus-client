@@ -240,19 +240,31 @@ def _worktree_identity_bleed(env_agent: str) -> str | None:
         root = _repo_root()
         if root is None:
             return None
-        common = subprocess.run(
-            ["git", "rev-parse", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-            cwd=str(root),
-        ).stdout.strip()
+        common = ""
+        try:
+            common = subprocess.run(
+                ["git", "rev-parse", "--git-common-dir"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                cwd=str(root),
+            ).stdout.strip()
+        except Exception:
+            common = ""
         if not common:
-            return None
-        common_path = Path(common)
-        if not common_path.is_absolute():
-            common_path = (root / common_path).resolve()
+            # #42: git could not answer. The FILESYSTEM can: `.git` is a
+            # directory in a main worktree and a FILE ("gitdir: <path>") in a
+            # linked one. Falling through to `return None` here meant "could not
+            # tell" was indistinguishable from "verified not a linked worktree",
+            # and the injected identity won silently.
+            common_path = _common_dir_from_filesystem(root)
+            if common_path is None:
+                return None
+        else:
+            common_path = Path(common)
+            if not common_path.is_absolute():
+                common_path = (root / common_path).resolve()
         own = _read_declared_agent(root)
         # In the MAIN worktree the common dir IS this checkout's .git; only a
         # linked worktree points elsewhere. Every clause is required, and the
@@ -328,8 +340,69 @@ def _repo_root() -> Path | None:
         _REPO_ROOT_CACHE[cwd] = result
         return result
     except Exception:
-        _REPO_ROOT_CACHE[cwd] = None
+        # #42: DO NOT CACHE A SUBPROCESS FAILURE AS "not a repo". Fall back to
+        # the filesystem, which can answer this without git running at all.
+        result = _repo_root_from_filesystem()
+        _REPO_ROOT_CACHE[cwd] = result
+        return result
+
+
+def _common_dir_from_filesystem(root: Path) -> Path | None:
+    """`.git`'s common dir for `root`, read from disk instead of asked of git (#42).
+
+    A main worktree has a `.git` DIRECTORY; a linked worktree has a `.git` FILE
+    whose contents are `gitdir: <path to main>/.git/worktrees/<name>`. The common
+    dir is that path with the trailing `worktrees/<name>` removed.
+    """
+    try:
+        dot_git = root / ".git"
+        if dot_git.is_dir():
+            return dot_git.resolve()
+        if dot_git.is_file():
+            text = dot_git.read_text().strip()
+            if not text.startswith("gitdir:"):
+                return None
+            target = Path(text.split(":", 1)[1].strip())
+            if not target.is_absolute():
+                target = (root / target).resolve()
+            # <main>/.git/worktrees/<name> -> <main>/.git
+            if target.parent.name == "worktrees":
+                return target.parent.parent.resolve()
+            return target.resolve()
+    except OSError:
         return None
+    return None
+
+
+def _repo_root_from_filesystem() -> Path | None:
+    """The worktree top found by walking up for `.git`, with NO subprocess.
+
+    #42, and this is a correctness fix rather than an optimisation. `git
+    rev-parse` returning non-zero was treated as "not a repository", so a git
+    that was missing, slow past the 5s timeout, or transiently failing made
+    `_worktree_identity_bleed` return None — which `_resolve_env_agent` reads as
+    "no bleed, trust the environment". The injected MAIN worktree identity then
+    won SILENTLY, with no banner, and the message went out under another agent's
+    name.
+
+    Measured in a real linked worktree: git available -> correct identity plus
+    the banner; PATH stripped -> the main worktree's name, no banner, no error.
+    Same directory, same environment, different sender, non-deterministic — one
+    wrong From cost three agents an hour and produced four wrong conclusions,
+    because the failure is invisible from both ends.
+
+    `.git` is a DIRECTORY in a main worktree and a FILE ("gitdir: ...") in a
+    linked one, so the distinction this module needs is on disk and never
+    required a subprocess.
+    """
+    try:
+        here = Path(os.getcwd()).resolve()
+        for candidate in (here, *here.parents):
+            if (candidate / ".git").exists():
+                return candidate
+    except OSError:
+        return None
+    return None
 
 
 def _agent_from_project_settings() -> str | None:

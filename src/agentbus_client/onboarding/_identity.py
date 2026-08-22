@@ -148,9 +148,23 @@ def _agent_from_worktree(root: Path | None = None) -> str | None:
     command run in a subdirectory resolves the same identity as one at the top.
     """
     try:
-        top = root or _git_root_or_none()
-        if top is None:
-            return None
+        # #40: OUTSIDE A GIT REPO, FALL BACK TO THE WORKING DIRECTORY. This used
+        # to `return None` when `git rev-parse` found no root, which made THE
+        # AUTHORITATIVE SOURCE UNREACHABLE in any non-repo directory — so
+        # settings.local.json, documented above as a derived mirror rather than
+        # an independent declaration, won permanently and silently.
+        #
+        # That is what produced the recurring "brain split": setup's own
+        # mismatch message tells the operator to write `.agentbus/agent`, and in
+        # a non-repo directory that file was then ignored with no warning. The
+        # operator follows the printed remedy, nothing changes, and nothing says
+        # so — a remedy that cannot go green. Measured on infra-manager in
+        # /home/farshid/develop: 195 `no_credential` gate failures from
+        # 2026-08-17 to 2026-08-22, every one of them silent.
+        #
+        # Precedence is UNCHANGED ($AGENTBUS_AGENT still outranks this, and this
+        # still outranks settings.local.json); only step 2's reachability moves.
+        top = root or _git_root_or_none() or Path.cwd()
         declared = top / ".agentbus" / "agent"
         if not declared.is_file():
             return None

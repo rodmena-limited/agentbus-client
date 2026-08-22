@@ -112,6 +112,61 @@ def test_a_deliberate_export_still_wins(tmp_path, monkeypatch):
     assert _resolve(monkeypatch, linked, "deliberate-name") == "deliberate-name"
 
 
+@pytest.mark.parametrize("var", ["GIT_DIR", "GIT_WORK_TREE"])
+def test_misdirected_git_cannot_change_the_sender(tmp_path, monkeypatch, var):
+    """#44: git ANSWERS, but about another repository.
+
+    tracker-manager found this within the hour of #42 shipping, and named the
+    gap exactly: every test so far varied whether git WORKS; none varied whether
+    git is TELLING THE TRUTH ABOUT THIS DIRECTORY.
+
+    Under GIT_DIR/GIT_WORK_TREE the subprocess SUCCEEDS and reports a different
+    repository, so #42's "git failed -> use disk" fallback is never entered and
+    the resolver gets a confident wrong answer instead of no answer. Measured on
+    0.9.57: tracker-fbe1b4, three times, with ZERO banner lines.
+
+    Not contrived — git exports these itself inside hooks, and CI runners set
+    them, so an agent invoked from a pre-commit hook is in this environment.
+    """
+    _main, linked = _worktree_pair(tmp_path)
+    monkeypatch.setenv(var, str(tmp_path / "elsewhere"))
+    assert _resolve(monkeypatch, linked, "main-agent") == "linked-agent"
+
+
+def test_git_dir_pointing_at_a_REAL_other_repo_cannot_change_the_sender(tmp_path, monkeypatch):
+    """The sharpest form of #44: git succeeds and answers about a VALID other repo.
+
+    Distinct from the nonexistent-path case above, which git REJECTS — that one
+    falls into #42's "git could not answer" branch and is caught by the older
+    fix. Here git answers cleanly, with well-formed output, about the wrong
+    repository. Nothing downstream can tell that apart from the truth except by
+    not asking git in the first place.
+
+    A mutation reverting the common-dir half of #44 passed against the
+    nonexistent-path test and fails against this one, which is the whole reason
+    it exists.
+    """
+    _main, linked = _worktree_pair(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=other, check=False)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "i"], cwd=other, check=False)
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    assert _resolve(monkeypatch, linked, "main-agent") == "linked-agent"
+
+
+def test_misdirected_git_still_lets_a_deliberate_export_win(tmp_path, monkeypatch):
+    """Known-negative under the same stimulus: #90 must survive the #44 fix too.
+
+    Without this, making the filesystem primary could have been implemented as
+    "always prefer the declaration", which would silently override an operator
+    who typed an identity on purpose.
+    """
+    _main, linked = _worktree_pair(tmp_path)
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    assert _resolve(monkeypatch, linked, "deliberate-name") == "deliberate-name"
+
+
 def test_common_dir_is_read_from_disk_for_a_linked_worktree(tmp_path):
     """The mechanism: `.git` is a FILE in a linked worktree, a DIRECTORY in main."""
     main, linked = _worktree_pair(tmp_path)

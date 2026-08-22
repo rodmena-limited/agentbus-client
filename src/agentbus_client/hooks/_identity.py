@@ -240,6 +240,11 @@ def _worktree_identity_bleed(env_agent: str) -> str | None:
         root = _repo_root()
         if root is None:
             return None
+        # #44: disk first, for the same reason as _repo_root above — GIT_DIR
+        # makes this subprocess answer confidently about a different repo.
+        common_path = _common_dir_from_filesystem(root)
+        if common_path is not None:
+            return _bleed_verdict(root, common_path, env_agent)
         common = ""
         try:
             common = subprocess.run(
@@ -265,22 +270,32 @@ def _worktree_identity_bleed(env_agent: str) -> str | None:
             common_path = Path(common)
             if not common_path.is_absolute():
                 common_path = (root / common_path).resolve()
-        own = _read_declared_agent(root)
-        # In the MAIN worktree the common dir IS this checkout's .git; only a
-        # linked worktree points elsewhere. Every clause is required, and the
-        # LAST one is what keeps #90 intact: if the environment is not the main
-        # worktree's declared value then a person put it there, and they win.
-        # Short-circuiting also means the main worktree's files are only read
-        # when this really is a linked checkout.
-        bleed = (
-            common_path != (root / ".git").resolve()
-            and bool(own)
-            and own != env_agent
-            and _read_declared_agent(common_path.parent) == env_agent
-        )
-        return own if bleed else None
+        return _bleed_verdict(root, common_path, env_agent)
     except Exception:
         return None
+
+
+def _bleed_verdict(root: Path, common_path: Path, env_agent: str) -> str | None:
+    """This checkout's own agent when the env holds the MAIN worktree's, else None.
+
+    Extracted (#44) so the disk-derived and git-derived common dirs reach the
+    SAME decision — two copies of this would be the one-fact-two-places trap in
+    the code that decides who a message is from.
+
+    In the MAIN worktree the common dir IS this checkout's .git; only a linked
+    worktree points elsewhere. Every clause is required, and the LAST one is what
+    keeps #90 intact: if the environment is not the main worktree's declared
+    value then a person put it there, and they win. Short-circuiting also means
+    the main worktree's files are only read when this really is a linked checkout.
+    """
+    own = _read_declared_agent(root)
+    bleed = (
+        common_path != (root / ".git").resolve()
+        and bool(own)
+        and own != env_agent
+        and _read_declared_agent(common_path.parent) == env_agent
+    )
+    return own if bleed else None
 
 
 def _agent_from_worktree() -> str | None:
@@ -324,6 +339,24 @@ def _repo_root() -> Path | None:
     cwd = os.getcwd()
     if cwd in _REPO_ROOT_CACHE:
         return _REPO_ROOT_CACHE[cwd]
+    # #44: THE FILESYSTEM IS THE PRIMARY SOURCE, not the fallback. #42 fixed
+    # ABSENT git by falling back to disk; this is MISDIRECTED git — under
+    # GIT_DIR/GIT_WORK_TREE the subprocess SUCCEEDS and answers about ANOTHER
+    # repository, so the fallback was never reached and the resolver got a
+    # confident wrong answer instead of no answer. Same silent signature:
+    # wrong sender, no banner.
+    #
+    # Which checkout am I standing in is a property of THIS DIRECTORY, and
+    # `.git` on disk cannot be redirected by an environment variable. Git is
+    # kept only for the cases disk cannot answer.
+    #
+    # Not contrived: git EXPORTS these itself inside hooks, and CI runners and
+    # wrapper tooling set them, so any agent invoked from a pre-commit hook is
+    # in this environment.
+    from_disk = _repo_root_from_filesystem()
+    if from_disk is not None:
+        _REPO_ROOT_CACHE[cwd] = from_disk
+        return from_disk
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],

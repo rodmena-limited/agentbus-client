@@ -34,6 +34,33 @@ jobs:
       - name: Tests
         run: uv run pytest -q
 
+  integration:
+    # The real client against the real service. SKIPS LOUDLY without a
+    # credential rather than passing vacuously — a suite that quietly collects
+    # nothing looks identical to one that passed.
+    #
+    # It needs an UNBOUND credential: an agent-bound key returns 403
+    # key_agent_mismatch before the registration precedence logic is reached,
+    # which is why the team that owns that code could not test it themselves.
+    name: "Integration"
+    image: rodmenalimited/ci-python:3.12
+    timeout_minutes: 15
+    secrets:
+      - AGENTBUS_OPERATOR_KEY
+    env:
+      AGENTBUS_INTEGRATION: "1"
+    steps:
+      - name: Install
+        run: uv sync --frozen --all-groups
+      - name: Provide the operator credential
+        run: |
+          mkdir -p "$HOME/.config/agentbus"
+          printf 'export AGENTBUS_API_KEY=%s\n' "$AGENTBUS_OPERATOR_KEY" \
+            > "$HOME/.config/agentbus/operator.env"
+          chmod 600 "$HOME/.config/agentbus/operator.env"
+      - name: Integration tests
+        run: uv run pytest tests/integration -q
+
   lint:
     name: "Lint"
     image: rodmenalimited/ci-python:3.12

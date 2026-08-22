@@ -1,0 +1,69 @@
+# RODMENA CI — https://ci.rodmena.co.uk
+#
+# NOT GitHub Actions. No `on:`, no `if:`, no branch filters — every job runs on
+# every build and every pull request. Unknown keys are a hard error.
+#
+# There is deliberately NO deploy/publish job here: publishing to PyPI is done
+# by an operator or a host-side agent, and a publish step in this file would run
+# on every branch and every PR.
+#
+# WHY THIS FILE EXISTS (#47): until 2026-08-22 nothing ran this suite except a
+# human typing pytest. The 550-line file-size cap was breached and shipped, and
+# tests/ carried 97 lint errors for weeks, because "lint clean" in a commit
+# message described whatever scope that author happened to run.
+
+version: 1
+
+concurrency:
+  group: ci-${{ ref }}
+  cancel_in_progress: true
+
+jobs:
+  tests:
+    # THE MATRIX IS THE POINT. pyproject declares requires-python = ">=3.9" and
+    # the suite had only ever run on one interpreter, so four of the five
+    # claimed versions were an untested promise.
+    name: "Tests (py${{ matrix.python }})"
+    image: rodmenalimited/ci-python:${{ matrix.python }}
+    matrix:
+      python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    timeout_minutes: 20
+    steps:
+      - name: Install
+        run: uv sync --frozen --all-groups
+      - name: Tests
+        run: uv run pytest -q
+
+  lint:
+    name: "Lint"
+    image: rodmenalimited/ci-python:3.12
+    timeout_minutes: 10
+    steps:
+      - name: Install
+        run: uv sync --frozen --all-groups
+      # BOTH scopes, deliberately. src/ was clean for months while tests/ was
+      # not, and every "lint clean" claim in the history meant src/ only.
+      - name: Ruff check
+        run: uv run ruff check src tests
+      - name: Ruff format
+        run: uv run ruff format --check src tests
+
+  types:
+    name: "Types"
+    image: rodmenalimited/ci-python:3.12
+    timeout_minutes: 10
+    steps:
+      - name: Install
+        run: uv sync --frozen --all-groups
+      - name: Mypy
+        run: uv run mypy
+
+  limits:
+    # House rules that no tool enforces. Both were breached in the week before
+    # this file existed and neither was noticed by anything but a human reading.
+    name: "House limits"
+    image: rodmenalimited/ci-python:3.12
+    timeout_minutes: 5
+    steps:
+      - name: File size cap (500 soft / 550 hard)
+        run: uv run python scripts/check_limits.py

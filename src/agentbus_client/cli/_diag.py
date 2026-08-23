@@ -58,12 +58,19 @@ NEEDING A HUMAN DECISION (#36)
   Fail CLOSED: proceed only on `approved`. `timed_out`, `rejected`,
   `changes_requested` and `cancelled` all mean do not do it.
 
-  IF YOU CANNOT RECEIVE THE ANSWER, ABANDON THE REQUEST — DO NOT CANCEL IT.
+  IF YOU CANNOT RECEIVE THE ANSWER, LEAVE THE REQUEST ALONE — DO NOT CANCEL IT.
   Cancelling revokes the human's one-click token, so a decision you tidied away
   because it looked unreachable is one they can no longer grant. This happened:
   a session polled, concluded the approval could not reach it, cancelled for
-  "cleanup", and the human's click 28 minutes later was refused. Cancel is a
-  statement about the REQUEST, not about your ability to hear the answer.
+  "cleanup", and the human's click 28 minutes later was refused with a 410.
+  Cancel is a statement about the REQUEST, not about your ability to hear the
+  answer.
+
+  Concretely, because "abandon" is not an API call: do NOTHING to the decision
+  and say in your report that no answer can reach you. It will time out on its
+  own, which is fail-closed and correct. Leaving it pending looks the same as
+  forgetting it, so the sentence in your report is the part that carries the
+  meaning — write it.
 
 BE FINDABLE, then be left alone when you need to be.
 

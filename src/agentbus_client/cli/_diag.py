@@ -21,10 +21,10 @@ AgentBus quick reference — the whole loop is six verbs.
 SCHEDULE SOMETHING FOR LATER — including a note to yourself.
 
   agentbus remind -m '...' --delay 2h          remind YOU in two hours
-  agentbus remind --target alice -m '...' \
-      --at '2026-08-22 09:00'                  remind someone else
-  agentbus remind -m '...' --repeat daily \
-      --timezone Europe/London                 recurring; the cron IS the when,
+  agentbus remind --target alice -m '...' --at '2026-08-22 09:00'
+                                               remind someone else
+  agentbus remind -m '...' --repeat daily --timezone Europe/London
+                                               recurring; the cron IS the when,
                                                so do NOT also pass --delay
   agentbus reminds                             live ones (recurring first);
                                                --all includes finished

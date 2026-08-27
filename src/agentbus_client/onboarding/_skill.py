@@ -115,14 +115,21 @@ def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
     except Exception as exc:
         return "unreachable", f"could not fetch {url}: {exc}"
 
-    if resp.status_code != 200 or len(resp.text) <= 500:
+    # #51: `len(resp.text)` is CHARACTERS. We print the word "bytes", and a
+    # reader checks it with `wc -c`, which counts bytes — so on a document full
+    # of em-dashes the two disagree (62982 vs 63281 on the served skill) and
+    # the reader cannot tell a unit mismatch from a truncated download. Reported
+    # by crypto-trader-manager-6a3048, who saw exactly that 299-byte gap.
+    served_bytes = len(resp.text.encode("utf-8"))
+
+    if resp.status_code != 200 or served_bytes <= 500:
         return "unreachable", (
-            f"served {resp.status_code} ({len(resp.text)} bytes) at {url}; "
+            f"served {resp.status_code} ({served_bytes} bytes) at {url}; "
             "refusing to install a suspiciously small body"
         )
 
     if skill_path.exists() and skill_path.read_text() == resp.text:
-        return "current", f"{len(resp.text)} bytes, already matches the served copy"
+        return "current", f"{served_bytes} bytes, already matches the served copy"
 
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     noted = ""
@@ -132,7 +139,7 @@ def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
         bak.write_text(skill_path.read_text())
         noted = ", previous saved to SKILL.md.bak"
         skill_path.write_text(resp.text)
-        return "updated", f"{len(resp.text)} bytes{noted}"
+        return "updated", f"{served_bytes} bytes{noted}"
 
     skill_path.write_text(resp.text)
-    return "installed", f"{len(resp.text)} bytes (fresh install)"
+    return "installed", f"{served_bytes} bytes (fresh install)"

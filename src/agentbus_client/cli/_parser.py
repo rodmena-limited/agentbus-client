@@ -24,9 +24,74 @@ from . import (
     _watch_status,
 )
 
+# #50: what an operator TYPES, mapped to the verb that exists.
+#
+# Reported by crypto-trader-manager-6a3048: told to check in every 20 minutes,
+# they reached for `cron`, found no such verb, concluded the bus could not
+# schedule, and wired a SESSION-LOCAL timer instead. It died with the session and
+# the follow-ups silently stopped.
+#
+# Deliberately NOT aliases. `agentbus cron` as a second name for
+# `remind --repeat` would be one concept with two spellings — the same
+# one-fact-two-places trap that produced the split-identity bugs (#40, #44). A
+# suggestion teaches the real verb; an alias hides it, and the reader never
+# learns the thing they will need for `--expire` and `reminds`.
+_INTENT_HINTS = {
+    "cron": "remind --repeat daily '<message>'",
+    "crontab": "remind --repeat daily '<message>'",
+    "schedule": "remind --delay 2h '<message>'   (or --repeat for a recurrence)",
+    "timer": "remind --delay 2h '<message>'",
+    "wake": "remind --delay 2h '<message>'",
+    "wakeup": "remind --delay 2h '<message>'",
+    "snooze": "remind --delay 2h '<message>'",
+    "later": "remind --delay 2h '<message>'",
+    "poke": "remind --target <agent> --delay 2h '<message>'",
+    "followup": "remind --repeat daily '<message>'",
+    "follow-up": "remind --repeat daily '<message>'",
+    "mail": "inbox",
+    "read": "show <delivery-id>",
+    "list": "inbox   (or `reminds` for scheduled ones)",
+}
+
+
+class _SuggestingParser(argparse.ArgumentParser):
+    """An unknown verb should point at the right one, not print 52 choices.
+
+    argparse's default lists every choice, which is a wall an agent skims and
+    concludes from. That is how a real session decided self-scheduling did not
+    exist while `remind` was sitting in the list it had just been shown.
+    """
+
+    def error(self, message: str) -> None:  # type: ignore[override]
+        import difflib
+        import re as _re
+
+        m = _re.search(r"invalid choice: '([^']+)'", message)
+        if m:
+            typed = m.group(1)
+            hint = _INTENT_HINTS.get(typed.lower())
+            if hint is None:
+                choices = self._subparser_choices()
+                close = difflib.get_close_matches(typed.lower(), choices, n=1, cutoff=0.6)
+                hint = close[0] if close else None
+            if hint:
+                self.exit(
+                    2,
+                    f"agentbus: there is no `{typed}` command.\n\n"
+                    f"  You probably want:  agentbus {hint}\n\n"
+                    f"  `agentbus quickref` lists the common flows.\n",
+                )
+        super().error(message)
+
+    def _subparser_choices(self) -> list[str]:
+        for action in self._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                return list(action.choices)
+        return []
+
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _SuggestingParser(
         prog="agentbus", description="AgentBus — a real inbox for every agent"
     )
     from .. import __version__

@@ -113,6 +113,30 @@ def cmd_quickref(args: argparse.Namespace) -> int:
     question rather than printing everything. An agent joining the bus should
     not have to read a 1000-line llms.txt to learn six verbs and three rules.
     """
+    # #53: THE VERB LIST AS A CONTRACT, not as something to scrape.
+    #
+    # agentbus-8dc08d's doc guard diffs their skill against our verb list, and
+    # got it by regexing `agentbus --help`. argparse WRAPS that usage line, so a
+    # line-oriented regex can silently return a partial list — they measured 46
+    # where the authoritative count is 52, and were one step from lowering a
+    # ratchet budget on the strength of it.
+    #
+    # I could not reproduce their truncation here at any terminal width, so I am
+    # not claiming their mechanism. What is certain either way: --help is a
+    # HUMAN surface whose line breaks are a rendering detail, and a downstream
+    # guard should never have to depend on one. This is the surface that cannot
+    # wrap.
+    if getattr(args, "verbs", False):
+        from ._parser import build_parser
+
+        parser = build_parser()
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                verbs = sorted(action.choices)
+                _print(verbs, args.json) if args.json else print("\n".join(verbs))
+                return 0
+        return 1
+
     _print(QUICKREF, args.json)
     return 0
 
@@ -266,6 +290,12 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
     p.set_defaults(func=cmd_refresh_skill)
 
     p = sub.add_parser("quickref", help="the six verbs and three rules, on one screen")
+    p.add_argument(
+        "--verbs",
+        action="store_true",
+        help="print every verb, one per line, for scripts and doc guards "
+        "(a stable contract; do NOT parse --help, which wraps)",
+    )
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_quickref)
 

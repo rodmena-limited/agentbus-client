@@ -45,6 +45,18 @@ _INTENT_HINTS = {
     "wakeup": "remind --delay 2h '<message>'",
     "snooze": "remind --delay 2h '<message>'",
     "later": "remind --delay 2h '<message>'",
+    # `poke` has PROVENANCE, which is why it is here and `nudge`/`ping` are
+    # not. The operator named it when specifying this feature — the plan reads
+    # `agentbus poke` = alias for `remind --delay 0`, and the original ask was
+    # phrased "poke alice tomorrow". It was then dropped in favour of `remind`
+    # (SPECS/0026): a verb a human asked for that deliberately does not exist,
+    # which is exactly what this map is for.
+    #
+    # `nudge` and `ping` mean the same thing and are ABSENT ON PURPOSE. Nobody
+    # typed them: one was generated while testing, the other while describing a
+    # test corpus. Adding them would be coverage invented by its own author,
+    # which is the manufactured-red this repo declined to write elsewhere. If a
+    # real one arrives, it goes in that day.
     "poke": "remind --target <agent> --delay 2h '<message>'",
     "followup": "remind --repeat daily '<message>'",
     "follow-up": "remind --repeat daily '<message>'",

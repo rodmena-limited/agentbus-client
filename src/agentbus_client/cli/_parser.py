@@ -72,7 +72,18 @@ class _SuggestingParser(argparse.ArgumentParser):
             hint = _INTENT_HINTS.get(typed.lower())
             if hint is None:
                 choices = self._subparser_choices()
-                close = difflib.get_close_matches(typed.lower(), choices, n=1, cutoff=0.6)
+                # Cutoff chosen from DATA, not feel. Measured against the real
+                # verb list: genuine typos score 0.75-0.91 (sned->send 0.75,
+                # inbx->inbox 0.89, statu->status 0.91), while the nearest
+                # SEMANTIC false positive, nudge->usage, sits at exactly 0.60.
+                # At 0.60 the CLI confidently told someone who meant "remind"
+                # to run the quota command. 0.75 keeps every real typo and drops
+                # every false one; 0.80 starts losing genuine typos.
+                #
+                # A wrong suggestion is worse than argparse's list, because it
+                # will be followed — which is the whole reason this handler
+                # exists rather than the reason to relax it.
+                close = difflib.get_close_matches(typed.lower(), choices, n=1, cutoff=0.75)
                 hint = close[0] if close else None
             if hint:
                 self.exit(

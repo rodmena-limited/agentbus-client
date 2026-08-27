@@ -94,3 +94,45 @@ def test_real_verbs_are_not_intercepted(verb):
     except SystemExit as exc:
         # --help exits 0; an invalid-choice interception would exit 2
         assert exc.code == 0, f"{verb} was intercepted as unknown"
+
+
+# --- #52: the fuzzy fallback must not invent a confident wrong answer --------
+#
+# Shipped 0.9.63 with cutoff=0.6 and immediately found `agentbus nudge`
+# suggesting `agentbus usage` — a quota command, to somebody who meant remind.
+# difflib scored that pair at exactly 0.60, the cutoff itself.
+#
+# Real typos measured against the actual verb list score 0.75-0.91, so the
+# threshold is chosen from that gap rather than by feel.
+
+
+@pytest.mark.parametrize(
+    "typed,want",
+    [
+        ("inbx", "inbox"),
+        ("sned", "send"),
+        ("statu", "status"),
+        ("remnid", "remind"),
+        ("wathc", "watch"),
+    ],
+)
+def test_real_typos_still_resolve(typed, want, capsys):
+    """KNOWN-POSITIVE for the threshold: tightening it must not break typos."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args([typed])
+    assert want in _suggestion_line(capsys.readouterr().err)
+
+
+@pytest.mark.parametrize("typed", ["nudge", "ping", "chase", "deploy", "commit"])
+def test_a_semantic_near_miss_gets_no_confident_suggestion(typed, capsys):
+    """THE 0.9.63 BUG. `nudge` is not a typo of `usage`; it is a different word.
+
+    Falling back to argparse costs the reader a list. A wrong suggestion costs
+    them the wrong command, because it will be followed — which is the reason
+    this handler exists, not a reason to loosen it.
+    """
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args([typed])
+    assert _suggestion_line(capsys.readouterr().err) == "", f"{typed!r} got a guess"

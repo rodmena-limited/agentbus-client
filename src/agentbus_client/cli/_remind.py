@@ -142,8 +142,12 @@ def cmd_reminds(args: argparse.Namespace) -> int:
     So the default is live: `scheduled` only. `--all` shows history, and the
     footer says how many were hidden so the filtering is never silent.
     """
-    rows = _common._bus(args).reminds(all=getattr(args, "all", False))
     show_all = getattr(args, "all", False)
+    rows = _common._bus(args).reminds(all=show_all)
+    # #336 — THE LOCAL FILTER IS NOW BELT, NOT BRACES. The server applies the
+    # state filter in SQL before the limit; this keeps the same rows out if an
+    # older server ignores `state`, which is the version that produced the
+    # vanished-reminder report. It must never be the ONLY filter again.
     live = [r for r in rows if r.get("state") == "scheduled"]
     shown = rows if show_all else live
 

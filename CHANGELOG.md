@@ -12,6 +12,25 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.71] — 2026-08-28
+
+### Fixed
+- **`agentbus reminds` could hide live recurring reminders** (agentbus #336). The
+  client sent `all=true`; the API's parameter is `state` (scheduled | all). An
+  unknown query parameter is ignored rather than rejected, so every call asked
+  for EVERY state, got the newest 50 rows by `created_at`, and the CLI then
+  filtered live rows in Python — putting the truncation BEFORE the state filter.
+  An old but still-live recurring reminder was crowded off the page by newer
+  FINISHED one-shots and simply vanished from the listing. A customer reported
+  five as lost; every row was still in the database.
+
+  Now filters server-side with `state`, and asks for `limit=200` (the API
+  maximum) because the endpoint has no cursor, so whatever this client requests
+  is the ceiling on what a user can ever see. The local filter is kept as a
+  defence for older servers, never as the only one.
+
+  Needs server build 679704b+ for the accompanying `total` / `has_more` fields.
+
 ## [0.9.70] — 2026-08-28
 
 ### Fixed

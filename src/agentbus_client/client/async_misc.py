@@ -317,7 +317,10 @@ class AsyncMiscMixin(_MixinBase):
 
     async def reminds(self, *, agent: str | None = None, all: bool = False) -> list[dict[str, Any]]:
         """Scheduled reminders — async twin of AgentBus.reminds."""
-        params = {"all": "true"} if all else None
+        # #336 — see the sync twin: `all=true` was not a parameter this API has,
+        # so the state filter never reached the server and truncation happened
+        # BEFORE it. Live recurrences were crowded out by finished one-shots.
+        params = {"state": "all" if all else "scheduled", "limit": "200"}
         result: dict[str, Any] = await self._request(
             "GET", "/v1/reminders", params=params, agent=agent
         )

@@ -249,7 +249,22 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         lists messages not yet sent. Two features, similar words, and conflating
         them would make both harder to reason about.
         """
-        params = {"all": "true"} if all else None
+        # #336 — `all=true` WAS NOT A PARAMETER THIS API HAS.
+        #
+        # The server's query parameter is `state` (scheduled | all). `all=true`
+        # was silently ignored, so EVERY call asked for every state and got the
+        # newest 50 by created_at, and the CLI then filtered live rows locally —
+        # i.e. the truncation happened BEFORE the state filter. An old but live
+        # recurring reminder was crowded out by newer FINISHED one-shots and
+        # simply disappeared. A customer reported five as vanished; every row was
+        # still in the database.
+        #
+        # Now the filter is server-side, so the limit applies to the rows the
+        # caller actually asked for. `limit=200` is the API maximum: the listing
+        # has no cursor, so asking for the most it will give is the honest
+        # maximum this client can offer, and `reminds_page()` exposes the
+        # truncation flags for a caller that needs to know.
+        params = {"state": "all" if all else "scheduled", "limit": "200"}
         result: dict[str, Any] = self._request("GET", "/v1/reminders", params=params, agent=agent)
         return result["reminders"]
 

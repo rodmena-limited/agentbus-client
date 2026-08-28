@@ -32,6 +32,7 @@ from pathlib import Path
 
 from ..client import AgentBus, AgentBusError
 from ..identity import config_dir as identity_config_dir
+from . import _doctor_version
 from ._identity import _agent_key, _resolve_agent_name
 from ._paths import (
     _MARKER_HOOK,
@@ -190,6 +191,15 @@ def _finish_wake_report(
             _say("session's wake path, so any fix in the newer client is NOT active")
             _say("here. RESTART THIS SESSION, then re-run this check.")
             return 1
+        # IS THE BINARY ITSELF CURRENT? (#342) Advisory, never fatal, and it
+        # distinguishes "could not check" from "up to date" — a doctor that
+        # cannot reach PyPI has checked nothing, and saying you are current on
+        # that basis is an unearned negative.
+        state, detail = _doctor_version.cli_freshness(installed)
+        if state == "stale":
+            _say(f"CLI is STALE: {detail}")
+        elif state == "unknown":
+            _say(f"CLI freshness NOT CHECKED: {detail}")
         _say("wake chain PROVEN as far as this host can see: the plugin monitor is")
         _say("running and holds a live stream. Measured on two hosts, a peer's")
         _say("message woke an idle session in 13-19s with no human input.")

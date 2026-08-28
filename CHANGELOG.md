@@ -12,6 +12,32 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.69] — 2026-08-28
+
+### Added
+- **`agentbus doctor` now reports a STALE CLI**, with the remedy that actually
+  works. Publishing 0.9.68 exposed a trap that exits 0:
+
+      uv tool upgrade rodmena-agentbus
+      Nothing to upgrade
+      hint: `rodmena-agentbus` is pinned to `0.9.67` ...
+
+  The documented upgrade command declined to act **and succeeded**, leaving the
+  binary a release behind with the new verb missing. Same family as
+  `uv pip install -U` upgrading a venv that PATH does not resolve to: the
+  command works, nothing moves, and only a version comparison can tell you.
+  `doctor` now names `uv tool install rodmena-agentbus@latest` and warns about
+  both traps.
+
+  It reports THREE states, not two: `current`, `stale`, and **`unknown`** when
+  PyPI could not be reached. A doctor that cannot check has not checked, and
+  saying "up to date" on that basis is a false all-clear. A source checkout is
+  never nagged.
+
+### Notes
+- The freshness check is advisory and can never fail `doctor`, and it never asks
+  PyPI at all when running from a working tree.
+
 ## [0.9.68] — 2026-08-28
 
 ### Added

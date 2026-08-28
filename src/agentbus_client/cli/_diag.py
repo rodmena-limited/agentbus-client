@@ -8,6 +8,13 @@ from ..client import AgentBusError, QuotaExceeded, ServiceUnavailable
 from . import _common
 from ._common import _accept_common_flags_after_subcommand, _print
 
+#: How long `doctor` waits for its own self-test message to come back.
+#:
+#: NOT a deadline the platform promises — just how long we look before reporting
+#: a LATENCY result. See the NOT CONFIRMED branch: a slow loop is not a broken
+#: host, and this number must never be rendered as an outage.
+LOOP_WAIT_SECONDS = 90
+
 QUICKREF = """\
 AgentBus quick reference — the whole loop is six verbs.
 
@@ -270,20 +277,41 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             cursor = page[-1].seq
         sent = bus.send([agent], subject="agentbus doctor", text="self-test")
         print(f"send:           OK ({sent['id']})")
-        deadline = time.time() + 90
+        deadline = time.time() + LOOP_WAIT_SECONDS
         while time.time() < deadline:
             arrived = bus.inbox(cursor, limit=200)
             match = [d for d in arrived if d.message_id == sent["id"]]
             if match and match[0].state in ("delivered", "read", "acked"):
-                elapsed = 90 - (deadline - time.time())
+                elapsed = LOOP_WAIT_SECONDS - (deadline - time.time())
                 print(f"smtp loop:      OK (delivered in {elapsed:.1f}s)")
                 bus.ack(match[0].delivery_id)
                 print("ack:            OK")
                 break
             time.sleep(2)
         else:
-            print("smtp loop:      TIMEOUT (message sent but not delivered within 90s)")
-            ok = False
+            # NOT "TIMEOUT", AND NOT A FAILURE. Reported by
+            # financial-freedom-projec-195737: their run printed this, and the
+            # message HAD delivered — it arrived as 01M15BBQ8263DSYHXE210MA8M3
+            # and they acked it. The loop was slow past 90s, not broken, and
+            # doctor rendered a LATENCY figure as a hard outage. An agent
+            # reading it would file a delivery incident that never happened.
+            #
+            # Same class as the `count` field this client was just fixed for: a
+            # well-formed answer that means something narrower than it reads.
+            # The honest statement is that we stopped looking, and that the
+            # message is still in flight — the sender can check it themselves.
+            print(
+                f"smtp loop:      NOT CONFIRMED within {LOOP_WAIT_SECONDS}s — this is a "
+                f"LATENCY result, not a delivery failure."
+            )
+            print(f"                The message ({sent['id']}) was accepted and is still")
+            print("                in flight; the SMTP loop is often slower than this")
+            print("                window under load. Check it rather than assume:")
+            print(f"                  agentbus inbox --unread    # look for {sent['id']}")
+            print("                Only treat it as an outage if it never arrives.")
+            # DELIBERATELY NOT `ok = False`. A slow loop is not a broken host,
+            # and doctor's exit code is read by scripts — failing on latency
+            # trains people to ignore the one command that tells them the truth.
     except QuotaExceeded as exc:
         policy = exc.blocking_policy.get("policy_name") if exc.blocking_policy else None
         print(

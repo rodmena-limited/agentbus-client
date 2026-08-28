@@ -54,12 +54,14 @@ UPGRADE_HINT = (
     "upgrade with whichever matches how this copy was installed — "
     "`uv tool install rodmena-agentbus@latest`, "
     "`<your-venv>/bin/pip install -U rodmena-agentbus`, or "
-    "`python3 -m pip install -U --user rodmena-agentbus` — then CHECK IT MOVED "
+    "`python3 -m pip install -U --no-cache-dir rodmena-agentbus` — then CHECK IT MOVED "
     "with `agentbus --version`. Every one of those commands exits 0 without "
     "doing anything when the package is not installed the way it assumes: "
     "`uv tool upgrade` no-ops on an exact version pin, `uv pip install -U` "
     "upgrades a venv your PATH may not resolve to, and a uv-tool command does "
-    "nothing at all for a pip install. The version number is the only proof."
+    "nothing at all for a pip install, and pip can no-op from a CACHED INDEX "
+    "that predates the release (hence --no-cache-dir). The version number is "
+    "the only proof."
 )
 
 
@@ -113,7 +115,19 @@ def cli_freshness(installed: str | None, timeout: float = 4.0) -> tuple[str, str
     here, there = _parse(installed), _parse(latest)
     if here is None or there is None:
         return "unknown", f"cannot compare {installed!r} with {latest!r}"
-    if here >= there:
+    if here > there:
+        # AHEAD OF THE INDEX IS NOT "THE LATEST ON PYPI", and saying so is a
+        # false statement about a third party. PyPI's JSON API lags its own
+        # simple index by minutes: a peer installed 0.9.73 with pip while
+        # /pypi/rodmena-agentbus/json still reported 0.9.72, and this line told
+        # them "0.9.73 is the latest on PyPI" — which was not what we had
+        # checked. Say what we actually observed.
+        return "current", (
+            f"{installed} installed; PyPI's JSON API currently reports {latest}. "
+            f"You are AHEAD of the index (it lags publication by minutes), or "
+            f"running an unpublished build."
+        )
+    if here == there:
         return "current", f"{installed} is the latest on PyPI"
     # NAME THE COPY. A peer had TWO installs and the stale one was a project venv
     # reached by absolute path, not the binary on PATH — "you are out of date"

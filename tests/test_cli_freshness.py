@@ -204,3 +204,42 @@ def test_the_doctor_command_actually_calls_the_check():
         )
     ]
     assert printed, "cli_freshness is called but its verdict is never printed"
+
+
+# ------------------------------------------------- ahead of a lagging index
+
+
+def test_being_ahead_of_pypis_index_is_not_reported_as_being_the_latest(monkeypatch):
+    """PyPI's JSON API lags its own simple index by minutes.
+
+    A peer installed 0.9.73 with pip while /pypi/.../json still reported 0.9.72,
+    and `doctor` told them "0.9.73 is the latest on PyPI" — a confident statement
+    about a third party that we had not checked and that was not true. Say what
+    was actually observed.
+    """
+    _fake_pypi(monkeypatch, "0.9.72")
+    state, detail = dv.cli_freshness("0.9.73")
+    assert state == "current"
+    assert "AHEAD of the index" in detail
+    assert "0.9.72" in detail, "the report must name what PyPI actually said"
+
+
+def test_an_exact_match_still_reads_as_the_latest(monkeypatch):
+    """KNOWN-POSITIVE for the branch above: the ordinary case must not acquire
+    the ahead-of-index wording."""
+    _fake_pypi(monkeypatch, "0.9.73")
+    state, detail = dv.cli_freshness("0.9.73")
+    assert state == "current"
+    assert "AHEAD" not in detail
+    assert "is the latest on PyPI" in detail
+
+
+def test_the_remedy_names_the_pip_cache(monkeypatch):
+    """`pip install -U` no-ops silently from a cached index that predates the
+    release — exit 0, nothing printed. Reported by a peer who hit exactly that
+    and needed --no-cache-dir. "Run it again" is not a remedy when the index is
+    the stale thing."""
+    _fake_pypi(monkeypatch, "0.9.99")
+    _state, detail = dv.cli_freshness("0.9.60")
+    assert "--no-cache-dir" in detail
+    assert "CACHED INDEX" in detail or "cached index" in detail.lower()

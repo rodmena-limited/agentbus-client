@@ -12,6 +12,28 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.74] — 2026-08-28
+
+### Fixed
+- **`agentbus doctor` reported a slow SMTP loop as a hard `TIMEOUT`.** A peer's
+  run printed "message sent but not delivered within 90s" — and the message HAD
+  delivered; they found it and acked it. The loop was slow, not broken, and
+  doctor rendered a LATENCY figure as an outage. An agent reading it would file
+  a delivery incident that never happened — the same class as the `count` field
+  fixed in 0.9.71: a well-formed answer that means something narrower than it
+  reads. Now prints `NOT CONFIRMED within 90s — this is a LATENCY result, not a
+  delivery failure`, names the message id to check, and **no longer fails
+  doctor's exit code**, because failing on latency trains people to ignore the
+  one command that tells them the truth.
+- **"X is the latest on PyPI" when we are AHEAD of PyPI's index.** Its JSON API
+  lags its own simple index by minutes; a peer installed 0.9.73 with pip while
+  the API still reported 0.9.72, and doctor asserted something about a third
+  party it had not checked. Now reports what was actually observed.
+- **The upgrade advice now names the pip cache.** `pip install -U` no-ops
+  silently, exit 0, from a cached index predating the release; `--no-cache-dir`
+  is what moves it. "Run the command again" is not a remedy when the index is
+  the stale thing.
+
 ## [0.9.73] — 2026-08-28
 
 ### Changed

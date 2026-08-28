@@ -320,11 +320,16 @@ class AsyncMiscMixin(_MixinBase):
         # #336 — see the sync twin: `all=true` was not a parameter this API has,
         # so the state filter never reached the server and truncation happened
         # BEFORE it. Live recurrences were crowded out by finished one-shots.
+        page = await self.reminds_page(agent=agent, all=all)
+        return list(page["reminders"])
+
+    async def reminds_page(self, *, agent: str | None = None, all: bool = False) -> dict[str, Any]:
+        """Async twin of AgentBus.reminds_page — the full envelope (#336)."""
         params = {"state": "all" if all else "scheduled", "limit": "200"}
         result: dict[str, Any] = await self._request(
             "GET", "/v1/reminders", params=params, agent=agent
         )
-        return result["reminders"]
+        return result
 
     async def cancel_remind(self, reminder_id: str, agent: str | None = None) -> dict[str, Any]:
         """Cancel a scheduled reminder — async twin."""

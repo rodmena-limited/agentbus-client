@@ -37,7 +37,31 @@ def _reminds_output(rows, show_all=False, monkeypatch=None):
         all = show_all
         agent = None
 
-    bus = type("B", (), {"reminds": lambda self, all=False: rows})()
+    # THE STUB MODELS THE SERVER, NOT THE OLD CLIENT (#336).
+    #
+    # It used to return every row for both calls, because the CLI filtered
+    # locally — which is precisely the defect: the state filter ran AFTER the
+    # server had already truncated. Now the server filters, so `all=False` must
+    # hand back only the scheduled rows, and `total` must describe the rows that
+    # EXIST under that filter. A stub that kept returning everything would let a
+    # regression to local-only filtering pass unnoticed here.
+    live = [r for r in rows if r.get("state") == "scheduled"]
+
+    def _page(self, all=False):
+        chosen = rows if all else live
+        return {
+            "reminders": chosen,
+            "count": len(chosen),
+            "total": len(chosen),
+            "has_more": False,
+            "limit": 200,
+        }
+
+    bus = type(
+        "B",
+        (),
+        {"reminds_page": _page, "reminds": lambda self, all=False: _page(self, all)["reminders"]},
+    )()
     monkeypatch.setattr(_remind._common, "_bus", lambda args: bus)
     return _remind.cmd_reminds(_A())
 

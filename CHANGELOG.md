@@ -12,6 +12,24 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.72] — 2026-08-28
+
+### Added
+- **`reminds_page()`** on both clients — the full listing envelope
+  (`reminders`, `count`, `total`, `has_more`, `limit`). A list cannot carry a
+  truncation flag, which is the whole of agentbus #336: the response looked
+  complete whether it was or not.
+- **`agentbus reminds` now says when the listing is truncated**: "SHOWING 200 OF
+  n — this listing is TRUNCATED at the API maximum".
+
+### Fixed
+- **0.9.71 silently lost the "n finished — see them with --all" footer.** Moving
+  the filter server-side meant the finished rows no longer arrived, so
+  `len(rows)` could not count them and the footer degraded to "no reminders".
+  That footer IS the promise that the filtering is never silent, so 0.9.71
+  traded one silent omission for another. The count now comes from the server's
+  `total`, and a failure to fetch it can never break the listing.
+
 ## [0.9.71] — 2026-08-28
 
 ### Fixed

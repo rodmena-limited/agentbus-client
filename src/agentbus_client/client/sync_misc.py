@@ -264,9 +264,22 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         # has no cursor, so asking for the most it will give is the honest
         # maximum this client can offer, and `reminds_page()` exposes the
         # truncation flags for a caller that needs to know.
+        return self.reminds_page(agent=agent, all=all)["reminders"]
+
+    def reminds_page(self, *, agent: str | None = None, all: bool = False) -> dict[str, Any]:
+        """The whole listing envelope: reminders, count, total, has_more, limit.
+
+        SEPARATE FROM `reminds()` BECAUSE A LIST CANNOT CARRY A TRUNCATION FLAG,
+        and that is the bug (#336): the response looked complete whether it was
+        or not. A caller that only wants the rows keeps `reminds()`; a caller
+        that must not silently under-report — the CLI — uses this.
+
+        `total` is the count under the SAME state filter, so `has_more` answers
+        "is this page all of what I asked for", not "does anything else exist".
+        """
         params = {"state": "all" if all else "scheduled", "limit": "200"}
         result: dict[str, Any] = self._request("GET", "/v1/reminders", params=params, agent=agent)
-        return result["reminders"]
+        return result
 
     def cancel_remind(self, reminder_id: str, agent: str | None = None) -> dict[str, Any]:
         """Cancel a scheduled reminder before it fires."""

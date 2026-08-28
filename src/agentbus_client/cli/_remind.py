@@ -143,13 +143,30 @@ def cmd_reminds(args: argparse.Namespace) -> int:
     footer says how many were hidden so the filtering is never silent.
     """
     show_all = getattr(args, "all", False)
-    rows = _common._bus(args).reminds(all=show_all)
+    bus = _common._bus(args)
+    page = bus.reminds_page(all=show_all)
+    rows = page["reminders"]
     # #336 — THE LOCAL FILTER IS NOW BELT, NOT BRACES. The server applies the
     # state filter in SQL before the limit; this keeps the same rows out if an
     # older server ignores `state`, which is the version that produced the
     # vanished-reminder report. It must never be the ONLY filter again.
     live = [r for r in rows if r.get("state") == "scheduled"]
     shown = rows if show_all else live
+
+    # HOW MANY EXIST IN TOTAL, so the footer can still say what is being hidden.
+    #
+    # Filtering server-side (the fix) means the finished rows never arrive, so
+    # `len(rows)` can no longer count them — and the old footer, "27 finished —
+    # see them with --all", silently became "no reminders". That footer IS the
+    # promise in this function's docstring that the filtering is never silent,
+    # so losing it would have traded one silent omission for another. One extra
+    # call, only on the default view, only to say a true number.
+    total_all = None
+    if not show_all:
+        try:
+            total_all = bus.reminds_page(all=True).get("total")
+        except AgentBusError:
+            total_all = None  # never let a footer break the listing
 
     if args.json:
         # --json is the machine surface and must not lose data to a display
@@ -158,8 +175,9 @@ def cmd_reminds(args: argparse.Namespace) -> int:
         return 0
 
     if not shown:
-        if rows and not show_all:
-            print(f"no live reminders ({len(rows)} finished — see them with --all)")
+        finished = (total_all - len(rows)) if total_all is not None else 0
+        if finished > 0 and not show_all:
+            print(f"no live reminders ({finished} finished — see them with --all)")
         else:
             print("no reminders")
         return 0
@@ -169,9 +187,18 @@ def cmd_reminds(args: argparse.Namespace) -> int:
     for row in sorted(shown, key=lambda r: (not r.get("repeat"), r.get("due_at") or "")):
         print(_render(row))
 
-    hidden = len(rows) - len(shown)
-    if hidden:
+    hidden = (total_all - len(shown)) if total_all is not None else (len(rows) - len(shown))
+    if hidden > 0:
         print(f"\n({hidden} finished reminder(s) hidden — `agentbus reminds --all`)")
+    # #336's FIRST EARS LINE: the listing must say when it returned fewer rows
+    # than exist. Without this a truncated page is indistinguishable from a
+    # complete one, which is the whole reason five reminders read as vanished.
+    if page.get("has_more"):
+        print(
+            f"\nSHOWING {page.get('count')} OF {page.get('total')} — this listing is "
+            f"TRUNCATED at the API maximum ({page.get('limit')}). Rows exist that are "
+            f"not on this page; cancel or let some resolve to see the rest."
+        )
     if any(r.get("repeat") for r in shown):
         print("cancel a recurring one: agentbus remind --cancel <id>")
     return 0

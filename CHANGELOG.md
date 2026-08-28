@@ -12,6 +12,24 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.73] — 2026-08-28
+
+### Changed
+- **The stale-CLI advice no longer stakes everything on one command**, and now
+  names WHICH copy is stale. Reported by a peer who ran the exact command 0.9.70
+  printed — `uv tool install rodmena-agentbus@latest` — and got nothing, exit 0,
+  still on 0.9.61: the client was never a uv tool on their host. It was
+  pip-installed twice, and the copy that mattered was a project venv their code
+  invokes by absolute path, not the binary on PATH.
+
+  Their generalisation is better than the one this shipped with: it is not that
+  `uv tool upgrade` no-ops on an exact pin — it is that EVERY upgrade command
+  no-ops when the package is not installed the way that command assumes, and all
+  of them exit 0. So `doctor` now lists the install shapes, says why a
+  successful-looking upgrade proves nothing, tells you to check
+  `agentbus --version` actually moved, and prints the path of the copy it is
+  reporting on.
+
 ## [0.9.72] — 2026-08-28
 
 ### Added

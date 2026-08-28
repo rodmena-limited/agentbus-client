@@ -38,14 +38,42 @@ def test_a_behind_build_is_stale(monkeypatch):
     assert "0.9.67" in detail and "0.9.68" in detail
 
 
-def test_the_remedy_names_the_command_that_actually_works(monkeypatch):
-    """`uv tool upgrade` is the command that DID NOT WORK. If the advice says
-    only that, this check has reproduced the bug it exists to prevent."""
+def test_the_remedy_does_not_stake_everything_on_one_command(monkeypatch):
+    """NAMING A COMMAND WAS THE WRONG SHAPE, and a peer proved it.
+
+    The first version of this advice said "run `uv tool install ...@latest`".
+    financial-freedom-projec-195737 ran exactly that: it printed nothing, exited
+    0, and left them on 0.9.61 — the client was never a uv tool on their host at
+    all. It was pip-installed in two places, and the one that mattered was a
+    project venv their code invokes by ABSOLUTE PATH.
+
+    Their generalisation is the right one: EVERY upgrade command no-ops when the
+    package is not installed the way that command assumes, and all of them exit
+    0. So the advice must cover the install shapes AND tell the reader the only
+    thing that actually proves anything — that the version moved.
+    """
     _fake_pypi(monkeypatch, "0.9.68")
     _state, detail = dv.cli_freshness("0.9.60")
-    assert "uv tool install rodmena-agentbus@latest" in detail
-    assert "Nothing to upgrade" in detail, "the advice must warn that upgrade exits 0"
-    assert "uv pip install -U" in detail, "and that pip -U hits the wrong environment"
+    assert "agentbus --version" in detail, (
+        "the advice must tell the reader to CHECK THE VERSION MOVED; every "
+        "upgrade command exits 0 without doing anything on the wrong install"
+    )
+    for shape in ("uv tool install", "pip install -U"):
+        assert shape in detail, f"the advice does not cover a {shape!r} install"
+    assert "exits 0" in detail or "no-ops" in detail, (
+        "the advice must say WHY a successful-looking upgrade proves nothing"
+    )
+
+
+def test_a_stale_build_says_WHICH_copy_is_stale(monkeypatch):
+    """A peer had two installs and the stale one was not the binary on PATH.
+    'You are out of date' without naming the copy sends people to upgrade the
+    wrong one."""
+    import sys as _sys
+
+    _fake_pypi(monkeypatch, "0.9.68")
+    _state, detail = dv.cli_freshness("0.9.60")
+    assert _sys.executable in detail, "the report does not say which install is stale"
 
 
 # ----------------------------------------------------------------- current

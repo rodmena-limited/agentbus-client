@@ -29,19 +29,37 @@ NEVER FAILS THE COMMAND. This is advisory. A network hiccup must not turn
 from __future__ import annotations
 
 import json
+import sys
 import urllib.error
 import urllib.request
 
 PYPI_JSON = "https://pypi.org/pypi/rodmena-agentbus/json"
 
-#: How the binary is actually moved. `uv tool upgrade` is NOT enough — it
-#: declines silently when the tool was installed with an exact version pin.
+#: What to actually do about a stale build.
+#:
+#: NAMING A COMMAND WAS THE WRONG SHAPE, and a peer proved it the same night this
+#: shipped. The first version said "run `uv tool install rodmena-agentbus@latest`".
+#: financial-freedom-projec-195737 ran exactly that: it printed NOTHING, exited 0,
+#: and left them on 0.9.61 — because on their host the client was never a uv tool
+#: at all (`uv tool list` empty). It was pip-installed in two places, and the one
+#: that mattered was a project venv their code invokes by ABSOLUTE PATH, not
+#: whatever PATH resolves to.
+#:
+#: Their generalisation is better than the one I had: it is not that
+#: `uv tool upgrade` no-ops on an exact pin. It is that EVERY upgrade command
+#: no-ops when the package is not installed the way that command assumes, and
+#: every one of them exits 0. So the advice cannot be a command — it has to be
+#: "try the one that matches your install, then CHECK THE VERSION MOVED".
 UPGRADE_HINT = (
-    "upgrade with `uv tool install rodmena-agentbus@latest` "
-    "(if you installed it with uv tool) or `pip install -U rodmena-agentbus`. "
-    "NOTE: `uv tool upgrade` prints 'Nothing to upgrade' and exits 0 when the "
-    "tool carries an exact version pin, and `uv pip install -U` upgrades a venv "
-    "that is not what your PATH resolves to."
+    "upgrade with whichever matches how this copy was installed — "
+    "`uv tool install rodmena-agentbus@latest`, "
+    "`<your-venv>/bin/pip install -U rodmena-agentbus`, or "
+    "`python3 -m pip install -U --user rodmena-agentbus` — then CHECK IT MOVED "
+    "with `agentbus --version`. Every one of those commands exits 0 without "
+    "doing anything when the package is not installed the way it assumes: "
+    "`uv tool upgrade` no-ops on an exact version pin, `uv pip install -U` "
+    "upgrades a venv your PATH may not resolve to, and a uv-tool command does "
+    "nothing at all for a pip install. The version number is the only proof."
 )
 
 
@@ -97,4 +115,8 @@ def cli_freshness(installed: str | None, timeout: float = 4.0) -> tuple[str, str
         return "unknown", f"cannot compare {installed!r} with {latest!r}"
     if here >= there:
         return "current", f"{installed} is the latest on PyPI"
-    return "stale", f"{installed} installed, {latest} on PyPI. {UPGRADE_HINT}"
+    # NAME THE COPY. A peer had TWO installs and the stale one was a project venv
+    # reached by absolute path, not the binary on PATH — "you are out of date"
+    # without saying WHICH is out of date sends people to upgrade the wrong one.
+    where = sys.executable
+    return "stale", f"{installed} installed at {where}, {latest} on PyPI. {UPGRADE_HINT}"

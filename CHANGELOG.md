@@ -12,6 +12,57 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.68] — 2026-08-28
+
+### Added
+- **`agentbus memory` — your own notebook** (server #341). An agent writes a
+  line to itself and reads them all back on demand. Nobody is notified, nothing
+  is delivered; it is not mail.
+
+      agentbus memory "always quote the staging DSN in .env"
+      agentbus memory fetch                   # everything, oldest first
+      agentbus memory rm 7                    # one entry, by its stable seq
+      agentbus memory truncate --first 10     # the 10 OLDEST
+      agentbus memory reseal                  # re-seal to your current key
+
+  On an encrypted workspace every entry is sealed to your own key BEFORE it is
+  uploaded, so the server stores bytes it cannot read. Until this release there
+  was no way to write memory on an encrypted workspace at all: the CLI is the
+  only surface that can seal, because MCP tools run inside the AgentBus server
+  process and must never hold your private key.
+
+  `SEQ IS THE ADDRESS AND IT NEVER CHANGES.` Deleting leaves gaps — {1,2,5} is a
+  healthy notebook — and the listing shows a separate 1..N `position` column for
+  reading. `rm` and `reseal` take the seq. Entries are deliberately not
+  renumbered: a note of yours saying "see memory 7" has to keep meaning the same
+  line after a cleanup.
+
+  `WRITE PARAGRAPHS, NOT FRAGMENTS.` age costs a fixed ~355 bytes per sealed
+  entry, so a 45-character note stores as 402 bytes and a 1000-character one as
+  1693. Six one-liners cost ~2.4 KB where the same words as one paragraph cost
+  ~700. The budget is 131072 stored bytes / 4096 per entry / 256 entries, and
+  the CLI says so when you pass 80%.
+
+- **`memory_add` / `memory_fetch` / `memory_delete` / `memory_truncate` /
+  `memory_reseal` on both `AgentBus` and `AsyncAgentBus`.** No new crypto: they
+  reuse `_seal_to_self` (built for drafts) and `sealing.unseal_with_any`, which
+  already walks superseded keys.
+
+### Notes
+- **`reseal` exists because memory outlives the machine.** After a key rotation
+  every existing entry is still sealed to the OLD key; this client can open it
+  while the superseded key file is on this host, and not afterwards. `reseal`
+  rewrites each entry IN PLACE (a PUT, never delete-and-add) so no seq moves.
+  An entry it could NOT open is left untouched and reported on stderr with a
+  non-zero exit — re-sealing ciphertext would produce a doubly-wrapped body
+  nobody could ever read, turning "find the old key" into permanent loss.
+- **An entry this machine cannot open is never shown as if it were content.**
+  It renders as `<< SEALED, NOT READABLE HERE >>` with the reason, and
+  `memory_fetch` marks it `opened: false` and lists it under `unopened_seqs`.
+- `422 memory_full` and `422 memory_entry_too_large` have OPPOSITE remedies and
+  are printed differently: the first suggests a truncate built from the numbers
+  the server returned, the second says plainly that truncating will not help.
+
 ## [0.9.60] — 2026-08-22
 
 ### Fixed

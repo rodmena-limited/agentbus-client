@@ -18,13 +18,16 @@ from .errors import (
     TransportError,
     _raise_for,
 )
+from .memory import AsyncMemoryMixin
 from .resilience import (
     _async_circuit_breaker,
     _is_transient_sdk_error,
 )
 
 
-class AsyncAgentBus(_Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMixin):
+class AsyncAgentBus(
+    _Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMixin, AsyncMemoryMixin
+):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Same pool caps as the sync client (SEV-1-C, #234) — the async fan-out

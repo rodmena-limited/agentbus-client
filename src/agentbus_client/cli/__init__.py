@@ -15,6 +15,7 @@ from . import (
     _forward,
     _identities,
     _keys,
+    _memory,
     _parser,
     _read,
     _register,

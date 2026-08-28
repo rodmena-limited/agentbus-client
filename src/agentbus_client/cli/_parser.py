@@ -13,6 +13,7 @@ from . import (
     _forward,
     _identities,
     _keys,
+    _memory,
     _read,
     _register,
     _remind,
@@ -133,6 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     _compose.add_commands(sub)
     _forward.add_commands(sub)
     _read.add_commands(sub)
+    _memory.add_commands(sub)
     _remind.add_commands(sub)
     _threads.add_commands(sub)
     _keys.add_commands(sub)

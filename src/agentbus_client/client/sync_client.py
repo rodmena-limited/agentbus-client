@@ -14,6 +14,7 @@ from .errors import (
     TransportError,
     _raise_for,
 )
+from .memory import SyncMemoryMixin
 from .resilience import (
     _SYNC_CLIENTS,
     _run_with_resilience,
@@ -23,7 +24,7 @@ from .sync_messaging import SyncMessagingMixin
 from .sync_misc import SyncMiscMixin
 
 
-class AgentBus(_Base, SyncMessagingMixin, SyncDirectoryMixin, SyncMiscMixin):
+class AgentBus(_Base, SyncMessagingMixin, SyncDirectoryMixin, SyncMiscMixin, SyncMemoryMixin):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # SEV-1-C (#234): cap the connection pool so a stalled bus cannot

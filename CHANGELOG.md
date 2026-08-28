@@ -12,6 +12,16 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.70] — 2026-08-28
+
+### Fixed
+- **The stale-CLI line from 0.9.69 never printed.** It was wired into the
+  wake-chain block of `onboarding/_doctor.py`, which only runs once a monitor is
+  PROVEN — so on an ordinary host the check ran its tests, passed them, and said
+  nothing in the command people actually run. Moved beside the `skill:` line,
+  which prints on every `agentbus doctor`. A diagnostic nobody sees is the same
+  as one that is not there.
+
 ## [0.9.69] — 2026-08-28
 
 ### Added

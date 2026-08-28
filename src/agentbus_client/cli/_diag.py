@@ -226,6 +226,31 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"skill:          NOT CHECKED — {exc}")
 
+    # IS THE BINARY ITSELF CURRENT? (agentbus #342)
+    #
+    # BESIDE `skill:`, NOT INSIDE THE WAKE-CHAIN BLOCK. It was written there
+    # first and never printed on this host, because that block only runs once a
+    # monitor is PROVEN — so the check existed, passed its own tests, and was
+    # invisible in the command people actually run. A diagnostic nobody sees is
+    # the same as one that is not there.
+    #
+    # Advisory, exactly like `skill:`: a stale CLI is guidance, not a broken
+    # wake path, so it does not fail the command. `unknown` prints too, because
+    # "could not reach PyPI" and "up to date" are different answers.
+    try:
+        from ..onboarding import _doctor_version
+        from ._common import _client_version
+
+        state, detail = _doctor_version.cli_freshness(_client_version())
+        if state == "stale":
+            print(f"cli:            STALE — {detail}")
+        elif state == "unknown":
+            print(f"cli:            NOT CHECKED — {detail}")
+        elif state == "current":
+            print(f"cli:            OK ({detail})")
+    except Exception as exc:
+        print(f"cli:            NOT CHECKED — {exc}")
+
     agent = bus.agent
     if not agent:
         print("loop test:      SKIPPED (no acting agent; run `agentbus register` first)")

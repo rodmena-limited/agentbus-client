@@ -127,18 +127,52 @@ def test_a_build_that_reports_nothing_is_unknown():
 # ------------------------------------------------------- doctor uses it
 
 
-def test_doctor_actually_calls_the_check():
-    """Otherwise every assertion here tests a function nobody runs — the exact
-    way an extraction-for-testability rots."""
+def test_the_doctor_command_actually_calls_the_check():
+    """Otherwise every assertion here tests a function nobody runs.
+
+    THIS ALREADY CAUGHT ONE REAL MISTAKE. The check was first wired into
+    `onboarding/_doctor.py` inside the wake-chain block — which only runs once a
+    monitor is PROVEN, so on an ordinary host it never printed at all. The
+    function was correct, its tests passed, and `agentbus doctor` said nothing.
+    It now lives beside the `skill:` line in the CLI command, which prints on
+    every run, and this test points at THAT module for the same reason.
+    """
     import ast
     import inspect
 
-    from agentbus_client.onboarding import _doctor
+    from agentbus_client.cli import _diag
 
-    tree = ast.parse(inspect.getsource(_doctor))
+    source = inspect.getsource(_diag)
+    tree = ast.parse(source)
     called = {
         node.func.attr
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
-    assert "cli_freshness" in called, "_doctor no longer calls cli_freshness"
+    assert "cli_freshness" in called, (
+        "the doctor command no longer calls cli_freshness — if it moved, move "
+        "this assertion to the module that RUNS on every doctor invocation, "
+        "not to whichever module happens to import it"
+    )
+    # AND THAT THE VERDICT IS ACTUALLY PRINTED — asserted on the AST, not on the
+    # source text. The first version of this line was `'f"cli:' in source`, and
+    # commenting the print out left that string sitting in the comment, so the
+    # mutation passed. A text search cannot tell live code from a comment about
+    # live code, which is the loose-grep failure this project has rejected twice
+    # elsewhere. So: find a real `print(...)` whose f-string starts with "cli:".
+    printed = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "print"
+        and node.args
+        and any(
+            isinstance(part, ast.Constant)
+            and isinstance(part.value, str)
+            and part.value.lstrip().startswith("cli:")
+            for arg in node.args
+            for part in (arg.values if isinstance(arg, ast.JoinedStr) else [arg])
+        )
+    ]
+    assert printed, "cli_freshness is called but its verdict is never printed"

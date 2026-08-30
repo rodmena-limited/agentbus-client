@@ -301,9 +301,41 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         while time.time() < deadline:
             arrived = bus.inbox(cursor, limit=200)
             match = [d for d in arrived if d.message_id == sent["id"]]
-            if match and match[0].state in ("delivered", "read", "acked"):
+            if match:
+                # #49: ASSERT WHAT THE USER CAN OBSERVE, NOT AN INTERNAL STATE.
+                #
+                # This used to require `state in (delivered, read, acked)`. That
+                # value is not part of any contract, and on 2026-08-17 it stopped
+                # advancing for SEALED deliveries — so on an encrypted workspace
+                # NO delivery ever reached a terminal state. doctor then reported
+                # a broken loop three runs running WHILE HOLDING THE MESSAGE in
+                # the very page it had just fetched. It had the evidence of
+                # success and rejected it on a field.
+                #
+                # Readability is both the question the user actually has and a
+                # STRICTLY STRONGER assertion: a delivery marked `delivered` but
+                # sealed beyond our reach passes the old check and fails this
+                # one, and that case is data loss rather than health.
                 elapsed = LOOP_WAIT_SECONDS - (deadline - time.time())
-                print(f"smtp loop:      OK (delivered in {elapsed:.1f}s)")
+                try:
+                    body = (bus.read(match[0].delivery_id) or {}).get("text_body") or ""
+                except Exception as exc:
+                    print(
+                        f"smtp loop:      BROKEN — arrived in {elapsed:.1f}s but "
+                        f"could not be read back ({type(exc).__name__}). The loop "
+                        f"delivered something this agent cannot open."
+                    )
+                    return 1
+                if "self-test" not in body:
+                    # Arrived and unreadable is WORSE than not arriving: the
+                    # sender believes it landed.
+                    print(
+                        f"smtp loop:      BROKEN — arrived in {elapsed:.1f}s but the "
+                        f"body did not come back readable ({len(body)} chars). "
+                        f"A delivery this agent cannot read is data loss, not health."
+                    )
+                    return 1
+                print(f"smtp loop:      OK (arrived and READABLE in {elapsed:.1f}s)")
                 bus.ack(match[0].delivery_id)
                 print("ack:            OK")
                 break

@@ -12,6 +12,18 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.78] — 2026-08-30
+
+### Fixed
+- `agentbus doctor` now verifies the send/receive loop by checking that the
+  self-test message **arrived and is readable**, instead of gating on an
+  internal delivery-state value (#49). That value is not part of any contract:
+  when it stopped advancing for sealed deliveries, doctor reported a broken loop
+  three runs running *while holding the message in the page it had just
+  fetched*. Readability is also strictly stronger — a delivery marked
+  `delivered` but sealed beyond your reach passed the old check and fails this
+  one, and that case is data loss rather than health.
+
 ## [0.9.77] — 2026-08-30
 
 ### Added

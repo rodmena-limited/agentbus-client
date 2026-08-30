@@ -159,3 +159,32 @@ def test_the_sync_and_async_sdks_agree():
         a = inspect.signature(getattr(AsyncAgentBus, name))
         assert list(s.parameters) == list(a.parameters), f"{name} signatures differ"
         assert inspect.iscoroutinefunction(getattr(AsyncAgentBus, name))
+
+
+# --- #48: `--for` promises a duration, so a typo is refused locally ----------
+#
+# Found by TESTING the flag rather than reading it. `_as_instant` deliberately
+# passes any string through ("server validates"), which is correct for
+# `remind --at`, where an ISO instant is what the caller means. It is wrong for
+# a duration flag: `--for tomorrow` travelled to the server as
+# expires_at="tomorrow", and the operator would get a schema error naming a
+# field they never typed, for a word they did.
+
+
+@pytest.mark.parametrize("good", ["2h", "90m", "3d", "45"])
+def test_a_real_duration_reaches_the_server(monkeypatch, good):
+    """KNOWN-POSITIVE. Without it, 'rejects bad durations' would also pass in a
+    world where the flag rejected every value."""
+    bus = _Bus(result={"agent": "peer"})
+    code, _out, _err = _run(monkeypatch, _block.cmd_block, bus, name="peer", for_=good, agent="me")
+    assert code == 0
+    assert bus.calls[0][3] == good
+
+
+@pytest.mark.parametrize("bad", ["tomorrow", "2 hours", "next tuesday", "soon"])
+def test_a_typo_is_refused_before_any_server_call(monkeypatch, bad):
+    bus = _Bus()
+    code, _out, err = _run(monkeypatch, _block.cmd_block, bus, name="peer", for_=bad, agent="me")
+    assert code == 2
+    assert bus.calls == [], "a malformed duration reached the server"
+    assert "duration" in err

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from .._timefmt import _looks_like_duration
 from . import _common
 from ._common import _accept_common_flags_after_subcommand, _print
 
@@ -35,6 +36,20 @@ def cmd_block(args: argparse.Namespace) -> int:
             f"refusing to block yourself ({me}). A self-block makes you "
             "unreachable by the peers who would tell you something is wrong, "
             "and nothing you send yourself is the noise you are trying to stop.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # `--for` PROMISES A DURATION, so a typo is refused here rather than sent.
+    # `_as_instant` deliberately passes any string through ("server validates"),
+    # which is right for `remind --at`, where an ISO instant is what the caller
+    # means. It is wrong for a duration flag: `--for tomorrow` would travel to
+    # the server as expires_at="tomorrow", and the operator would get a schema
+    # error about a field they never typed, for a word they did.
+    if args.for_ is not None and not _looks_like_duration(args.for_):
+        print(
+            f"--for takes a duration like 2h, 90m or 3d — not {args.for_!r}. "
+            "For an absolute end date, block without --for and unblock when done.",
             file=sys.stderr,
         )
         return 2

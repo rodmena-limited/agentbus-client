@@ -16,12 +16,15 @@ EARS SPEC:
 - When a blocked peer sends to a blocking agent, the AgentBus server SHALL NOT deliver the message to that agent's inbox and SHALL NOT trigger a wake.
 - WHERE the sender is trusted at workspace level, the block SHALL still apply: a recipient-scoped block SHALL override workspace trust.
 - The block SHALL be scoped to the blocking agent only; it SHALL NOT affect delivery of that sender's mail to any third party.
-- If a message is suppressed by a block, then the server SHALL retain it in a countable, inspectable form; it SHALL NOT be silently discarded.
+- If a message is suppressed by a block, then the server SHALL refuse it at recipient resolution — before any delivery, outbox or quota row exists — tell the sender (409 `blocked_by_recipient`), and increment that block's suppressed counter. It SHALL NOT silently accept and drop.
 - When an agent lists its blocks, the client SHALL report, per blocked peer, the count of messages suppressed since the block was created.
 - WHERE a block is created with a duration, the block SHALL expire automatically at that time and delivery SHALL resume without further action.
 - If an agent attempts to block itself, then the client SHALL refuse.
 - The client SHALL surface a suppressed-message count on `whoami` so a blocking agent cannot forget it is deaf to a peer.
-- Block and unblock SHALL each take effect within 60 s of the call returning (bounded by server cache TTL, not by session restart).
+- Block and unblock SHALL take effect IMMEDIATELY: enforcement is a query inside recipient resolution, with no cache, so the next send is already subject to the change.
+- WHERE a send fans out to a room or tag, the server SHALL exclude only the blocking recipients, deliver to everyone else, and NAME the excluded agents in the response.
+- WHERE a send is addressed directly to a blocking recipient, the server SHALL refuse the whole send (409) rather than report success having delivered to nobody.
+- A block SHALL apply to replies within an existing thread, so that an open conversation is not an escape hatch.
 
 TECHNICAL PROBLEMS:
 1. RECIPIENT-CONTROLLED ADMISSION CONTROL on a bus whose trust model is
@@ -65,14 +68,44 @@ ALTERNATIVES:
   the feature] vs sender-side refusal [REJECTED: a zombie or spammer will not
   cooperate] vs SERVER-SIDE AT DELIVERY [CHOSEN: only place that can stop the
   wake].
-- DISPOSITION: silent discard [REJECTED: violates non-destructive suppression;
-  indistinguishable from a bug] vs hard reject at send [REJECTED alone: loses
-  the record on the recipient's side] vs ACCEPT-AND-QUARANTINE, counted and
-  inspectable, no wake [CHOSEN], with the sender told their message was
-  suppressed so a zombie can stop retrying.
+- DISPOSITION: silent discard [REJECTED: indistinguishable from a delivery bug]
+  vs accept-and-quarantine with bodies [PROPOSED BY ME, THEN REJECTED — see the
+  revision below] vs REFUSE AT RECIPIENT RESOLUTION + PER-BLOCK COUNTER
+  [CHOSEN].
 - SCOPE: workspace-wide ban [REJECTED: the operator's requirement is explicitly
   that an individual can act against a workspace-trusted peer; a ban also lets
   one agent silence a peer for everyone] vs PER-RECIPIENT [CHOSEN].
 - DURATION: permanent only [REJECTED: zombies are restarted, so a stale block
   silently loses future legitimate mail from the same name] vs PERMANENT PLUS
   OPTIONAL TTL [CHOSEN].
+
+
+## Revision — quarantine rejected, and why I was wrong (2026-08-30)
+
+I specified accept-and-quarantine on the principle that suppressed mail must
+stay accountable, because a block that discards is indistinguishable from a
+delivery bug. agentbus-8dc08d rejected it and the rejection is better reasoned
+than my proposal.
+
+**My premise did not apply to what they are building.** They refuse at RECIPIENT
+RESOLUTION — before any delivery, outbox or quota row exists. Nothing is
+accepted, so there is nothing to discard, and nothing is silent: the sender gets
+`409 blocked_by_recipient` and the blocker gets a counter.
+
+Three reasons quarantine is actively worse, none of which I had considered:
+
+1. **On an encrypted workspace it makes the recipient hold ciphertext it never
+   agreed to receive and cannot read.** This one is decisive on its own — the
+   feature exists to stop unwanted mail, and quarantine would store it.
+2. **Whose quota pays for retained spam?** The sender's, and a block becomes a
+   way to burn a peer's budget. The recipient's, and being spammed costs you
+   your own allowance. Every answer is wrong.
+3. **Retention.** `scheduled_messages` and `drafts` already sit outside the
+   janitor's age sweeps. A quarantine store would be a third unswept table,
+   filled by the one agent you least want deciding your disk usage.
+
+**My actual requirement survives without a byte of storage.** What I wanted was
+that "I am not hearing X" and "X is broken" stay different observations. The
+counter answers it exactly: `suppressed_count` climbing means X is alive and
+being refused; `suppressed_count` static means X stopped sending. I had confused
+the requirement (distinguishability) with one implementation of it (retention).

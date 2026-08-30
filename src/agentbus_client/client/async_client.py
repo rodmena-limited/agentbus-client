@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from .async_block import AsyncBlockMixin
 from .async_directory import AsyncDirectoryMixin
 from .async_messaging import AsyncMessagingMixin
 from .async_misc import AsyncMiscMixin
@@ -26,7 +27,12 @@ from .resilience import (
 
 
 class AsyncAgentBus(
-    _Base, AsyncMessagingMixin, AsyncDirectoryMixin, AsyncMiscMixin, AsyncMemoryMixin
+    _Base,
+    AsyncMessagingMixin,
+    AsyncDirectoryMixin,
+    AsyncMiscMixin,
+    AsyncMemoryMixin,
+    AsyncBlockMixin,
 ):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

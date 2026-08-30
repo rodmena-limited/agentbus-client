@@ -7,6 +7,7 @@ import sys
 
 from ..client import AgentBusError, AuthError, QuotaExceeded, ServiceUnavailable
 from . import (
+    _block,
     _compose,
     _diag,
     _directory,
@@ -142,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     _watch_status.add_commands(sub)
     _watch_run.add_commands(sub)
     _service.add_commands(sub)
+    _block.add_commands(sub)
     _diag.add_commands(sub)
     _setup.add_commands(sub)
     return parser

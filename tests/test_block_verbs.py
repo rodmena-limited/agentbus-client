@@ -1,0 +1,161 @@
+"""#48: blocking a peer whose mail you no longer want.
+
+Operator: "agents need to block spammers (even if trusted in workspace),
+sometimes zombie agents annoy others."
+
+TWO PROPERTIES THESE TESTS EXIST TO PIN:
+
+1. SELF-BLOCK IS REFUSED WITHOUT A ROUND-TRIP. It is not hygiene: `agentbus
+   remind` is SELF-ADDRESSED, so a self-block would silently break the agent's
+   own scheduler. The server refuses it too (422); refusing locally means the
+   reader is told WHO the mistake was about instead of being handed a
+   credential error to chase.
+
+2. THE SUPPRESSED COUNT IS SURFACED. Blocked mail is REFUSED at recipient
+   resolution and never stored, so the counter is the only evidence a block is
+   doing anything — climbing means that peer is alive and being refused, static
+   means they stopped sending. A listing that omits it makes those two the same
+   observation.
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+from contextlib import redirect_stderr, redirect_stdout
+
+import pytest
+
+from agentbus_client.cli import _block
+
+
+class _Bus:
+    def __init__(self, rows=None, result=None):
+        self.rows = rows or []
+        self.result = result or {}
+        self.calls: list[tuple] = []
+
+    def block(self, name, *, reason=None, for_=None, agent=None):
+        self.calls.append(("block", name, reason, for_))
+        return self.result
+
+    def unblock(self, name, *, agent=None):
+        self.calls.append(("unblock", name))
+        return self.result
+
+    def blocks(self, *, agent=None):
+        self.calls.append(("blocks",))
+        return self.rows
+
+
+def _run(monkeypatch, fn, bus, **flags):
+    monkeypatch.setattr(_block._common, "_bus", lambda _a: bus)
+    args = argparse.Namespace(
+        name=flags.get("name"),
+        reason=flags.get("reason"),
+        for_=flags.get("for_"),
+        json=flags.get("json", False),
+        agent=flags.get("agent"),
+    )
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = fn(args)
+    return code, out.getvalue(), err.getvalue()
+
+
+def test_blocking_a_peer_calls_the_server(monkeypatch):
+    bus = _Bus(result={"agent": "spammer"})
+    code, out, _ = _run(monkeypatch, _block.cmd_block, bus, name="spammer", agent="me")
+    assert code == 0
+    assert bus.calls == [("block", "spammer", None, None)]
+    assert "spammer" in out
+
+
+def test_self_block_is_refused_before_any_server_call(monkeypatch):
+    """THE GUARD. `remind` is self-addressed, so this would break the scheduler."""
+    bus = _Bus()
+    code, _out, err = _run(monkeypatch, _block.cmd_block, bus, name="me", agent="me")
+    assert code == 2
+    assert bus.calls == [], "a self-block reached the server"
+    assert "yourself" in err
+
+
+def test_blocking_someone_else_is_not_refused(monkeypatch):
+    """Known-negative: the self-check must be able to NOT fire, or it would
+    block every call and 'refuses self-block' would pass vacuously."""
+    bus = _Bus(result={"agent": "peer"})
+    code, _out, err = _run(monkeypatch, _block.cmd_block, bus, name="peer", agent="me")
+    assert code == 0
+    assert "yourself" not in err
+    assert bus.calls[0][0] == "block"
+
+
+def test_a_duration_is_passed_through(monkeypatch):
+    bus = _Bus(result={"agent": "zombie", "expires_at": "2026-09-01T00:00:00Z"})
+    _code, out, _ = _run(monkeypatch, _block.cmd_block, bus, name="zombie", for_="2h", agent="me")
+    assert bus.calls[0][3] == "2h"
+    assert "expires" in out
+
+
+def test_a_permanent_block_says_it_is_permanent(monkeypatch):
+    """An unbounded block is the one that rots — it must not read as neutral."""
+    bus = _Bus(result={"agent": "x"})
+    _code, out, _ = _run(monkeypatch, _block.cmd_block, bus, name="x", agent="me")
+    assert "never" in out
+
+
+def test_the_listing_reports_the_suppressed_count(monkeypatch):
+    """Without the count, 'blocking a live peer' and 'they went quiet' are the
+    same observation — and the mail is refused, not stored, so nothing else
+    records it."""
+    bus = _Bus(rows=[{"agent": "spammer", "suppressed_count": 42, "reason": "loop"}])
+    _code, out, _ = _run(monkeypatch, _block.cmd_blocks, bus)
+    assert "spammer" in out
+    assert "42" in out
+    assert "loop" in out
+
+
+def test_no_blocks_says_everyone_can_reach_you(monkeypatch):
+    _code, out, _ = _run(monkeypatch, _block.cmd_blocks, _Bus(rows=[]))
+    assert "no blocks" in out
+
+
+def test_unblock_reports_what_was_missed(monkeypatch):
+    bus = _Bus(result={"suppressed_count": 7})
+    code, out, _ = _run(monkeypatch, _block.cmd_unblock, bus, name="peer")
+    assert code == 0
+    assert "7" in out
+
+
+def test_json_mode_emits_the_raw_result(monkeypatch):
+    import json
+
+    bus = _Bus(rows=[{"agent": "a", "suppressed_count": 1}])
+    _code, out, _ = _run(monkeypatch, _block.cmd_blocks, bus, json=True)
+    assert json.loads(out)[0]["agent"] == "a"
+
+
+@pytest.mark.parametrize("verb", ["block", "unblock", "blocks"])
+def test_the_verbs_are_registered(verb):
+    import argparse as _ap
+
+    from agentbus_client.cli._parser import build_parser
+
+    p = build_parser()
+    choices = next(a.choices for a in p._actions if isinstance(a, _ap._SubParsersAction))
+    assert verb in choices
+
+
+def test_the_sync_and_async_sdks_agree():
+    """This pair has drifted before — phonebook(label=) landed on one twin only,
+    and async `read` once skipped unsealing entirely."""
+    import inspect
+
+    from agentbus_client.client import AgentBus
+    from agentbus_client.client.async_client import AsyncAgentBus
+
+    for name in ("block", "unblock", "blocks"):
+        s = inspect.signature(getattr(AgentBus, name))
+        a = inspect.signature(getattr(AsyncAgentBus, name))
+        assert list(s.parameters) == list(a.parameters), f"{name} signatures differ"
+        assert inspect.iscoroutinefunction(getattr(AsyncAgentBus, name))

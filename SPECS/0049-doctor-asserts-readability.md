@@ -39,3 +39,26 @@ ALTERNATIVES:
   themselves after measuring p50 = p90 = max = 0:00:00 across 10,544 rows. There
   is no latency distribution to widen for, and a longer wait would have HIDDEN
   the defect behind patience] vs UNCHANGED 90 s [CHOSEN].
+
+
+## Contract division, agreed 2026-08-30 (agentbus-8dc08d)
+
+Settled after this change shipped, and recorded so neither side later assumes
+the other covers it:
+
+> The backend's `delivered` means EXACTLY ONE THING: the delivery row reached
+> the recipient's inbox and no further leg is pending. It makes NO claim that
+> the recipient holds a key that opens it. It cannot: the server never sees a
+> private key on an encrypted workspace, which is the whole design.
+
+**So readability is unobservable from the server by construction, and this
+client is the only place it can be asserted.** The division is deliberate:
+
+| | asserts |
+|---|---|
+| backend | delivery — the row arrived, no leg pending |
+| this client | readability — the body comes back openable |
+
+A delivery marked `delivered` that will not open is a real defect on their side,
+not a semantics disagreement. Mirrored in `issuedb-cli memory` under
+`delivery_vs_readability` so a session that never reads this file still finds it.

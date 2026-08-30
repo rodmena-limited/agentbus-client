@@ -12,6 +12,17 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.79] — 2026-08-30
+
+### Fixed
+- `agentbus reminds` shows **who a reminder is actually for** (#50). It rendered
+  `-> (you)` for every row, including reminders addressed to another agent —
+  reported by a platform setting reminders for household members, who said a
+  listing that cannot show the recipient is one they would eventually misread.
+  It now uses the server's `self_addressed` flag rather than inferring, and a
+  reminder whose recipient no longer exists says so instead of claiming it is
+  yours.
+
 ## [0.9.78] — 2026-08-30
 
 ### Fixed

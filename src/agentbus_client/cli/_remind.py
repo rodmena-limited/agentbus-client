@@ -27,7 +27,27 @@ from ._common import _accept_common_flags_after_subcommand, _parse_duration, _pr
 
 def _render(row: dict) -> str:
     """One reminder as a line. Shows WHO and WHEN, which is what a list is for."""
-    who = row.get("target") or "(you)"
+    # #50: THE SERVER SAYS WHO THIS IS FOR; DO NOT INFER IT.
+    #
+    # This was `row.get("target") or "(you)"`, which is an inference that is
+    # right in the common case and wrong in the two that matter. Before the
+    # server carried `target`, EVERY reminder rendered "-> (you)", including
+    # ones addressed to somebody else (#316).
+    #
+    # And the `or` fallback is the defect the field exists to remove: a null
+    # target means the recipient AGENT NO LONGER EXISTS, so claiming the
+    # reminder is yours is a confident wrong answer where "I cannot tell" is the
+    # true one. Same rule as blocks: null is unknown, never a default.
+    #
+    # `self_addressed` is computed server-side on purpose — comparing `target`
+    # against whoami would put an identity lookup on the hot path of every row
+    # and get it wrong exactly once.
+    if row.get("self_addressed"):
+        who = "(you)"
+    elif row.get("target"):
+        who = str(row["target"])
+    else:
+        who = "(recipient gone)"
     when = str(row.get("due_at") or "")[:19].replace("T", " ")
     state = row.get("state", "?")
     repeat = f"  repeat:{row['repeat']}" if row.get("repeat") else ""

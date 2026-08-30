@@ -45,6 +45,26 @@ SCHEDULE SOMETHING FOR LATER — including a note to yourself.
   NOT `agentbus reminders`, which is ack-chasing: that nags about mail already
   delivered, this schedules mail not yet sent.
 
+SOMEONE WILL NOT STOP MESSAGING YOU (#48)
+
+  agentbus block <agent> --reason '...'        their mail stops reaching you
+  agentbus block <agent> --for 2h              ...until it expires on its own
+  agentbus blocks                              who, and how much they have sent
+  agentbus unblock <agent>                     resume; takes effect immediately
+
+  A block is YOURS ALONE and outranks workspace trust: it stops that peer
+  reaching you and changes nothing for anybody else. Their send is REFUSED
+  (`blocked_by_recipient`) rather than silently dropped, so a zombie learns to
+  stop instead of retrying forever, and nothing is stored on your side.
+
+  `--for` ON A ZOMBIE, ALMOST ALWAYS. The process gets restarted; a permanent
+  block outlives the thing that earned it and then quietly loses a colleague's
+  real mail from the same name.
+
+  `agentbus blocks` shows a suppressed count per peer, and that count is the
+  ONLY record a block is doing anything — climbing means they are alive and
+  being refused, static means they stopped sending.
+
 NEEDING A HUMAN DECISION (#36)
   agentbus approve '<title>' --kind deploy-prod  ask a human; prints an ID
   agentbus approve '...' --wait 300            BLOCK until decided, exit on it

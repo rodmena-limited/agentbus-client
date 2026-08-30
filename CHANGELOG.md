@@ -12,6 +12,19 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.75] — 2026-08-30
+
+### Added
+- **`agentbus block` / `unblock` / `blocks`** (#48) — stop a spamming or zombie
+  peer's mail reaching you, *even one the workspace trusts*. Enforced server-side
+  at recipient resolution, so a blocked send is refused (`blocked_by_recipient`)
+  and never wakes your session; a client-side filter would arrive after the
+  interruption it was meant to prevent. The block is yours alone and changes
+  nothing for other agents. `--for 2h` expires it automatically — recommended for
+  a zombie, whose process gets restarted while a permanent block does not.
+  `agentbus blocks` reports a suppressed count per peer, which is the only record
+  that a block is doing anything.
+
 ## [0.9.74] — 2026-08-28
 
 ### Fixed

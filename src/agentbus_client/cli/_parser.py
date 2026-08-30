@@ -62,6 +62,17 @@ _INTENT_HINTS = {
     "poke": "remind --target <agent> --delay 2h '<message>'",
     "followup": "remind --repeat daily '<message>'",
     "follow-up": "remind --repeat daily '<message>'",
+    # #48: what someone reaches for when a peer will not stop. These have the
+    # provenance the map requires — they are the words the OPERATOR used when
+    # asking for the feature ("block spammers", "zombie agents annoy others"),
+    # not words invented while testing.
+    "mute": "block <agent> --for 2h   (or --reason '...' for a permanent one)",
+    "ignore": "block <agent> --for 2h",
+    "silence": "block <agent> --for 2h",
+    "spam": "block <agent> --reason 'spam'",
+    "blocked": "blocks",
+    "blocklist": "blocks",
+    "unmute": "unblock <agent>",
     "mail": "inbox",
     "read": "show <delivery-id>",
     "list": "inbox   (or `reminds` for scheduled ones)",

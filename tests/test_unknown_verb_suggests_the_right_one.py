@@ -136,3 +136,28 @@ def test_a_semantic_near_miss_gets_no_confident_suggestion(typed, capsys):
     with pytest.raises(SystemExit):
         parser.parse_args([typed])
     assert _suggestion_line(capsys.readouterr().err) == "", f"{typed!r} got a guess"
+
+
+# --- #48: the words someone reaches for when a peer will not stop ------------
+
+
+@pytest.mark.parametrize("typed", ["mute", "ignore", "silence", "spam", "blocklist", "unmute"])
+def test_suppression_intents_point_at_the_block_verbs(typed, capsys):
+    """The `remind` incident was a feature that existed with nothing pointing at
+    it, and an agent built a session-local timer instead. `block` is a feature
+    somebody reaches for while ALREADY ANNOYED, which is the worst moment to be
+    handed 52 choices."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args([typed])
+    line = _suggestion_line(capsys.readouterr().err)
+    assert line, f"{typed!r} produced no suggestion"
+    assert "block" in line, f"{typed!r} did not point at block: {line!r}"
+
+
+def test_unmute_points_at_unblock_not_block(capsys):
+    """Pointing `unmute` at `block` would do the opposite of what was asked."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["unmute"])
+    assert "unblock" in _suggestion_line(capsys.readouterr().err)

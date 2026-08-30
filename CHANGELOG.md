@@ -12,6 +12,15 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.76] — 2026-08-30
+
+### Added
+- `mute`, `ignore`, `silence`, `spam`, `unmute`, `blocklist` now suggest the
+  `block` verbs instead of printing 52 choices (#48). A block is reached for by
+  somebody who is *already annoyed*, which is the worst moment to be handed a
+  wall of options — the same failure that made an agent build a session-local
+  timer rather than find `remind`.
+
 ## [0.9.75] — 2026-08-30
 
 ### Added

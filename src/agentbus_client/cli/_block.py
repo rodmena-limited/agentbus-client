@@ -94,8 +94,17 @@ def cmd_blocks(args: argparse.Namespace) -> int:
     if not rows:
         print("no blocks — every agent in the workspace can reach you")
         return 0
-    print(f"{len(rows)} block(s):")
-    for row in rows:
+    # LAPSED BLOCKS ARE LISTED, NOT HIDDEN — the server's decision, and the
+    # right one: a block that quietly expired is how a recipient finds out weeks
+    # later that it has been reachable all along by someone it believed it had
+    # stopped. But listing them is only half the job: rendering a lapsed row the
+    # same as a live one makes the reader do date arithmetic to discover they
+    # are unprotected. `active` is a field; say it.
+    live = [r for r in rows if r.get("active", True)]
+    lapsed = [r for r in rows if not r.get("active", True)]
+
+    print(f"{len(live)} active block(s):" if live else "no ACTIVE blocks:")
+    for row in live:
         name = row.get("agent") or "?"
         held = row.get("suppressed_count") or 0
         until = row.get("expires_at")
@@ -104,6 +113,14 @@ def cmd_blocks(args: argparse.Namespace) -> int:
         print(f"  {name:32} {held:>5} suppressed   {window}")
         if reason:
             print(f"  {'':32} reason: {reason}")
+
+    if lapsed:
+        print(f"\n{len(lapsed)} EXPIRED — these peers can reach you again:")
+        for row in lapsed:
+            name = row.get("agent") or "?"
+            held = row.get("suppressed_count") or 0
+            print(f"  {name:32} {held:>5} suppressed before it lapsed")
+        print("  re-block with `agentbus block <agent>` if the peer is still a problem.")
     # The counter is the whole accountability mechanism. Suppressed mail is
     # REFUSED at the server, not stored — so this number is the only thing that
     # separates "I am blocking a live peer" from "that peer went quiet", and a

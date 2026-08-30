@@ -49,6 +49,22 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         # "fixed on one surface, left the other" shape this whole episode was
         # about. An agent running `agentbus whoami` to check its identity should
         # be told it has mail waiting, not have to think of asking separately.
+        # #48: an agent that has forgotten it is deaf to a peer will read a
+        # silence as "they stopped sending". Surfaced on whoami because that is
+        # the startup call, so the blocks are seen before the silence is
+        # interpreted.
+        #
+        # NULL IS "UNKNOWN", NOT ZERO. The server wraps this advisory and may
+        # return null if the lookup fails; rendering that as "0 blocks" would
+        # state the opposite of what is known. Say nothing rather than assert
+        # nothing-is-blocked.
+        blocks = result.get("blocks")
+        if isinstance(blocks, dict) and blocks.get("count"):
+            held = blocks.get("suppressed_total")
+            held_txt = f", {held} message(s) suppressed" if held else ""
+            print(f"blocks:    {blocks['count']} active{held_txt}")
+            print("           who: agentbus blocks")
+
         unread = result.get("unread") or {}
         if unread.get("count"):
             print(

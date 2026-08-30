@@ -188,3 +188,43 @@ def test_a_typo_is_refused_before_any_server_call(monkeypatch, bad):
     assert code == 2
     assert bus.calls == [], "a malformed duration reached the server"
     assert "duration" in err
+
+
+# --- #48: a LAPSED block must not read as protection you still have ----------
+#
+# The server LISTS expired blocks rather than hiding them, and that is the right
+# call: a block that quietly expired is how a recipient discovers weeks later
+# that it has been reachable all along by someone it believed it had stopped.
+# Listing them is only half the job — rendering a lapsed row identically to a
+# live one makes the reader do date arithmetic to find out they are unprotected.
+
+
+def test_lapsed_blocks_are_reported_separately_from_active_ones(monkeypatch):
+    bus = _Bus(
+        rows=[
+            {"agent": "live-one", "suppressed_count": 9, "active": True},
+            {"agent": "lapsed-one", "suppressed_count": 4, "active": False},
+        ]
+    )
+    _code, out, _ = _run(monkeypatch, _block.cmd_blocks, bus)
+    assert "1 active block" in out
+    assert "EXPIRED" in out
+    assert "can reach you again" in out
+
+
+def test_all_active_says_nothing_about_expiry(monkeypatch):
+    """KNOWN-NEGATIVE: the EXPIRED section must be able to stay absent, or the
+    warning is noise that gets ignored by the time it matters."""
+    bus = _Bus(rows=[{"agent": "live-one", "suppressed_count": 1, "active": True}])
+    _code, out, _ = _run(monkeypatch, _block.cmd_blocks, bus)
+    assert "EXPIRED" not in out
+
+
+def test_a_row_without_the_active_field_is_treated_as_active(monkeypatch):
+    """Forward/backward compatibility: an older server omitting `active` must
+    not have every block silently rendered as expired — that would tell the
+    reader they are unprotected when they are."""
+    bus = _Bus(rows=[{"agent": "x", "suppressed_count": 1}])
+    _code, out, _ = _run(monkeypatch, _block.cmd_blocks, bus)
+    assert "EXPIRED" not in out
+    assert "1 active block" in out

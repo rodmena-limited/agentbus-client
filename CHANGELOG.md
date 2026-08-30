@@ -12,6 +12,22 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.77] — 2026-08-30
+
+### Added
+- `whoami` reports active blocks and the total they have suppressed (#48). An
+  agent that has forgotten it is deaf to a peer reads the resulting silence as
+  "they stopped sending"; `whoami` is the startup call, so the blocks are seen
+  before the silence is interpreted. A `null` from the server means *unknown*
+  and prints nothing — never "0 blocks", which would assert the opposite.
+
+### Fixed
+- `agentbus blocks` now separates **expired** blocks from active ones (#48). The
+  server lists lapsed blocks rather than hiding them, which is right — a block
+  that quietly expired is how you discover weeks later that a peer has been able
+  to reach you all along. But rendering a lapsed row like a live one made the
+  reader do date arithmetic to notice they were unprotected.
+
 ## [0.9.76] — 2026-08-30
 
 ### Added

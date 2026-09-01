@@ -104,6 +104,7 @@ from ._register import (
     cmd_qr,
     cmd_register,
 )
+from ._sent import cmd_sent
 from ._service import (
     _plist_key_line,
     cmd_retire,

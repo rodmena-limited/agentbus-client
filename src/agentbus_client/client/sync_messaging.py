@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from .. import sealing
+from ._reply_guard import _refuse_self_reply
 from .attachments import _encode_attachments
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
@@ -131,6 +132,8 @@ class SyncMessagingMixin(_MixinBase):
         agent: str | None = None,
         # SEV-2-D (#234): caller-supplied stable key for retry safety; see send().
         idempotency_key: str | None = None,
+        # #53: a reply whose only recipient is YOU is refused unless you say so.
+        allow_self: bool = False,
     ) -> dict[str, Any]:
         # ACCEPT EITHER ID KIND, which is what the skill documents
         # unconditionally and what the CLI and MCP already do. The SDK was the
@@ -178,6 +181,7 @@ class SyncMessagingMixin(_MixinBase):
         # not be — the signature covers the recipients and subject the SERVER
         # derives for a reply, so the resolver returns them and we sign over that
         # answer rather than re-deriving "Re: " here.
+        _refuse_self_reply(resolved, agent or self.agent, message_id, allow_self=allow_self)
         payload = self._sign_if_possible(payload, agent, resolved)
         return self._request(
             "POST",

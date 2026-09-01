@@ -18,6 +18,7 @@ from . import (
     _read,
     _register,
     _remind,
+    _sent,
     _service,
     _setup,
     _threads,
@@ -73,6 +74,11 @@ _INTENT_HINTS = {
     "blocked": "blocks",
     "blocklist": "blocks",
     "unmute": "unblock <agent>",
+    # #51: the words the reporting platform's OPERATOR used — "what's the
+    # command to stop or list bus postings?" — when there was no outbox verb.
+    "outbox": "sent   (or `sent --thread <id>` for one conversation)",
+    "postings": "sent",
+    "posted": "sent",
     "mail": "inbox",
     "read": "show <delivery-id>",
     "list": "inbox   (or `reminds` for scheduled ones)",
@@ -149,6 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
     _memory.add_commands(sub)
     _remind.add_commands(sub)
     _threads.add_commands(sub)
+    _sent.add_commands(sub)
     _keys.add_commands(sub)
     _verify.add_commands(sub)
     _watch_status.add_commands(sub)

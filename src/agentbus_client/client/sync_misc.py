@@ -412,6 +412,28 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         data = self._request("GET", "/v1/reminders/owed")
         return list(data.get("owed") or [])
 
+    def sent(
+        self, *, limit: int = 50, cursor: str | None = None, agent: str | None = None
+    ) -> dict[str, Any]:
+        """One page of mail the acting agent SENT, newest first (#51).
+
+        `GET /v1/sent` — the outbox. The server has answered it for some time
+        (llms.txt: "did my message actually land, and what did it contain");
+        no client surface exposed it, so a platform that had auto-posted ~60
+        alerts reconstructed its own outbound history by grepping daemon logs.
+
+        Returns the page unchanged: `{"messages": [ROW...], "count": int,
+        "cursor": str | None}`. ROW carries message_id, thread_id, subject,
+        sent_at, sealed, sealed_by, signed_recipients (a JSON string, present
+        only when the send was signed) and text_body (ciphertext on an
+        encrypted workspace — `unseal_message` opens your own). Nothing here
+        is unsealed; the CLI does that where it renders bodies.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return self._request("GET", "/v1/sent", params=params, agent=agent)
+
     def create_webhook(
         self, url: str, events: Sequence[str] | None = None, agent: str | None = None
     ) -> dict[str, Any]:

@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from ..client import AgentBusError, NotFoundError
 from . import _common
 from ._common import _accept_common_flags_after_subcommand, _print
 from ._threads import _render_thread
@@ -202,7 +203,35 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 2
 
     bus = _common._bus(args)
-    delivery = bus.read(args.delivery_id, raw=raw)
+    try:
+        delivery = bus.read(args.delivery_id, raw=raw)
+    except NotFoundError as exc:
+        # #54: a ULID says nothing about its KIND. `show <thread_id> --thread`
+        # is the natural thing to type after `thread <id>` was printed, and a
+        # bare not_found there reads as "the conversation is gone". Try the
+        # other kind ONCE, on the failure path only.
+        if not getattr(args, "thread", False):
+            raise
+        try:
+            result = bus.thread(args.delivery_id)
+        except AgentBusError:
+            print(
+                f"not_found: {args.delivery_id} is neither a delivery of yours nor "
+                "a thread you are in. `show` takes a DELIVERY id (from your inbox); "
+                "`thread` takes a THREAD id. They look alike and are not the same.",
+                file=sys.stderr,
+            )
+            raise exc from None
+        print(
+            f"note: {args.delivery_id} is a THREAD id — `agentbus thread "
+            f"{args.delivery_id}` is the direct verb.",
+            file=sys.stderr,
+        )
+        if args.json:
+            _print(result, True)
+            return 0
+        _render_thread(result)
+        return 0
 
     if raw:
         # #39, reported by macbook-admin-bd8e86: emit the stored body and NOTHING

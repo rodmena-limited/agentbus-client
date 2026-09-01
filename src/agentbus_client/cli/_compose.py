@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
-from ..client import AgentBusError
+from ..client import AgentBusError, SelfReplyError
 from . import _common
 from ._common import _accept_common_flags_after_subcommand, _as_message_id, _parse_duration, _print
 
@@ -204,16 +205,54 @@ def cmd_send(args: argparse.Namespace) -> int:
     return 0
 
 
+def _suggest_reply_target(bus: Any, exc: SelfReplyError) -> str:
+    """#53: when a reply would reach only you, name the message you probably
+    meant — the LATEST one in that thread from anyone else. Costs two reads,
+    and only on the refusal path. Never falls back to sending anything."""
+    try:
+        parent = bus.read(exc.message_id)
+        own_address = parent.get("sender_address")
+        thread_id = parent.get("thread_id")
+        if not thread_id:
+            return f"  (could not find the thread of {exc.message_id})"
+        messages = bus.thread(thread_id).get("messages") or []
+    except AgentBusError as lookup:
+        return f"  (could not look up the thread: {lookup.code})"
+    others = [m for m in messages if m.get("sender_address") != own_address]
+    if not others:
+        return (
+            f"  thread {thread_id} has no message from anyone but you — there is "
+            "nobody else's message to answer here"
+        )
+    latest = others[-1]
+    who = latest.get("sender_display") or latest.get("sender_address") or "?"
+    return (
+        f"  latest message from the other party ({who}):\n"
+        f"    agentbus reply {latest.get('id')} -b '...'"
+    )
+
+
 def cmd_reply(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
-    result = bus.reply(
-        _as_message_id(bus, args.message_id),
-        _common._read_body(args.body) or "",
-        reply_all=getattr(args, "reply_all", False),
-        cc=args.cc or None,
-        priority=getattr(args, "priority", None),
-        attachments=args.attach,
-    )
+    subject = getattr(args, "subject", None) or None
+    try:
+        result = bus.reply(
+            _as_message_id(bus, args.message_id),
+            _common._read_body(args.body) or "",
+            reply_all=getattr(args, "reply_all", False),
+            cc=args.cc or None,
+            priority=getattr(args, "priority", None),
+            subject=subject,
+            attachments=args.attach,
+            allow_self=getattr(args, "to_self", False),
+        )
+    except SelfReplyError as exc:
+        # #53: REFUSED, NOT SENT. Say why, say what to do instead, exit 2 so a
+        # daemon's `bus: replied` log line cannot be written for this call.
+        print(f"refused: {exc.detail}", file=sys.stderr)
+        print(_suggest_reply_target(bus, exc), file=sys.stderr)
+        print("  to send to yourself on purpose: add --to-self", file=sys.stderr)
+        return 2
     acting = bus.agent or "(key-bound agent)"
     if args.json:
         _print(result, True)
@@ -222,6 +261,8 @@ def cmd_reply(args: argparse.Namespace) -> int:
         # participant must not look like one that reached the room.
         who = ", ".join(result.get("recipients") or []) or "?"
         line = f"replied: {result['id']} as {acting} to {who}"
+        if subject:
+            line += f'  subject "{subject}"'
         if result.get("cc"):
             line += f" (cc: {', '.join(result['cc'])})"
         if result.get("skipped_retired"):
@@ -333,6 +374,24 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
         "you excluded). Off by default — the quiet reply is the safe one.",
     )
     p.add_argument("-c", "--cc", action="append", default=[], help="copy extra recipients")
+    p.add_argument(
+        "-s",
+        "--subject",
+        default=None,
+        help="give THIS reply its own subject (#52) instead of the server's "
+        "'Re: <parent>'. Stored on the message and shown in the thread view — "
+        "use it when a long thread's original subject no longer describes what "
+        "you are saying, or to carry a severity a reader can see without opening "
+        "the body.",
+    )
+    p.add_argument(
+        "--to-self",
+        dest="to_self",
+        action="store_true",
+        help="allow a reply whose ONLY recipient is you (#53). Without this, "
+        "replying to your own outbound message id is refused, because 'answer "
+        "the sender' would deliver to your own inbox while the other party waits.",
+    )
     p.add_argument(
         "-p",
         "--priority",

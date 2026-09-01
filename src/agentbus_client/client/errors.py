@@ -94,3 +94,22 @@ def _raise_for(response: httpx.Response) -> None:
     else:
         cls = _ERRORS.get(response.status_code, AgentBusError)
     raise cls(detail, code=code, status=response.status_code, body=body)
+
+
+class SelfReplyError(AgentBusError):
+    """A reply whose ONLY resolved recipient is the agent sending it (#53).
+
+    Raised client-side, before any message is created. The server's rule —
+    a reply answers the parent's SENDER — is correct; what it cannot know is
+    that the caller pasted its OWN outbound message id (the one `agentbus
+    send` printed) and meant the other party. Reported by a platform whose
+    reply landed in its own inbox while the counterparty waited (their thread
+    01M1EFPRKJ9V8MF6JKSDJJF7AT, 12:40Z). Pass `allow_self=True` to send to
+    yourself on purpose.
+    """
+
+    def __init__(self, detail: str, *, message_id: str, acting: str, **kwargs: Any) -> None:
+        kwargs.setdefault("code", "self_reply_refused")
+        super().__init__(detail, **kwargs)
+        self.message_id = message_id
+        self.acting = acting

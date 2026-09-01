@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from ._reply_guard import _refuse_self_reply
 from .attachments import _encode_attachments
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
@@ -103,6 +104,8 @@ class AsyncMessagingMixin(_MixinBase):
         require_responsive: bool = False,
         agent: str | None = None,
         idempotency_key: str | None = None,
+        # #53: parity with the sync guard — see _refuse_self_reply.
+        allow_self: bool = False,
     ) -> dict[str, Any]:
         payload = {
             "text": text,
@@ -137,6 +140,7 @@ class AsyncMessagingMixin(_MixinBase):
         )
         # #220, second half: signed over the server's own answer, for the same
         # reason as the sync reply. This surface signed nothing before.
+        _refuse_self_reply(resolved, agent or self.agent, message_id, allow_self=allow_self)
         payload = self._sign_if_possible(payload, agent, resolved)
         return await self._request(
             "POST",

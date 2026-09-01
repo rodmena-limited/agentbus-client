@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import Any
 
-from ..client import AgentBusError
+from ..client import AgentBusError, NotFoundError
 from . import _common
 from ._common import _accept_common_flags_after_subcommand, _print
 
@@ -74,7 +74,30 @@ def _render_thread(result: dict[str, Any], highlight_message_id: str | None = No
 
 
 def cmd_thread(args: argparse.Namespace) -> int:
-    result = _common._bus(args).thread(args.thread_id)
+    bus = _common._bus(args)
+    try:
+        result = bus.thread(args.thread_id)
+    except NotFoundError as exc:
+        # #54: the mirror of `show`'s fallback — a DELIVERY id pasted here
+        # resolves to its thread, once, on the failure path only.
+        try:
+            delivery = bus.read(args.thread_id)
+        except AgentBusError:
+            print(
+                f"not_found: {args.thread_id} is neither a thread you are in nor a "
+                "delivery of yours. `thread` takes a THREAD id; `show` takes a "
+                "DELIVERY id (from your inbox). They look alike and are not the same.",
+                file=sys.stderr,
+            )
+            raise exc from None
+        thread_id = delivery.get("thread_id")
+        if not thread_id:
+            raise exc from None
+        print(
+            f"note: {args.thread_id} is a DELIVERY id; its thread is {thread_id}.",
+            file=sys.stderr,
+        )
+        result = bus.thread(thread_id)
     if args.json:
         _print(result, True)
         return 0

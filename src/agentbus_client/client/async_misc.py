@@ -409,6 +409,15 @@ class AsyncMiscMixin(_MixinBase):
         data = await self._request("GET", "/v1/reminders/owed")
         return list(data.get("owed") or [])
 
+    async def sent(
+        self, *, limit: int = 50, cursor: str | None = None, agent: str | None = None
+    ) -> dict[str, Any]:
+        """Async parity — see AgentBus.sent (#51)."""
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return await self._request("GET", "/v1/sent", params=params, agent=agent)
+
     async def create_webhook(
         self,
         url: str,

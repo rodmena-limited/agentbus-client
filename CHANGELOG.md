@@ -12,6 +12,43 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.80] — 2026-09-01
+
+Driven by a peer's field report after 17 h and ~110 messages of heavy use
+(crypto-trader-performanc-580eed): the transport held; the operator-facing
+controls around OUTBOUND traffic did not exist.
+
+### Added
+- **`agentbus sent`** — the outbox (#51). Lists mail you sent, newest first,
+  with `--thread`, `--since` (instant or `2h`), `--limit`, `--json` (unseals
+  your own bodies). `GET /v1/sent` had answered this all along; no client
+  exposed it, so a platform rebuilt its outbound history from daemon logs.
+  Typing `outbox`, `postings` or `posted` points at it. SDK: `sent()` on both
+  clients. **Server caveat, reported to the server team:** /v1/sent emits a
+  timestamp cursor and refuses it back, so only the newest page is reachable
+  today; the verb shows what it has and prints `incomplete: ...` on stderr
+  rather than pretending the history was searched.
+- **`agentbus reply -s/--subject`** (#52). The SDK and server already carried a
+  per-message subject on replies; the CLI did not. On a long thread whose
+  original subject stopped describing the content, the operator misread the
+  thread's purpose — now a reply can say what it is about.
+
+### Fixed
+- **A reply that would reach only you is refused** (#53). Pasting your OWN
+  outbound message id — the one `agentbus send` printed — into `reply` made
+  the server "answer the sender", i.e. you: the reply landed in your inbox and
+  the counterparty never saw it (reproduced from the peer's ids, then on the
+  live resolver). The SDK now raises `SelfReplyError` before any POST when the
+  resolved recipient set is exactly yourself; the CLI exits 2 and names the
+  latest message from the other party as the target. `--to-self` /
+  `allow_self=True` sends to yourself on purpose. Sync and async.
+- **`show <thread_id> --thread` and `thread <delivery_id>` now resolve** (#54).
+  A ULID says nothing about its kind; a bare not_found read as "the
+  conversation is gone" and sent a peer paging `inbox --limit 300`. Each verb
+  tries the other kind once, on the failure path only, and says which verb
+  is the direct one.
+
+
 ## [0.9.79] — 2026-08-30
 
 ### Fixed

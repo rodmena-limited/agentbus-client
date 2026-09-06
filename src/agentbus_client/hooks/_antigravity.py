@@ -145,8 +145,26 @@ def _agent_for(payload: dict[str, Any]) -> str | None:
         if declared:
             return declared
 
-    # No workspace in the payload, or one that declares nothing: fall back to
-    # the environment and then to cwd, as every other component does.
+    # AN AGY PAYLOAD WITH NO USABLE WORKSPACE MUST NO-OP, NOT GUESS.
+    #
+    # Measured: `agy -p` sends `"workspacePaths": []`. With no workspace the hook
+    # cannot know which project it is in — cwd is the plugin directory (the
+    # plugin is machine-wide), nothing in the environment names the project, and
+    # `conversationId` does not map back to one (checked against
+    # last_conversations.json, which does not carry print-mode conversations).
+    #
+    # The previous fallback here was `os.environ["AGENTBUS_AGENT"]`, and it did
+    # real damage: a session launched from a shell where ANOTHER agent had
+    # exported that variable resolved that agent, polled the WRONG inbox, and
+    # reported "no mail" for a project whose own mail was sitting unread. It
+    # served the wrong identity, confidently.
+    #
+    # So when agy gave us a payload we either identify the workspace from it or
+    # we do nothing. Serving the wrong agent is strictly worse than serving
+    # none. The environment is still honoured for a hook invoked WITHOUT an agy
+    # payload — a manual run, or a future host that supplies identity that way.
+    if payload:
+        return None
     return os.environ.get("AGENTBUS_AGENT") or _resolve_agent()
 
 

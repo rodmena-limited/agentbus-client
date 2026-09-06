@@ -84,21 +84,30 @@ def test_the_workspace_outranks_an_inherited_env_var(repo, monkeypatch):
     assert _agent_seen({"workspacePaths": [str(repo)]}, monkeypatch) == "alpha"
 
 
-def test_env_is_still_used_when_the_workspace_declares_nothing(tmp_path, monkeypatch):
-    """KNOWN-POSITIVE TWIN: the env var is not ignored, it is de-prioritised.
-    Without this, the test above passes against a hook that can never read the
-    environment at all."""
+def test_an_empty_workspace_list_no_ops_instead_of_guessing(repo, monkeypatch):
+    """MEASURED: `agy -p` sends "workspacePaths": []. With no workspace the hook
+    cannot know its project — cwd is the machine-wide plugin dir, nothing in the
+    environment names the project, and conversationId does not map back to one.
+
+    The fallback used to be os.environ["AGENTBUS_AGENT"], and it did real damage:
+    a session launched from a shell where ANOTHER agent had exported that
+    variable polled the WRONG inbox and reported "no mail" while the project's
+    own mail sat unread. Serving the wrong agent is worse than serving none.
+    """
+    monkeypatch.setenv("AGENTBUS_AGENT", "some-other-agents-session")
+    assert _agent_seen({"workspacePaths": [], "conversationId": "x"}, monkeypatch) is None
+
+
+def test_env_is_still_used_for_a_hook_with_no_payload_at_all(tmp_path, monkeypatch):
+    """KNOWN-POSITIVE TWIN: the environment is not ignored, it is refused only
+    when agy gave us a payload we could not resolve. A manual invocation with no
+    payload still honours it."""
     bare = tmp_path / "no-declaration"
     bare.mkdir()
     monkeypatch.setenv("AGENTBUS_AGENT", "from-the-environment")
     monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_x")
     monkeypatch.chdir(bare)
     assert _agent_seen({}, monkeypatch) == "from-the-environment"
-
-
-def test_an_absent_workspace_falls_back_rather_than_guessing(repo, monkeypatch):
-    """No workspacePaths and no identity under cwd ⇒ the kill switch fires."""
-    assert _agent_seen({}, monkeypatch) is None
 
 
 @pytest.mark.parametrize(

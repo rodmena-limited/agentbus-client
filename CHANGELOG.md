@@ -12,6 +12,23 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.86] — 2026-09-06
+
+### Fixed
+- **The Antigravity hooks no longer guess an identity when `agy` sends no
+  workspace** (#56). Measured: `agy -p` sends `"workspacePaths": []`. With no
+  workspace the hook cannot know which project it is in — cwd is the
+  machine-wide plugin directory, nothing in the environment names the project,
+  and `conversationId` does not map back to one. The previous fallback was
+  `$AGENTBUS_AGENT`, and it did real damage: a session launched from a shell
+  where another agent had exported that variable polled the WRONG inbox and
+  reported no mail while the project's own mail sat unread.
+
+  Now, when agy supplies a payload we cannot resolve, the hook does nothing.
+  Serving the wrong agent is strictly worse than serving none. The environment is
+  still honoured for a hook invoked without a payload at all.
+
+
 ## [0.9.85] — 2026-09-06
 
 ### Changed

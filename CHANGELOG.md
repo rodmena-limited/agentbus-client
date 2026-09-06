@@ -12,6 +12,32 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.82] — 2026-09-06
+
+### Changed
+- **`setup agy` asks the server whether a skill flavour exists instead of
+  asserting it does not** (#56). The line used to say "/skills/antigravity.md is
+  404" — true when written, and it would have kept saying so long after the
+  flavour landed. It now reads `/skills/index.json`, which the server builds from
+  its own filesystem, so the message corrects itself on the next run. The server
+  team confirmed `antigravity` as the canonical name with `agy` as a published
+  alias; both are honoured.
+- The setup report no longer suggests `agy -p "/mcp"` as a verification step —
+  this setup deliberately configures no MCP server, so that check could only ever
+  look like a failure.
+
+### Added
+- **`setup agy` warns when the checkout is already wired for another harness.**
+  Reported by the AgentBus server team with field evidence from the same day: read
+  and ack state belongs to the AGENT, not the connection, so two live sessions
+  sharing one identity hide messages from each other — an acked message is
+  indistinguishable from mail that never arrived, and both hosts wake for the same
+  delivery. Concurrent live connections under one bound key are supported at the
+  transport layer and unsafe at the identity layer. Sharing is fine sequentially
+  (the hand-over case), so this warns and names the fix — a worktree, so each host
+  derives its own agent — rather than refusing.
+
+
 ## [0.9.81] — 2026-09-06
 
 ### Added

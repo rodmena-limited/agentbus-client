@@ -57,6 +57,9 @@ from ._paths import (
 )
 from ._provision import _provision_project_agent
 
+# Their canonical filename; `agy` is an alias they publish in the same index.
+_SKILL_HARNESS = "antigravity"
+
 # Printed verbatim when setup declines the gate. It names both blockers, because
 # "not implemented" would read as a scheduling gap when it is a measurement gap.
 _GATE_REFUSAL = (
@@ -67,14 +70,54 @@ _GATE_REFUSAL = (
     "ones needed to undo it. Tracked in #56."
 )
 
-_SKILL_NOTE = (
-    "skill: NOT installed — the server serves no Antigravity flavour "
-    "(/skills/antigravity.md is 404). Bundling the Claude-flavoured copy would put "
-    "a second skill of the same name beside the one you already have at "
-    "~/.gemini/config/skills/agentbus/SKILL.md, and a stale copy that shadows a "
-    "current one is worse than none. Requested from the server team; until it "
-    "exists, agy keeps discovering your global copy."
-)
+
+def _skill_note(base_url: str) -> str:
+    """Whether a skill flavour exists, ASKED rather than assumed.
+
+    The first version of this line asserted "/skills/antigravity.md is 404".
+    That was true when written and is exactly the kind of claim that rots — the
+    server team is queuing the flavour right now, and a hardcoded 404 would keep
+    telling operators it does not exist for as long as nobody re-read this
+    string.
+
+    So ask `/skills/index.json`, which the server builds from its own filesystem
+    rather than a hardcoded list: when the flavour lands, the index and the .md
+    URL go green in the same deploy and cannot drift apart. Their canonical name
+    is `antigravity`; `agy` is an alias, published in the same index.
+    """
+    try:
+        import httpx
+
+        resp = httpx.get(f"{base_url}/skills/index.json", timeout=10)
+        if resp.status_code != 200:
+            return (
+                f"skill: NOT checked — /skills/index.json answered {resp.status_code}. "
+                "Not installing rather than guessing."
+            )
+        index = resp.json()
+        harnesses = set(index.get("harnesses") or [])
+        aliases = index.get("aliases") or {}
+        served = aliases.get(_SKILL_HARNESS, _SKILL_HARNESS) in harnesses or (
+            _SKILL_HARNESS in harnesses
+        )
+    except Exception as exc:
+        return f"skill: NOT checked ({type(exc).__name__}) — not installing rather than guessing."
+
+    if not served:
+        return (
+            "skill: NOT installed — the server serves no Antigravity flavour yet "
+            "(/skills/index.json lists none). Bundling the Claude flavour would put a "
+            "second skill of the same name beside your global copy, and a stale copy "
+            "that shadows a current one is worse than none. Queued with the server "
+            "team; this line re-checks the index on every run, so it will change by "
+            "itself once it serves."
+        )
+    return (
+        f"skill: SERVED — the server now carries a '{_SKILL_HARNESS}' flavour. Install it "
+        f"with `agentbus refresh-skill`; it belongs at "
+        f"~/.gemini/config/skills/agentbus/SKILL.md (back up your hand-maintained copy "
+        f"first — it is the Claude flavour)."
+    )
 
 
 def _hook_binary() -> tuple[str, str | None]:
@@ -110,10 +153,30 @@ def _setup_agy(args: argparse.Namespace) -> int:
     #    this; it is what the hooks read when the payload cannot say.
     _write_worktree_identity(name, report)
 
+    root = _git_root_or_none() or Path.cwd()
+
+    # 4a. THE SHARED-IDENTITY HAZARD, reported by the server team with field
+    #     evidence the same day (infra-manager-c13110, two live sessions on one
+    #     identity): read/ack state is per-delivery-per-AGENT, not per
+    #     connection. So if a Claude session and an agy session share one agent,
+    #     an ack by either makes the message INVISIBLE to the other —
+    #     indistinguishable from mail that never arrived — and both are woken for
+    #     the same delivery. Supported at the transport layer, unsafe at the
+    #     identity layer. We warn rather than refuse: sharing is fine
+    #     SEQUENTIALLY (the hand-over case), and only concurrent live sessions
+    #     bite.
+    if (root / ".claude" / "settings.local.json").exists() or (root / "opencode.json").exists():
+        report.append(
+            f"WARNING — this checkout is already wired for another harness, so agy "
+            f"would act as the SAME agent ({name}). Read/ack state belongs to the "
+            "agent, not the connection: if both run at once, an ack by one hides the "
+            "message from the other. Fine sequentially; for concurrent sessions give "
+            "each host its own checkout (a git worktree) so each derives its own agent."
+        )
+
     # 4b. OPT IN THIS CHECKOUT. The plugin is machine-wide; without this the
     #     hooks would act in every project that has a `.agentbus/agent` from
     #     some other harness.
-    root = _git_root_or_none() or Path.cwd()
     added = agy_mark_wired(root)
     report.append(
         f"opt-in: {root} {'added to' if added else 'already in'} the agy-wired list "
@@ -173,7 +236,7 @@ def _setup_agy(args: argparse.Namespace) -> int:
         f'~/.config/agentbus/keys/{name}.env | cut -d= -f2)" agentbus {base_url}/mcp/'
     )
 
-    report.append(_SKILL_NOTE)
+    report.append(_skill_note(base_url))
     report.append(
         "session-end: agy has NO SessionEnd event, so nothing reaps a stream at "
         "session close on this host. Stated rather than implied."
@@ -199,7 +262,8 @@ def _setup_agy(args: argparse.Namespace) -> int:
     _say("Verify it with:")
     _say(f"  agy plugin validate {plugin_dir}")
     _say('  agy -p "/hooks"     # our two hooks should be listed')
-    _say('  agy -p "/mcp"       # the agentbus server should be listed')
+    _say("  (no `/mcp` check — this setup deliberately configures no MCP server;")
+    _say("   the line above in the report tells you how to add one if you want it.)")
     return 0
 
 

@@ -55,6 +55,8 @@ def wired(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(_agy_setup, "_provision_project_agent", lambda a, r, h: "alpha")
     monkeypatch.setattr(_agy_setup, "doctor_credential_scope", lambda base_url=None: [])
+    # No network in the unit suite: the skill note asks /skills/index.json.
+    monkeypatch.setattr(_agy_setup, "_skill_note", lambda base_url: "skill: NOT installed (stub)")
     return repo
 
 
@@ -254,3 +256,83 @@ def test_the_window_stays_under_the_hook_timeout():
     finishes — a monitor that cannot monitor."""
     assert _paths.AGY_WAKE_WINDOW_SEC < _paths.AGY_WAKE_HOOK_TIMEOUT_SEC
     assert _paths.AGY_WAKE_HOOK_TIMEOUT_SEC <= 30, "must not exceed agy's DOCUMENTED default"
+
+
+# ------------------------------------------------- the skill note asks, not assumes
+
+
+class _Resp:
+    def __init__(self, status, payload=None):
+        self.status_code = status
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+def _index(monkeypatch, resp):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: resp)
+
+
+def test_the_skill_note_reports_served_when_the_index_lists_it(monkeypatch):
+    """THE REGRESSION THIS REPLACES: the note used to assert '/skills/antigravity.md
+    is 404'. True when written, and it would have kept saying so forever."""
+    _index(monkeypatch, _Resp(200, {"harnesses": ["claude-code", "antigravity"], "aliases": {}}))
+    assert "SERVED" in _agy_setup._skill_note("https://x.test")
+
+
+def test_the_skill_note_reports_absent_when_the_index_does_not(monkeypatch):
+    """The other direction, against the index as it really is today."""
+    _index(
+        monkeypatch,
+        _Resp(
+            200, {"harnesses": ["claude-code", "opencode"], "aliases": {"claude": "claude-code"}}
+        ),
+    )
+    note = _agy_setup._skill_note("https://x.test")
+    assert "NOT installed" in note
+    assert "shadow" in note, "must still say WHY bundling one would be wrong"
+
+
+def test_an_alias_in_the_index_counts_as_served(monkeypatch):
+    """Their canonical name is `antigravity`; `agy` is an alias they publish."""
+    _index(
+        monkeypatch,
+        _Resp(200, {"harnesses": ["agy"], "aliases": {"antigravity": "agy"}}),
+    )
+    assert "SERVED" in _agy_setup._skill_note("https://x.test")
+
+
+def test_an_unreachable_index_installs_nothing_and_says_so(monkeypatch):
+    """Absence of an answer is not an answer. Never guess in either direction."""
+    import httpx
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "get", boom)
+    assert "NOT checked" in _agy_setup._skill_note("https://x.test")
+    _index(monkeypatch, _Resp(503))
+    assert "NOT checked" in _agy_setup._skill_note("https://x.test")
+
+
+# ------------------------------------------- the shared-identity warning
+
+
+def test_a_checkout_already_wired_for_claude_gets_the_shared_identity_warning(wired, monkeypatch):
+    """Reported by the server team with field evidence the same day: read/ack
+    state belongs to the AGENT, not the connection, so two live hosts on one
+    identity hide messages from each other."""
+    (wired / ".claude").mkdir()
+    (wired / ".claude" / "settings.local.json").write_text("{}")
+    out = _run_setup(monkeypatch)
+    assert "same agent" in out.lower() or "SAME agent" in out
+    assert "worktree" in out, "must name the fix, not just the hazard"
+
+
+def test_a_single_harness_checkout_gets_no_such_warning(wired, monkeypatch):
+    """KNOWN-POSITIVE TWIN: a warning printed unconditionally teaches nothing."""
+    out = _run_setup(monkeypatch)
+    assert "SAME agent" not in out

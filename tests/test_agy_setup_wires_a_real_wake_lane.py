@@ -283,17 +283,43 @@ def test_the_skill_note_reports_served_when_the_index_lists_it(monkeypatch):
     assert "SERVED" in _agy_setup._skill_note("https://x.test")
 
 
-def test_the_skill_note_reports_absent_when_the_index_does_not(monkeypatch):
-    """The other direction, against the index as it really is today."""
+def _index_without_antigravity(monkeypatch):
+    """The index exactly as the server really serves it today."""
     _index(
         monkeypatch,
         _Resp(
             200, {"harnesses": ["claude-code", "opencode"], "aliases": {"claude": "claude-code"}}
         ),
     )
+
+
+def test_an_existing_skill_is_reported_as_OK_not_as_missing(monkeypatch, tmp_path):
+    """THE WORDING REGRESSION, and it alarmed a real operator.
+
+    The line used to open "skill: NOT installed", which reads as "you have no
+    skill" — so the operator went looking for a breakage that did not exist.
+    Their global copy is present and agy discovers it (verified: `agy -p
+    "/skills"` lists agentbus first). The only thing absent is an
+    Antigravity-FLAVOURED variant on the server. Lead with what they have.
+    """
+    skill = tmp_path / ".gemini" / "config" / "skills" / "agentbus" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("the claude flavour")
+    _index_without_antigravity(monkeypatch)
     note = _agy_setup._skill_note("https://x.test")
-    assert "NOT installed" in note
-    assert "shadow" in note, "must still say WHY bundling one would be wrong"
+    assert note.startswith("skill: OK"), note
+    assert "already discovers" in note
+    assert "Nothing to do" in note
+    assert "NOT installed" not in note
+
+
+def test_with_no_skill_at_all_it_says_so_without_alarm(monkeypatch, tmp_path):
+    """KNOWN-POSITIVE TWIN: the OK branch must not fire when there is genuinely
+    nothing there, or the message becomes a lie in the other direction."""
+    _index_without_antigravity(monkeypatch)
+    note = _agy_setup._skill_note("https://x.test")
+    assert "none on this machine" in note
+    assert "the bus still works" in note, "absence of a skill is not a breakage"
 
 
 def test_an_alias_in_the_index_counts_as_served(monkeypatch):

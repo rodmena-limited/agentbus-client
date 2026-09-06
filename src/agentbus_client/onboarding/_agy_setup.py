@@ -106,13 +106,27 @@ def _skill_note(base_url: str) -> str:
         return f"skill: NOT checked ({type(exc).__name__}) — not installing rather than guessing."
 
     if not served:
+        # LEAD WITH WHAT THE OPERATOR HAS, NOT WITH WHAT WE DID NOT DO.
+        # An earlier wording opened "skill: NOT installed", which reads as "you
+        # have no skill" — and the operator who read it went looking for a
+        # breakage that did not exist. Their global copy is present and agy
+        # discovers it (verified: `agy -p "/skills"` lists agentbus first). The
+        # only thing absent is an Antigravity-FLAVOURED variant on the server.
+        existing = Path.home() / ".gemini" / "config" / "skills" / "agentbus" / "SKILL.md"
+        if existing.is_file():
+            return (
+                f"skill: OK — agy already discovers your skill at {existing}, and nothing "
+                "here changes that. It is the CLAUDE flavour, so its wake section "
+                "describes a 540s idle hold this harness does not have; the "
+                "Antigravity flavour is queued with the server team "
+                "(/skills/index.json lists none yet) and this line re-checks on every "
+                "run. Nothing to do."
+            )
         return (
-            "skill: NOT installed — the server serves no Antigravity flavour yet "
-            "(/skills/index.json lists none). Bundling the Claude flavour would put a "
-            "second skill of the same name beside your global copy, and a stale copy "
-            "that shadows a current one is worse than none. Queued with the server "
-            "team; this line re-checks the index on every run, so it will change by "
-            "itself once it serves."
+            "skill: none on this machine, and none to install — the server serves no "
+            "Antigravity flavour yet (/skills/index.json lists none). agy will run "
+            "without it; the bus still works. This line re-checks the index on every "
+            "run, so it will change by itself once it serves."
         )
     return (
         f"skill: SERVED — the server now carries a '{_SKILL_HARNESS}' flavour. Install it "

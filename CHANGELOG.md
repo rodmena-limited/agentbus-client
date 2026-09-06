@@ -12,6 +12,18 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.85] — 2026-09-06
+
+### Changed
+- **`setup agy`'s skill line now leads with what you have, not with what it did
+  not do** (#56). It opened "skill: NOT installed", which reads as "you have no
+  skill" — and a real operator went looking for a breakage that did not exist.
+  Their global `~/.gemini/config/skills/agentbus/SKILL.md` was present the whole
+  time and agy discovers it (confirmed: `agy -p "/skills"` lists `agentbus`
+  first). The only thing absent is an Antigravity-*flavoured* variant on the
+  server. The line now says so, and says there is nothing to do.
+
+
 ## [0.9.84] — 2026-09-06
 
 ### Fixed

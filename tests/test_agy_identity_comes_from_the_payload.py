@@ -67,12 +67,33 @@ def test_identity_comes_from_workspace_paths_not_cwd(repo, monkeypatch):
     assert _agent_seen({"workspacePaths": [str(repo)]}, monkeypatch) == "alpha"
 
 
-def test_env_still_outranks_the_payload(repo, monkeypatch):
-    """#90 precedence is unchanged: an explicit AGENTBUS_AGENT wins. Adding a
-    fourth identity rule that quietly outranked the operator would be the
-    split-identity bug all over again."""
-    monkeypatch.setenv("AGENTBUS_AGENT", "operator-said-so")
-    assert _agent_seen({"workspacePaths": [str(repo)]}, monkeypatch) == "operator-said-so"
+def test_the_workspace_outranks_an_inherited_env_var(repo, monkeypatch):
+    """THE FIELD INCIDENT, minutes after the first real wiring.
+
+    An operator launched `agy` from a shell where ANOTHER agent's session had
+    exported AGENTBUS_AGENT. The plugin is machine-wide, so every hook in every
+    agy session inherited it: the catch-up lane polled the wrong inbox, the
+    wired project's own mail was never surfaced, and setup had reported success.
+    Nothing errored — it served the wrong identity, confidently.
+
+    On Claude Code that variable is set PER PROJECT by settings.local.json, so
+    it is a declaration and rightly wins. On agy nothing scopes it, so it is
+    ambient contamination and the workspace's own declaration must win.
+    """
+    monkeypatch.setenv("AGENTBUS_AGENT", "some-other-agents-session")
+    assert _agent_seen({"workspacePaths": [str(repo)]}, monkeypatch) == "alpha"
+
+
+def test_env_is_still_used_when_the_workspace_declares_nothing(tmp_path, monkeypatch):
+    """KNOWN-POSITIVE TWIN: the env var is not ignored, it is de-prioritised.
+    Without this, the test above passes against a hook that can never read the
+    environment at all."""
+    bare = tmp_path / "no-declaration"
+    bare.mkdir()
+    monkeypatch.setenv("AGENTBUS_AGENT", "from-the-environment")
+    monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_x")
+    monkeypatch.chdir(bare)
+    assert _agent_seen({}, monkeypatch) == "from-the-environment"
 
 
 def test_an_absent_workspace_falls_back_rather_than_guessing(repo, monkeypatch):

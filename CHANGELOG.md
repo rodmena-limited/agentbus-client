@@ -12,6 +12,26 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.84] — 2026-09-06
+
+### Fixed
+- **SEV-1: the Antigravity hooks served the wrong agent when `AGENTBUS_AGENT` was
+  inherited from the launching shell** (#56). The plugin is machine-wide, so a
+  hook inherits whatever the shell that started `agy` happened to export. If that
+  shell belonged to another agent's session, EVERY agy session on the machine
+  resolved that agent: the catch-up lane polled the wrong inbox, the wired
+  project's own mail was never surfaced, and setup had already reported success.
+  Nothing errored — it served the wrong identity, confidently. Found in the field
+  within minutes of the first real wiring.
+
+  For this lane the workspace's own `.agentbus/agent` now outranks the
+  environment. That inverts the usual precedence deliberately and only here: on
+  Claude Code `AGENTBUS_AGENT` is set PER PROJECT by `settings.local.json`, so it
+  is a declaration and rightly wins; on Antigravity nothing scopes it, so it is
+  ambient contamination. The variable is still honoured when the workspace
+  declares nothing.
+
+
 ## [0.9.83] — 2026-09-06
 
 ### Fixed

@@ -106,31 +106,48 @@ def _workspace(payload: dict[str, Any]) -> Path | None:
 
 
 def _agent_for(payload: dict[str, Any]) -> str | None:
-    """Who is this session? Env, then the payload's workspace, then cwd.
+    """Who is this session? THE WORKSPACE OUTRANKS THE ENVIRONMENT HERE.
 
-    THE OPT-IN CHECK IS NOT A FORMALITY. This plugin is machine-wide, so these
-    hooks fire in every agy session on the box — and `.agentbus/agent` already
-    exists in every checkout wired for Claude Code or opencode. Acting on that
-    file alone would put a bus poll and a foreground Stop pause into projects
-    that never asked for agy. So a workspace must have been through
-    `agentbus setup agy` before we do anything for it.
+    This inverts the usual precedence (#90, "the env var outranks everything")
+    for this lane ALONE, and the reason is that the two harnesses mean different
+    things by the same variable:
+
+      * On Claude Code, `AGENTBUS_AGENT` is set PER PROJECT, by that project's
+        `.claude/settings.local.json` `env` block. The harness scopes it, so it
+        is a DECLARATION and deserves to win.
+      * On Antigravity nothing scopes it. The plugin is machine-wide and the
+        hook simply inherits whatever the shell that launched `agy` happened to
+        export. That is AMBIENT CONTAMINATION, not a declaration.
+
+    FIELD INCIDENT, minutes after the first real wiring. An operator launched
+    `agy` from a shell where another agent's session had exported
+    `AGENTBUS_AGENT`. Every hook in every agy session then resolved that agent:
+    the catch-up lane polled the WRONG inbox, the wired project's own mail was
+    never surfaced, and the operator saw an agent that had been set up
+    successfully and received nothing. Nothing errored — it served the wrong
+    identity, confidently.
+
+    So: the opt-in list gates, the workspace's own `.agentbus/agent` decides,
+    and the environment is only consulted when the workspace declares nothing.
     """
-    declared = os.environ.get("AGENTBUS_AGENT")
-    if declared:
-        return declared
     workspace = _workspace(payload)
     if workspace is not None:
         from ..onboarding._paths import agy_is_wired
 
+        # THE OPT-IN CHECK IS NOT A FORMALITY. This plugin is machine-wide, so
+        # these hooks fire in every agy session on the box — and
+        # `.agentbus/agent` already exists in every checkout wired for Claude
+        # Code or opencode. Acting on that file alone would put a bus poll and a
+        # foreground Stop pause into projects that never asked for agy.
         if not agy_is_wired(workspace):
             return None
-        found = _read_declared_agent(workspace)
-        if found:
-            return found
-    # Fallback for a plugin that happens to sit inside the repo. Keeps this
-    # module working if a future install moves hooks.json somewhere the payload
-    # does not describe.
-    return _resolve_agent()
+        declared = _read_declared_agent(workspace)
+        if declared:
+            return declared
+
+    # No workspace in the payload, or one that declares nothing: fall back to
+    # the environment and then to cwd, as every other component does.
+    return os.environ.get("AGENTBUS_AGENT") or _resolve_agent()
 
 
 def _with_credential(agent: str) -> bool:

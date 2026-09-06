@@ -155,6 +155,31 @@ def _monitor_inner() -> int:
 
     window = int(os.environ.get("AGENTBUS_REWAKE_WINDOW", "600"))
     interval = max(1, int(os.environ.get("AGENTBUS_REWAKE_INTERVAL", "15")))
+    text = poll_for_fresh_mail(agent, window=window, interval=interval)
+    if text is None:
+        return 0
+    print(text)
+    return 2
+
+
+def poll_for_fresh_mail(agent: str, *, window: int, interval: int) -> str | None:
+    """Poll until a delivery this agent has never been woken for arrives.
+
+    Returns the mail text on a fresh claim, or None when the window closed with
+    nothing new. Never raises for a bus failure — `_build_resilient_poll`
+    already retries, breaks and fails safe, returning "" on any error.
+
+    EXTRACTED FROM `_monitor_inner` (#56) so the Antigravity Stop hook shares
+    this loop and, more importantly, THIS LEDGER. Sharing the ledger across
+    harnesses is correct rather than incidental: one delivery should wake a
+    session once, no matter which harness's hook happens to observe it first.
+
+    The caller decides how to REPORT a wake, because that is the only part that
+    differs: Claude Code re-wakes on exit code 2 with the text on stdout, while
+    Antigravity re-wakes on `{"decision": "continue"}` and ignores exit codes
+    entirely. Everything above that line is identical, and duplicating it is
+    how the two would drift.
+    """
     ledger = _ledger_path(agent)
     try:
         ledger.parent.mkdir(parents=True, exist_ok=True)
@@ -188,16 +213,15 @@ def _monitor_inner() -> int:
                 claimed = _claim_fresh(ledger, fresh)
                 seen.update(fresh)
                 if claimed:
-                    print(text)
-                    return 2
+                    return text
         # Wall-clock deadline: a suspend/resume is judged by real time, not by
         # how many iterations a sleeping CPU managed to run.
         if time.time() >= deadline:
-            return 0
+            return None
         # AGENTBUS_REWAKE_WINDOW=0 -> a single deterministic pass (used by
         # `doctor --wake`, which wants one check, not a 10-minute hold).
         if window == 0:
-            return 0
+            return None
         # HOT-LOOP GUARD, and it is not hypothetical: with `unread=True` and an
         # unacked backlog the server has rows to return, so the long-poll
         # answers INSTANTLY every time. Those rows are all already in the

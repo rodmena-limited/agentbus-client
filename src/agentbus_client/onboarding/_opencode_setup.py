@@ -28,6 +28,7 @@ import os
 import stat
 from pathlib import Path
 
+from ._agy_setup import _setup_agy, teardown_agy_machine
 from ._claude_setup import _setup_claude
 from ._credentials import doctor_credential_scope
 from ._identity import _agent_key
@@ -39,6 +40,7 @@ from ._paths import (
     _keys_dir,
     _load_json,
     _say,
+    canonical_harness,
 )
 from ._provision import _provision_project_agent
 
@@ -259,6 +261,10 @@ def cmd_teardown(args: argparse.Namespace) -> int:
     if getattr(args, "machine", False):
         import shutil as _shutil
 
+        # #56: the Antigravity plugin is machine-wide, so it belongs to the
+        # machine-scoped teardown and NOT to a per-checkout one — removing it
+        # because one project opted out would unwire every other project.
+        teardown_agy_machine(removed)
         cfg = _config_dir()
         if cfg.is_dir():
             _shutil.rmtree(cfg, ignore_errors=True)
@@ -278,11 +284,18 @@ def cmd_teardown(args: argparse.Namespace) -> int:
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
-    harness = args.harness
+    # An alias is normalized ONCE, here, before anything branches on the name —
+    # so `antigravity` and `agy` cannot diverge downstream (#56).
+    harness = canonical_harness(args.harness)
+    if harness != args.harness:
+        _say(f"('{args.harness}' is {harness} — the canonical name, as in `--help`.)")
+    args.harness = harness
     if harness == "claude":
         return _setup_claude(args)
     if harness == "opencode":
         return _setup_opencode(args)
+    if harness == "agy":
+        return _setup_agy(args)
 
     # SPECS/0021: an unimplemented harness SHALL say so and name the ticket,
     # NEVER half-wire. The blocker is named per harness, because a refusal that
@@ -299,13 +312,6 @@ def cmd_setup(args: argparse.Namespace) -> int:
         _say("  There is also no per-project codex settings file for a declared")
         _say("  identity — config is global-only, which re-opens the #82/#83 gate")
         _say("  asymmetry. Tracked in #31. Nothing was changed.")
-        return 1
-    if harness == "agy":
-        _say("agentbus setup agy: refused, and not merely 'not implemented yet'.")
-        _say("  agy's CLI exposes no hook contract, no MCP server support, and no")
-        _say("  wake path (no daemon, stream, or socket) — there is nothing setup")
-        _say("  could wire that would give a session an inbox it can act on.")
-        _say("  Tracked in #31. Nothing was changed.")
         return 1
     _say(f"unknown harness '{harness}' (choose from claude, opencode, codex, agy).")
     return 1

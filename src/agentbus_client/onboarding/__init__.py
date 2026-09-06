@@ -17,6 +17,7 @@ from . import (
     _signin,
     _skill,
 )
+from ._agy_setup import _setup_agy, teardown_agy_machine
 from ._claude_setup import (
     _setup_claude,
 )
@@ -58,6 +59,7 @@ from ._paths import (
     _PENDING_CMD,
     _SESSION_START_CMD,
     _STOP_CMD,
+    HARNESS_ALIASES,
     HARNESSES,
     OPENCODE_PLUGIN_NPM,
     REWAKE_HOOK_TIMEOUT_SEC,
@@ -78,6 +80,7 @@ from ._paths import (
     _say,
     _signin_state_path,
     _write_private,
+    canonical_harness,
 )
 from ._provision import (
     _provision_project_agent,

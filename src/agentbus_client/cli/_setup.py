@@ -19,7 +19,9 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
         help="wire this project's agent end to end — credential, identity, passive "
         "hooks, active re-waker. Idempotent; never touches foreign settings.",
     )
-    p.add_argument("harness", choices=list(_onboarding.HARNESSES))
+    p.add_argument(
+        "harness", choices=list(_onboarding.HARNESSES) + list(_onboarding.HARNESS_ALIASES)
+    )
     p.add_argument(
         "--role",
         default=None,

@@ -12,6 +12,49 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.81] — 2026-09-06
+
+### Added
+- **`agentbus setup agy` — Google Antigravity is now a supported harness**
+  (#56, SPECS/0056), replacing a refusal that had gone stale. The client had
+  been telling operators that agy "exposes no hook contract, no MCP server
+  support, and no wake path". Measured against agy 1.1.27, all three are false,
+  and a refusal that is factually wrong turns away a harness that works.
+  `antigravity` is accepted as an alias.
+
+  Two lanes ship, both verified against the real binary:
+  - **Active wake** — a `Stop` hook emitting `{"decision":"continue"}`, which
+    re-enters agy's loop. It claims through the SAME ledger as the Claude
+    re-waker, because on this harness an unclaimed re-wake is not a duplicate
+    notification, it is an unbounded model loop.
+  - **Passive catch-up** — `PreInvocation` emitting
+    `injectSteps[].ephemeralMessage`, which is structurally better than Claude's
+    stdout-append. A real agy turn quoted a marker string it could only have
+    learned through this injection.
+
+  Three things are deliberately absent, each stated in the setup report rather
+  than implied: no `PreToolUse` gate (agy's decision vocabulary differs and its
+  hook-failure semantics are unmeasured, so a gate could fail *closed*); no
+  skill (the server serves no Antigravity flavour yet, and a stale bundled copy
+  would shadow the one you already have); no credential in the plugin.
+
+  **The wake is not Claude-shaped, and setup says so.** agy hooks block the
+  agent loop — there is no `asyncRewake` — so the window is a 20 s foreground
+  pause at each turn end, not a 9-minute idle hold. Always-attached
+  reachability still comes from `agentbus service`.
+
+  The plugin is machine-wide because that is the only place hooks actually run:
+  workspace hooks stay silent even when the workspace is trusted, while
+  `agy plugin validate` calls that same workspace plugin valid. So each checkout
+  must opt in explicitly, and hooks act only for opted-in checkouts — otherwise
+  every repo already wired for Claude Code would start polling the bus under agy.
+
+### Changed
+- `rewake.poll_for_fresh_mail` extracted from the Claude monitor so both
+  harnesses share one poll loop and, more importantly, one dedupe ledger: a
+  delivery wakes a session once regardless of which harness sees it first.
+
+
 ## [0.9.80] — 2026-09-01
 
 Driven by a peer's field report after 17 h and ~110 messages of heavy use

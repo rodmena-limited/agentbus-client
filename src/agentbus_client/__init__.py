@@ -43,7 +43,7 @@ if TYPE_CHECKING:
         PermissionError_,
         QuotaExceeded,
         RateLimited,
-    SelfReplyError,
+        SelfReplyError,
         ServiceUnavailable,
         TransportError,
         ValidationError,

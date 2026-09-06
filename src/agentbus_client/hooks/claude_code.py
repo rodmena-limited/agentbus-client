@@ -172,6 +172,14 @@ def main(argv: list[str] | None = None) -> int:
 
     p.set_defaults(func=_monitor)
 
+    # Antigravity's hooks (#56). A SECOND PROTOCOL, not a second spelling of
+    # this one: agy re-wakes on {"decision": "continue"} and ignores exit codes,
+    # so its verbs live in their own module rather than growing a `--host` flag
+    # through the Claude handlers.
+    from ._antigravity import add_commands as _agy_commands
+
+    _agy_commands(sub)
+
     args = parser.parse_args(argv)
     return args.func(args)
 

@@ -50,6 +50,20 @@ def _device_hash(device_id: str | None) -> str:
 
 HARNESSES = ("claude", "opencode", "codex", "agy")
 
+# `agy` is the binary's name and matches how every other harness here is named
+# after its command. "antigravity" is the product name people actually type, so
+# it is accepted and NORMALIZED — an alias, never a second entry in HARNESSES,
+# because two names for one harness is the one-fact-two-places trap that the
+# split-identity bugs (#40, #44) were made of. The canonical name is echoed in
+# the report so nobody learns the alias and then cannot find it in `--help`.
+HARNESS_ALIASES = {"antigravity": "agy"}
+
+
+def canonical_harness(name: str) -> str:
+    """The registered harness name for whatever the operator typed."""
+    return HARNESS_ALIASES.get(name, name)
+
+
 # Recognition markers: an entry in a harness config is OURS iff its command
 # contains one of these. This is what makes setup safe to re-run and safe to
 # run beside anyone else's hooks.
@@ -91,6 +105,114 @@ _PENDING_CMD = _SESSION_START_CMD.replace("session-start", "pending")
 # at the documented maximum. (david's catch.)
 REWAKE_WINDOW_SEC = 540
 REWAKE_HOOK_TIMEOUT_SEC = 600  # invariant: strictly greater
+
+# ANTIGRAVITY'S WINDOW IS 27x SMALLER THAN CLAUDE'S, AND THAT IS NOT A
+# CONSERVATIVE GUESS — IT IS A DIFFERENT MECHANISM (#56).
+#
+# Claude Code's Stop hook is `asyncRewake: true`: the session goes IDLE and is
+# pulled back later, so holding 540s costs the operator nothing. Antigravity has
+# no such flag, and its own docs say so under "Current Limitations", verbatim:
+#
+#     "Hooks run synchronously and block the agent loop (no async execution)."
+#
+# So the window here is a FOREGROUND PAUSE after every single turn. A Claude-
+# sized 540s hold would look exactly like a nine-minute hang. The bound is
+# therefore about what an operator will tolerate watching, not about what the
+# harness permits.
+#
+# 20 < 30 keeps BOTH under agy's DOCUMENTED default timeout, so the lane never
+# depends on agy honouring a raised `timeout` — the same reasoning as the Claude
+# pair above, where sizing at the documented maximum was the load-bearing part.
+# The true ceiling is unmeasured; raising these is one edit in one place, and the
+# measured value belongs in SPECS/0056 before anyone raises them.
+AGY_WAKE_WINDOW_SEC = 20
+AGY_WAKE_HOOK_TIMEOUT_SEC = 30  # invariant: strictly greater; agy's documented default
+
+# WHERE THE PLUGIN GOES — MEASURED, NOT CHOSEN (#56).
+#
+# The obvious design was a WORKSPACE plugin at `<repo>/.agents/plugins/agentbus/`,
+# so each checkout could carry its own credential. It does not work. Measured on
+# agy 1.1.27 by making a probe hook append to a file and running a real turn:
+#
+#   ~/.gemini/config/hooks.json                     hooks FIRE
+#   ~/.gemini/config/plugins/<name>/hooks.json      hooks FIRE
+#   <workspace>/.agents/hooks.json                  SILENT
+#   <workspace>/.agents/plugins/<name>/hooks.json   SILENT (even once the
+#                                                   workspace is listed in
+#                                                   settings.json trustedWorkspaces)
+#
+# A workspace `mcp_config.json` was never initialised either — nothing about the
+# agentbus server appears in the CLI log. `agy plugin validate` reports a
+# workspace plugin as valid and says "hooks: 2 processed", so VALID AND LOADED
+# ARE DIFFERENT THINGS here and validation alone would have shipped a plugin
+# that never ran.
+#
+# Hence: global. That is safe precisely because AGENTBUS_AGENT is the kill
+# switch — a global hook in a project that declared no identity resolves nobody,
+# touches no network and prints a no-op, which is pinned by
+# test_no_identity_means_no_network.
+AGY_PLUGIN_DIRNAME = "agentbus"
+
+
+def agy_wired_workspaces() -> Path:
+    """The explicit opt-in list of agy-wired checkouts.
+
+    NEEDED BECAUSE THE PLUGIN IS MACHINE-WIDE. Its hooks fire in EVERY agy
+    session on this box, and `.agentbus/agent` already exists in every checkout
+    wired for any OTHER harness — so without this list, opening a
+    Claude-wired repo in agy would resolve an identity, poll the bus, and add a
+    foreground Stop pause to a project that never asked for agy. "Never
+    auto-wire a project you were not asked to wire" is the rule; this file is
+    how a machine-wide plugin keeps it.
+    """
+    return identity_config_dir() / "agy-workspaces.txt"
+
+
+def agy_is_wired(workspace: Path) -> bool:
+    """Has `agentbus setup agy` been run for this checkout?"""
+    listing = agy_wired_workspaces()
+    if not listing.is_file():
+        return False
+    try:
+        wanted = str(workspace.resolve())
+        return any(line.strip() == wanted for line in listing.read_text().splitlines())
+    except OSError:
+        return False
+
+
+def agy_mark_wired(workspace: Path) -> bool:
+    """Record this checkout as agy-wired. True when newly added."""
+    listing = agy_wired_workspaces()
+    entry = str(workspace.resolve())
+    existing = [ln.strip() for ln in listing.read_text().splitlines()] if listing.is_file() else []
+    if entry in existing:
+        return False
+    listing.parent.mkdir(parents=True, exist_ok=True)
+    with listing.open("a", encoding="utf-8") as fh:
+        fh.write(entry + "\n")
+    return True
+
+
+def agy_unmark_wired(workspace: Path) -> bool:
+    """Drop this checkout from the opt-in list. True when it was present."""
+    listing = agy_wired_workspaces()
+    if not listing.is_file():
+        return False
+    entry = str(workspace.resolve())
+    lines = [ln for ln in listing.read_text().splitlines() if ln.strip() != entry]
+    if len(lines) == len(listing.read_text().splitlines()):
+        return False
+    listing.write_text("".join(f"{ln}\n" for ln in lines if ln.strip()))
+    return True
+
+
+def agy_plugin_dir() -> Path:
+    """`~/.gemini/config/plugins/agentbus` — honours $AGY_CONFIG_HOME for tests."""
+    root = os.environ.get("AGY_CONFIG_HOME")
+    base = Path(root) if root else Path.home() / ".gemini" / "config"
+    return base / "plugins" / AGY_PLUGIN_DIRNAME
+
+
 # The Stop command injects the window so the value the monitor uses and the
 # value the timeout is sized against come from the SAME source and cannot drift.
 _STOP_CMD = (

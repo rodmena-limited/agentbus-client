@@ -37,6 +37,7 @@ import json
 import shutil
 from pathlib import Path
 
+from ..client import AgentBus
 from ._agy_plugin import (
     PLUGIN_VERSION,
     PLUGIN_VERSION_FILENAME,
@@ -56,6 +57,7 @@ from ._paths import (
     agy_plugin_dir,
 )
 from ._provision import _provision_project_agent
+from ._signin import _sealing_publish_with_retry
 
 # Their canonical filename; `agy` is an alias they publish in the same index.
 _SKILL_HARNESS = "antigravity"
@@ -235,6 +237,41 @@ def _setup_agy(args: argparse.Namespace) -> int:
         f'      agy mcp add --header "Authorization: Bearer $(grep -h AGENTBUS_API_KEY '
         f'~/.config/agentbus/keys/{name}.env | cut -d= -f2)" agentbus {base_url}/mcp/'
     )
+
+    # 8. THE SEALING KEY (#189). Omitted from the first version of this module,
+    #    and the field caught it within minutes: on an encrypted workspace an
+    #    agent with no published pubkey CANNOT BE WRITTEN TO AT ALL. The sender
+    #    gets "cannot seal: these recipients have published no public key" — so
+    #    the agent registers fine, reports success, and is unreachable. That is
+    #    the addressable-but-deaf failure this whole harness exists to avoid,
+    #    arriving through the one step that was not copied from the Claude lane.
+    try:
+        bus = AgentBus(base_url=base_url, agent=name)
+        if bus._request("GET", "/v1/workspace/pubkeys").get("encrypted"):
+            from .. import sealing as _sealing
+
+            _private, public = _sealing.ensure_keypair(name)
+            del _private
+            registered = _sealing_publish_with_retry(bus, name, public)
+            if registered is not None:
+                report.append(
+                    f"sealing key: {_sealing.key_path(name)} (0600) "
+                    f"registered as {registered.get('fingerprint')}"
+                )
+            else:
+                report.append(
+                    f"sealing key: !!! PUBLISH FAILED after retries — agent '{name}' is "
+                    f"REGISTERED but has NO published pubkey. On this encrypted workspace "
+                    f"peers CANNOT seal to '{name}', so it can send but never receive. "
+                    f"Recover with:  agentbus keys rotate"
+                )
+        else:
+            report.append("sealing key: not needed (workspace is not encrypted)")
+    except Exception as exc:
+        report.append(
+            f"sealing key: !!! NOT REGISTERED ({type(exc).__name__}) — on an encrypted "
+            f"workspace peers cannot seal to '{name}'. Recover with: agentbus keys rotate"
+        )
 
     report.append(_skill_note(base_url))
     report.append(

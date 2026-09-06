@@ -336,3 +336,69 @@ def test_a_single_harness_checkout_gets_no_such_warning(wired, monkeypatch):
     """KNOWN-POSITIVE TWIN: a warning printed unconditionally teaches nothing."""
     out = _run_setup(monkeypatch)
     assert "SAME agent" not in out
+
+
+# ------------------------------------------- the sealing key (#189)
+
+
+def test_setup_publishes_the_sealing_key_on_an_encrypted_workspace(wired, monkeypatch):
+    """THE FIELD BUG. The first version of this module omitted the publish step.
+    An agent with no published pubkey cannot be WRITTEN TO on an encrypted
+    workspace — senders get "cannot seal: these recipients have published no
+    public key" — so setup reported success over an agent that could send and
+    never receive. Caught within minutes of the first real wiring."""
+    published: list[tuple] = []
+
+    class _Bus:
+        def __init__(self, **kw):
+            pass
+
+        def _request(self, *a, **k):
+            return {"encrypted": True}
+
+    monkeypatch.setattr(_agy_setup, "AgentBus", _Bus)
+    monkeypatch.setattr(
+        _agy_setup,
+        "_sealing_publish_with_retry",
+        lambda bus, agent, pub: published.append((agent, pub)) or {"fingerprint": "fp123"},
+    )
+    out = _run_setup(monkeypatch)
+    assert published and published[0][0] == "alpha"
+    assert "registered as fp123" in out
+
+
+def test_a_failed_publish_is_loud_not_a_soft_line(wired, monkeypatch):
+    """An operator who does not read the whole report must still catch this:
+    the agent is registered and unreachable."""
+
+    class _Bus:
+        def __init__(self, **kw):
+            pass
+
+        def _request(self, *a, **k):
+            return {"encrypted": True}
+
+    monkeypatch.setattr(_agy_setup, "AgentBus", _Bus)
+    monkeypatch.setattr(_agy_setup, "_sealing_publish_with_retry", lambda *a: None)
+    out = _run_setup(monkeypatch)
+    assert "!!!" in out and "CANNOT seal" in out
+    assert "agentbus keys rotate" in out, "must name the recovery command"
+
+
+def test_an_unencrypted_workspace_needs_no_key(wired, monkeypatch):
+    """KNOWN-POSITIVE TWIN: without it, the tests above pass against a setup
+    that publishes unconditionally and wastes a round trip everywhere."""
+
+    class _Bus:
+        def __init__(self, **kw):
+            pass
+
+        def _request(self, *a, **k):
+            return {"encrypted": False}
+
+    monkeypatch.setattr(_agy_setup, "AgentBus", _Bus)
+    monkeypatch.setattr(
+        _agy_setup, "_sealing_publish_with_retry", lambda *a: pytest.fail("must not publish")
+    )
+    out = _run_setup(monkeypatch)
+    assert "not needed" in out

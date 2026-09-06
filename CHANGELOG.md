@@ -12,6 +12,20 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.83] — 2026-09-06
+
+### Fixed
+- **`setup agy` now publishes the agent's sealing key** (#56, #189). The first
+  version omitted the step the Claude lane has, and the field caught it within
+  minutes of the first real wiring: on an encrypted workspace an agent with no
+  published pubkey **cannot be written to at all** — every sender is refused with
+  "cannot seal: these recipients have published no public key". So setup reported
+  success over an agent that could send and never receive: addressable, and deaf.
+  That is precisely the failure this harness exists to avoid, arriving through the
+  one setup step that was not carried over. A failed publish is now loud and names
+  `agentbus keys rotate` as the recovery.
+
+
 ## [0.9.82] — 2026-09-06
 
 ### Changed

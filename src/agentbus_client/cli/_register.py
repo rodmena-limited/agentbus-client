@@ -200,6 +200,35 @@ def _print_persona_outcome(result: dict, requested: str | None) -> None:
 
 def cmd_register(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
+
+    # REFUSE BEFORE REGISTERING, NOT AFTER (#57).
+    #
+    # A bare `agentbus register` in an already-wired project used to mint a
+    # BRAND-NEW RANDOM AGENT — the server names an unnamed, roleless
+    # registration — write it a real bound key, and only THEN print "NOT WIRED:
+    # this project already belongs to <other>". The refusal came after the
+    # damage: a stranger and a key file, left behind on every attempt.
+    #
+    # Measured on a scratch repo: `register` with no name produced
+    # `steady-compass-69`, then refused to wire it. That is how a workspace
+    # reaches its 100-agent cap, and it had already happened here at least once
+    # before anyone looked — `clever-lantern-55.env` was sitting in the keys
+    # directory with no project claiming it.
+    #
+    # So: if this project already declares an identity and the caller named
+    # neither an agent nor a role, re-register THAT identity rather than
+    # inventing one. Naming a different agent on purpose still works — that is a
+    # legitimate act, and it is what `--name` is for.
+    if not args.name and not getattr(args, "role", None):
+        from ..onboarding import _resolve_agent_name
+
+        declared = _resolve_agent_name()
+        if declared:
+            print(
+                f"this project already declares '{declared}' — re-registering it "
+                "rather than minting a new agent."
+            )
+            args.name = declared
     # #149: --label k[=v] at register time. The SDK accepted labels all along;
     # this flag was simply never wired, so tags were unreachable from the CLI.
     labels: dict[str, str] = {}

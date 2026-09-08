@@ -12,6 +12,39 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.88] — 2026-09-08
+
+### Fixed
+- **A bare `agentbus register` in an already-wired project no longer mints a
+  stranger** (#57). It used to create a brand-new RANDOM agent — the server names
+  an unnamed, roleless registration — write it a real bound key, and only *then*
+  print "NOT WIRED: this project already belongs to <other>". The refusal came
+  after the damage, so every attempt left an agent and a key behind. Measured
+  live: it produced `steady-compass-69`. Evidence it had been happening unnoticed
+  — a `clever-lantern-55.env` key file with no project claiming it. This is how a
+  workspace reaches its 100-agent cap. Now the project's declared identity is
+  resolved *before* registering and that identity is re-registered. An explicit
+  `--name` or `--role` still does exactly what it says.
+- **`agentbus whoami` on a retired agent reports instead of dying** (#57). It
+  exited on `agent_retired`, so the one command an operator reaches for stopped
+  working at exactly the moment something was wrong. It now prints the identity,
+  marks it RETIRED, and says that retiring is reversible and is not deletion.
+  Any other error still propagates.
+
+### Changed
+- **`setup --role R` says when your role was ignored** (#57). Role-based names are
+  `<role>-<hex>` derived from device + repo + path; when that identity already
+  exists the server returns the agent holding it and the role is discarded. An
+  operator retired an agent, deleted `.agentbus/agent` *and*
+  `settings.local.json`, re-ran `setup --role datashard`, got `auditor-be8047`
+  back with no explanation, and concluded that retire does not work. It does — a
+  checkout's agent simply cannot be renamed in place, and retiring does not free
+  the derived identity because re-registering un-retires the same row. Setup now
+  states that and names the only route to a differently-named agent for the same
+  repo: a different path (`git worktree add`). Reported to the server team as a
+  product gap.
+
+
 ## [0.9.87] — 2026-09-08
 
 ### Added

@@ -252,6 +252,36 @@ def _provision_project_agent(
             _say(f"  key id: {key_id}…  (revoke/inspect it in the dashboard Keys page)")
         return None
     registered = str(result["agent"]["name"])
+
+    # YOUR ROLE WAS IGNORED, AND NOTHING USED TO SAY SO (#57).
+    #
+    # Role-based names are `<role>-<6 hex>`, where the hex comes from
+    # session_key = sha256(device_id : repo_fingerprint : path_hash). When that
+    # key already exists the server returns the agent that holds it — correctly,
+    # since "reopening a directory recomputes the SAME agent" is the whole point
+    # of derived identity. But the role you asked for is then silently discarded.
+    #
+    # An operator hit this on a real repo: retired the agent, deleted
+    # `.agentbus/agent` AND `settings.local.json`, re-ran `setup --role datashard`
+    # — and `auditor-be8047` came back with no explanation. Their conclusion was
+    # that retire does not work. It works; the identity is simply not renameable,
+    # and retiring does not free the session_key because re-registering
+    # un-retires the same row.
+    #
+    # The refusal branch below only ever fired for an explicit `--name`, so this
+    # path said nothing at all. It is a note rather than a refusal: the agent
+    # returned IS this checkout's identity and wiring it is correct.
+    if role and not name and not registered.startswith(f"{role}-"):
+        report.append(
+            f"NOTE — your --role '{role}' was NOT applied: this checkout already has a "
+            f"derived identity and the server returned '{registered}'. A checkout's "
+            "agent cannot be renamed in place — the name is derived from "
+            "device + repo + path, and retiring does not free that (re-registering "
+            "un-retires the same row). To get a differently-named agent for this "
+            "repo, use a different path: `git worktree add ../<dir>` then "
+            f"`agentbus setup {harness} --role {role}` there."
+        )
+
     if name and registered != name:
         # NEVER adopt a rename (#90) — but DISTINGUISH RECOGNITION FROM
         # RENAMING (#156). Farshid hit this on the tokengate repo: the server

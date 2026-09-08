@@ -5,12 +5,38 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from ..client import AgentBusError
 from . import _common
 from ._common import _accept_common_flags_after_subcommand, _print, _print_qr
 
 
 def cmd_whoami(args: argparse.Namespace) -> int:
-    result = _common._bus(args).whoami()
+    bus = _common._bus(args)
+    try:
+        result = bus.whoami()
+    except AgentBusError as exc:
+        # A RETIRED AGENT MUST STILL BE ABLE TO SAY WHO IT IS (#57).
+        #
+        # `whoami` used to exit on `agent_retired`, so the one command an
+        # operator reaches for to work out what is going on stopped working at
+        # exactly the moment something WAS going on. Reported with a transcript:
+        # retire, then `whoami`, and the answer was an error rather than "you are
+        # X, and X is retired" — which is the fact they needed.
+        #
+        # Retirement is reversible and is not deletion, so the identity is still
+        # real and still worth printing.
+        if getattr(exc, "code", "") != "agent_retired":
+            raise
+        name = bus.agent or "(unknown)"
+        if args.json:
+            _print({"agent": {"name": name, "retired": True}, "error": exc.code}, True)
+            return 0
+        print(f"agent:     {name}")
+        print("state:     RETIRED — addressable again as soon as it re-registers.")
+        print("           Retiring is reversible and is NOT deletion: the address,")
+        print("           inbox and history are intact.")
+        print("  bring it back:  agentbus setup <harness> --role <role>   (in this checkout)")
+        return 0
     if args.json:
         _print(result, True)
     else:

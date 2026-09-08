@@ -110,3 +110,43 @@ def test_other_errors_still_propagate(monkeypatch):
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
     with pytest.raises(AgentBusError):
         _run(monkeypatch, _args("x"), lambda n: "k", bus=_Bus(fail_code="permission_denied"))
+
+
+# ------------------------------------------------- the retire/setup loop
+
+
+def test_retire_warns_that_this_checkout_will_revive_it(monkeypatch, tmp_path):
+    """THE LOOP, run six times by an operator who concluded retire was broken.
+
+        agentbus retire auditor-be8047      -> "retired"
+        agentbus setup claude --role datashard
+        agentbus whoami                     -> auditor-be8047 again
+
+    Retire worked every time. Then setup read `.agentbus/agent`, re-registered
+    that name, and UN-RETIRED it. Two commands each reporting success, composing
+    into a no-op, with nothing connecting them.
+    """
+    root = tmp_path / "repo"
+    (root / ".agentbus").mkdir(parents=True)
+    (root / ".agentbus" / "agent").write_text("auditor-be8047\n")
+    monkeypatch.setattr("agentbus_client.onboarding._git_root_or_none", lambda: root)
+    monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
+
+    rc, out, _, _ = _run(monkeypatch, _args("auditor-be8047"), lambda n: "k")
+    assert rc == 0
+    assert "still DECLARES" in out
+    assert "UN-RETIRE" in out
+    assert "agentbus teardown" in out, "must name the command that actually stops it"
+
+
+def test_no_warning_when_this_checkout_does_not_declare_it(monkeypatch, tmp_path):
+    """KNOWN-POSITIVE TWIN: a warning printed after every retire teaches nothing."""
+    root = tmp_path / "repo"
+    (root / ".agentbus").mkdir(parents=True)
+    (root / ".agentbus" / "agent").write_text("somebody-else\n")
+    monkeypatch.setattr("agentbus_client.onboarding._git_root_or_none", lambda: root)
+    monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
+
+    rc, out, _, _ = _run(monkeypatch, _args("auditor-be8047"), lambda n: "k")
+    assert rc == 0
+    assert "still DECLARES" not in out

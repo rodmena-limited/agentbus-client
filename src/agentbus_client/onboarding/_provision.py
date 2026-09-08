@@ -271,6 +271,30 @@ def _provision_project_agent(
     # The refusal branch below only ever fired for an explicit `--name`, so this
     # path said nothing at all. It is a note rather than a refusal: the agent
     # returned IS this checkout's identity and wiring it is correct.
+    # A LOCALLY DECLARED NAME SILENTLY BEATS --role, AND NOTHING SAID SO.
+    #
+    # The operator's loop, run six times:
+    #     agentbus retire auditor-be8047      -> "retired"
+    #     agentbus setup claude --role datashard
+    #     agentbus whoami                     -> auditor-be8047 again
+    #
+    # `retire` marks the server row retired but leaves `.agentbus/agent` and
+    # `settings.local.json` pointing at it. Setup then resolves that NAME, and a
+    # name outranks a role — so it re-registers the retired agent, which
+    # UN-RETIRES it, and `--role datashard` never had a chance to apply. Every
+    # step reported success. Nothing in the output connected them.
+    if role and name and not name.startswith(f"{role}-"):
+        report.append(
+            f"NOTE — your --role '{role}' was NOT applied. This checkout already "
+            f"DECLARES the name '{name}' (in .agentbus/agent and/or "
+            f".claude/settings.local.json), and a declared name outranks a role. "
+            f"If you just retired '{name}', re-registering it here has brought it "
+            f"back. To stop using it in this checkout: `agentbus teardown` (removes "
+            f"the local wiring), then re-run setup. Note that a checkout's derived "
+            f"identity still cannot be renamed — for a different NAME on the same "
+            f"repo use a different path (`git worktree add`)."
+        )
+
     if role and not name and not registered.startswith(f"{role}-"):
         report.append(
             f"NOTE — your --role '{role}' was NOT applied: this checkout already has a "

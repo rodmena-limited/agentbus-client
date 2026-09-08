@@ -12,6 +12,30 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.90] — 2026-09-08
+
+### Fixed
+- **The retire/setup loop now explains itself, at both ends** (#57). An operator
+  ran this six times and concluded retire was broken:
+
+      agentbus retire auditor-be8047        -> "retired"
+      agentbus setup claude --role datashard
+      agentbus whoami                       -> auditor-be8047 again
+
+  Retire worked every time. `retire` marks the server row retired but leaves
+  `.agentbus/agent` and `.claude/settings.local.json` pointing at it; `setup`
+  then resolves that NAME, and a declared name outranks `--role`, so it
+  re-registers the retired agent and un-retires it. Two commands, each reporting
+  success, composing into a no-op — with nothing in either output connecting
+  them.
+
+  `retire` now warns when the current checkout still declares the agent it just
+  retired, names the files, and points at `agentbus teardown`. `setup` now says
+  when a declared name overrode your `--role` — the 0.9.88 note only covered the
+  case where no name was resolved at all, which is not the case an operator
+  actually hits.
+
+
 ## [0.9.89] — 2026-09-08
 
 ### Fixed

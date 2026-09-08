@@ -70,7 +70,50 @@ def cmd_retire(args: argparse.Namespace) -> int:
             "  reversible: re-register with the same name to restore the same "
             "identity, address, inbox and history"
         )
+        _warn_local_wiring_will_revive(name)
     return 0
+
+
+def _warn_local_wiring_will_revive(name: str) -> None:
+    """Say when THIS checkout will bring the agent you just retired back.
+
+    The operator ran retire six times and it "did not work" every time. It
+    worked every time — and then `setup` read `.agentbus/agent`, re-registered
+    that name, and un-retired it. Two commands that each reported success,
+    composing into a no-op, with nothing in either output connecting them.
+
+    Retiring is deliberately NOT teardown: the agent may be wired in other
+    checkouts, and deleting someone's local files as a side effect of a
+    server-side state change would be its own bug. So this warns and names the
+    command, rather than acting.
+    """
+    import contextlib
+    from pathlib import Path
+
+    from ..onboarding import _git_root_or_none
+
+    root = _git_root_or_none() or Path.cwd()
+    declares: list[str] = []
+    agent_file = root / ".agentbus" / "agent"
+    with contextlib.suppress(OSError):
+        if agent_file.is_file() and agent_file.read_text().strip() == name:
+            declares.append(str(agent_file))
+    settings = root / ".claude" / "settings.local.json"
+    with contextlib.suppress(OSError, ValueError):
+        import json as _json
+
+        if settings.is_file() and (
+            (_json.loads(settings.read_text()).get("env") or {}).get("AGENTBUS_AGENT") == name
+        ):
+            declares.append(str(settings))
+    if not declares:
+        return
+    print()
+    print(f"  WARNING — this checkout still DECLARES '{name}':")
+    for d in declares:
+        print(f"      {d}")
+    print("  So the next `agentbus setup` here will re-register it and UN-RETIRE it.")
+    print("  To stop using it in this checkout:  agentbus teardown")
 
 
 def _plist_key_line(key: str, agent: str) -> str:

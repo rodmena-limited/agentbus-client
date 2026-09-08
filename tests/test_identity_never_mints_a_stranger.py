@@ -132,3 +132,47 @@ def test_whoami_still_raises_on_other_errors(monkeypatch):
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _Dead())
     with pytest.raises(AgentBusError):
         cli.cmd_whoami(_args())
+
+
+def test_setup_says_when_a_declared_name_overrode_your_role(monkeypatch):
+    """The other half of the loop: `--role datashard` in a checkout that declares
+    `auditor-be8047` did nothing, silently. A declared NAME outranks a role, and
+    the 0.9.88 note only covered the case where no name was resolved at all."""
+    from agentbus_client.onboarding import _provision
+
+    report: list[str] = []
+    monkeypatch.setattr(_provision, "_resolve_agent_name", lambda explain=None: "auditor-be8047")
+    monkeypatch.setattr(_provision, "_operator_key", lambda: "ab_sk_op")
+
+    class _B:
+        agent = None
+
+        def register(self, name, **kw):
+            return {
+                "agent": {"name": "auditor-be8047", "device_hash": "x"},
+                "address": "auditor-be8047@mail.test",
+                "rooms": [],
+            }
+
+        def phonebook(self, **kw):
+            return []
+
+        def whoami(self):
+            return {"agent": {"name": "auditor-be8047"}, "workspace": {"slug": "w"}}
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(_provision, "AgentBus", lambda **kw: _B())
+    monkeypatch.setattr(_provision, "_agent_key", lambda n: "k")
+    args = argparse.Namespace(role="datashard", base_url=None, persona=None, force_new=False)
+    _provision._provision_project_agent(args, report, "claude")
+    joined = "\n".join(report)
+    assert "was NOT applied" in joined, joined
+    assert "agentbus teardown" in joined

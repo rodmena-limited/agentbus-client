@@ -6,6 +6,7 @@ import argparse
 import os
 import sys
 
+from ..client import AgentBusError
 from . import _common
 from ._common import _accept_common_flags_after_subcommand, _cfg_dir, _print
 from ._watch_runtime import _watch_logfile
@@ -19,12 +20,48 @@ def cmd_retire(args: argparse.Namespace) -> int:
     naming a command the binary lacks is worse than no doc: the reader concludes
     their install is broken.
     """
-    bus = _common._bus(args)
     name = args.name or args.agent or os.environ.get("AGENTBUS_AGENT")
     if not name:
         print("which agent? pass a name, --agent, or set AGENTBUS_AGENT", file=sys.stderr)
         return 2
-    result = bus._request("POST", f"/v1/agents/{name}/retire")
+
+    # ACT AS THE AGENT YOU NAMED, when we hold its bound key (#57).
+    #
+    # `retire` used to build the client from the AMBIENT identity and then ask
+    # the server to retire a name that identity may have nothing to do with. So
+    # the last step of tearing a project down — delete `.agentbus/agent`, delete
+    # settings.local.json, then retire — failed with:
+    #
+    #   permission_denied: an agent may act only on itself; acting as no agent
+    #
+    # while that very agent's bound key sat in ~/.config/agentbus/keys/. Every
+    # piece of information needed was present and the command refused anyway,
+    # which is the shape of every identity bug in this release.
+    #
+    # An explicit --api-key still wins, and an agent whose key we do NOT hold
+    # still gets the server's permission error — correctly, because retiring
+    # somebody else's agent genuinely does need an admin key.
+    if not getattr(args, "api_key", None):
+        own_key = _common._key_for_agent(name)
+        if own_key:
+            args.api_key = own_key
+            args.agent = name
+
+    bus = _common._bus(args)
+    try:
+        result = bus._request("POST", f"/v1/agents/{name}/retire")
+    except AgentBusError as exc:
+        # RETIRING A RETIRED AGENT IS NOT A FAILURE. It is the state you asked
+        # for. The second `retire` in the operator's transcript printed an error
+        # that read like something had gone wrong when nothing had.
+        if getattr(exc, "code", "") == "agent_retired":
+            print(f"{name} is already retired — nothing to do.")
+            print(
+                "  reversible: re-register with the same name to restore the same "
+                "identity, address, inbox and history"
+            )
+            return 0
+        raise
     if args.json:
         _print(result, True)
     else:

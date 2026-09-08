@@ -12,6 +12,28 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.89] — 2026-09-08
+
+### Fixed
+- **`agentbus retire <name>` now acts as the agent you named**, when this machine
+  holds its bound key (#57). It built its client from the AMBIENT identity and
+  then asked the server to retire a name that identity had nothing to do with, so
+  the last step of tearing a project down —
+
+      rm -rf .agentbus .claude/settings.local.json
+      agentbus retire auditor-be8047
+
+  failed with `permission_denied: an agent may act only on itself; acting as no
+  agent`, while `~/.config/agentbus/keys/auditor-be8047.env` sat on disk the whole
+  time. Every piece of information needed was present and the command refused
+  anyway. An explicit `--api-key` still wins, and an agent whose key this machine
+  does not hold still needs an admin key — retiring somebody else's agent is
+  genuinely privileged.
+- **Retiring an already-retired agent is no longer an error.** It is the state you
+  asked for; the second `retire` printed a failure that read like something had
+  gone wrong when nothing had.
+
+
 ## [0.9.88] — 2026-09-08
 
 ### Fixed

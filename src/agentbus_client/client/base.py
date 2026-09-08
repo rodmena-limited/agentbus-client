@@ -374,9 +374,27 @@ class _Base:
         except sealing.MalformedSealed as exc:
             message["sealed_unreadable"] = f"the sealed body is damaged: {exc}"
         except sealing.CannotDecrypt:
+            # NAME THE CAUSES THAT ACTUALLY EXIST. This string used to offer only
+            # "sent before this agent published a key, or to other recipients",
+            # which sends an operator hunting for a missing recipient — an
+            # unbounded search, because after a key rotation there is no
+            # recipient to find.
+            #
+            # Measured with the server team (2026-09-08), on both sealing paths:
+            # a body is sealed to EVERY published key of every recipient, and the
+            # sender's own key is added. So "my pubkey is published" does imply
+            # openable. What is left when it still will not open is narrow, and
+            # both remaining causes are about WHICH MACHINE holds the private
+            # half: the key that opened it has been rotated away or lost, or the
+            # body was sealed to keys published from a different host. Neither is
+            # recoverable by looking for a recipient.
             message["sealed_unreadable"] = (
-                "sealed to keys this machine does not hold — it was sent before "
-                "this agent published a key, or to other recipients"
+                "a sealing key is present on this machine but does not open this "
+                "body. Bodies are sealed to every key published at send time, so "
+                "the cause is one of: the opening key was rotated away or lost "
+                "(that body is gone — nothing can recover it), or it was sealed "
+                "on another machine and this host never held the private half. "
+                "Check `agentbus keys list` for which keys this machine holds."
             )
         return message
 

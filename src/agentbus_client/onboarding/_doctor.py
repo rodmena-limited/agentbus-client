@@ -37,6 +37,7 @@ from ._paths import (
     _MARKER_HOOK,
     _MARKER_REWAKE,
     _config_dir,
+    _git_root_or_none,
     _keys_dir,
     _load_json,
     _plugin_provides_wake,
@@ -238,6 +239,19 @@ def doctor_wake(args: argparse.Namespace) -> int:
         _say(f"  [ok] credential: {_keys_dir()}/{name}.env")
     else:
         failures.append(f"no readable key file for {name}")
+
+    # #56: a checkout wired for agy is not a Claude checkout, and the Claude
+    # chain below would report "PASSIVE ONLY — run `agentbus setup claude`" on a
+    # host that is genuinely wake-capable. Under-claiming with the wrong command
+    # is the "diagnostic looking for the mechanism IT understands" failure this
+    # module already documents for the plugin case.
+    from ._paths import agy_is_wired
+
+    _agy_root = _git_root_or_none() or Path.cwd()
+    if agy_is_wired(_agy_root):
+        from ._doctor_agy import doctor_wake_agy
+
+        return doctor_wake_agy(name, _agy_root)
 
     settings = _load_json(Path.home() / ".claude" / "settings.json")
     hooks = settings.get("hooks", {})

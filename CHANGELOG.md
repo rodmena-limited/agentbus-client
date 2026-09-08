@@ -12,6 +12,37 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.87] — 2026-09-08
+
+### Added
+- **`agentbus doctor --wake` now probes the Antigravity lane by RUNNING the
+  hook** (#56), not by inspecting files. Wiring this harness correctly and then
+  seeing nothing was a two-hour failure: setup reported a clean wire-up, the
+  hooks were installed, `agy plugin validate` said `[ok]`, and mail never
+  surfaced — because the hook was resolving a different agent and polling the
+  wrong inbox. Every check that existed was green, because every check that
+  existed inspected configuration. The probe reports which agent the hook
+  resolves, catches a hook binary that no longer exists, catches a checkout that
+  never opted in, and states plainly the one thing it cannot prove: that your
+  real session will have a workspace.
+
+### Changed
+- **`setup agy` states the workspace requirement** — the fact nobody guesses.
+  `agy` passes the project to a hook in `workspacePaths`, and it is empty unless
+  agy actually has a workspace (an interactive session with the folder open, or
+  `--add-dir`). A bare `agy -p` sends `[]`, and since a hook's cwd is the plugin
+  directory the project cannot be identified at all. Testing the lane with
+  `agy -p` alone shows silence and proves nothing.
+- **The `sealed_unreadable` message for a present-but-wrong key names the causes
+  that actually exist.** It offered only "sent before this agent published a key,
+  or to other recipients", which sends an operator hunting for a missing
+  recipient — an unbounded search, since after a rotation there is no recipient
+  to find. Measured with the server team on both sealing paths: bodies are sealed
+  to *every* published key of every recipient, so what remains is a rotated or
+  lost key (that body is gone) or a body sealed on another machine. It now says
+  so, and points at `agentbus keys list`.
+
+
 ## [0.9.86] — 2026-09-06
 
 ### Fixed

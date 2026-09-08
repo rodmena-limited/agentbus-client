@@ -232,6 +232,15 @@ def _setup_agy(args: argparse.Namespace) -> int:
         "hook resolves identity from the payload's workspacePaths[0], and a "
         "checkout that declared no agent gets a silent no-op."
     )
+    report.append(
+        "REQUIRES A WORKSPACE — the one thing nobody guesses. agy passes the "
+        "project to a hook in `workspacePaths`, and it is EMPTY unless agy "
+        "actually has a workspace: an interactive session with this folder open, "
+        'or `agy --add-dir <path>`. A bare `agy -p "..."` sends [], and since a '
+        "hook's cwd is the plugin directory the project cannot be identified at "
+        "all — so the hooks correctly do nothing. Testing this lane with `agy -p` "
+        "alone will show you silence and prove nothing."
+    )
     report.append(_GATE_REFUSAL)
     if path_warning:
         report.append(f"WARNING — {path_warning}")

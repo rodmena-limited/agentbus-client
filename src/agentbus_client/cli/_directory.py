@@ -44,6 +44,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         agent = (result.get("agent") or {}).get("name", "(no acting agent)")
         print(f"workspace: {workspace}")
         print(f"agent:     {agent}")
+        _warn_if_unsealable(bus, agent)
         if result.get("address"):
             print(f"address:   {result['address']}")
             # THE QR ENCODES A mailto:, NOT THE BARE ADDRESS.
@@ -452,3 +453,27 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("liveness", help="who is responsive, not merely reachable")
     _accept_common_flags_after_subcommand(p)
     p.set_defaults(func=cmd_liveness)
+
+
+def _warn_if_unsealable(bus: Any, agent: str) -> None:
+    """Tell an agent when nobody on an encrypted workspace can write to it."""
+    if not agent or agent == "(no acting agent)":
+        return
+    try:
+        data = bus._request("GET", "/v1/workspace/pubkeys")
+    except Exception:
+        return
+    if not data.get("encrypted"):
+        return
+    sealing = {
+        k.get("agent")
+        for k in (data.get("keys") or [])
+        if str(k.get("algorithm") or "").startswith("age") and not k.get("revoked_at")
+    }
+    if agent in sealing:
+        return
+    print()
+    print("  UNREACHABLE — you have published no sealing key, and this workspace is")
+    print("  encrypted, so NO peer can send you anything. Every sender is refused;")
+    print("  you receive nothing and cannot tell that from a quiet week.")
+    print("  Fix it on this machine:  agentbus signin <key>    (or: agentbus keys rotate)")

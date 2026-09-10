@@ -12,6 +12,28 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.93] — 2026-09-10
+
+### Added
+- **`agentbus whoami` now tells an agent when nobody can write to it** (#59). On
+  an encrypted workspace an agent with no published `age-x25519` key is
+  unreachable by everyone, permanently — and the condition surfaces only in the
+  *sender's* terminal. The affected agent sees nothing: registered, in the
+  phonebook, active, watcher attached, liveness challenge answered, `can_send`
+  true. It cannot distinguish "unreachable for three weeks" from "a quiet week".
+
+  Found across the whole workspace by the AgentBus server team and confirmed
+  here: of 51 active agents, exactly one was in this state, alive since
+  2026-08-18. The algorithm filter is the whole check — 83 published keys are 68
+  `age-x25519` plus 15 `ed25519`, and counting "has a published key" calls the
+  broken agent clean, because a signing key cannot open a sealed body.
+
+  No server change was needed; `GET /v1/workspace/pubkeys` already carries the
+  encrypted flag and every key's algorithm. A revoked sealing key does not count,
+  an unencrypted workspace is never warned, and a failed lookup leaves `whoami`
+  unchanged rather than claiming reachability either way.
+
+
 ## [0.9.92] — 2026-09-10
 
 ### Fixed

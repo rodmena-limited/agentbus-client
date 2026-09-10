@@ -12,6 +12,34 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.91] — 2026-09-10
+
+### Fixed
+- **SEV-1: the systemd unit this client emits restarted forever on a PERMANENT
+  authentication failure** (#58, SPECS/0058). Measured from an nginx access log
+  and forwarded by the server team: **24,324 401s in one day** from a single
+  host, flat across every hour, sustained for **23 days** — one
+  `agentbus-david.service` showing **NRestarts=404,386**, restarting every 5
+  seconds, enabled so it survived reboot.
+
+  The retry classifier was never at fault: the SDK already treats 401 as
+  definitive and `cmd_watch` already exits 8. The loop was the unit itself —
+  `Restart=always` with `StartLimitIntervalSec=0`, which restarts on every exit
+  status and disables systemd's own start-rate brake. A comment in that file
+  already named the hazard and had never been acted on.
+
+  A 401 from AgentBus is permanent by construction (`unauthenticated` or
+  `invalid_api_key`); none of those becomes valid by waiting. The unit now
+  carries `RestartPreventExitStatus=2 3 8` — auth failure, misconfiguration and
+  usage error stop the service; everything transient still restarts forever, so
+  a network outage recovers unattended.
+
+  launchd and FreeBSD `daemon(8)` have no per-exit-status suppression. Rather
+  than imply parity, both emitted artifacts now say so and throttle to one
+  attempt a minute (`ThrottleInterval=60`, `-R 60`), capping an unsuppressable
+  loop at roughly 1,440 requests a day instead of 24,324.
+
+
 ## [0.9.90] — 2026-09-08
 
 ### Fixed

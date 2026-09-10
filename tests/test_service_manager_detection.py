@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import re
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -76,7 +77,14 @@ def test_explicit_rcd_emits_an_rc_script_not_a_unit():
     # the supervisor/child pidfile split — using only one means `service stop`
     # kills the wrong process and daemon(8) restarts the watcher being stopped
     assert "-P " in out and "-p " in out, "daemon(8) needs BOTH pidfiles (-P supervisor, -p child)"
-    assert "-r" in out and "-R 5" in out, "-r must pair with -R or a config error hot-loops"
+    assert "-r" in out, "-r must pair with -R or a config error hot-loops"
+    _m = re.search(r"-R (\d+)", out)
+    assert _m, "-r without -R is a hot loop"
+    assert int(_m.group(1)) >= 60, (
+        "daemon(8) cannot suppress a restart per exit status, so a revoked key loops "
+        "here forever; #58 raised the interval to cap that at ~1,440 requests a day "
+        "instead of the 24,324 measured on a 5s interval"
+    )
     assert "KEYWORD: shutdown" in out
     assert "ab_sk_" not in (out + err), "never inline a credential into a world-readable rc script"
     # Instructions go to STDERR deliberately, so `> /usr/local/etc/rc.d/...`

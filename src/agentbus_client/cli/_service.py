@@ -223,7 +223,7 @@ Environment=AGENTBUS_AGENT={agent}
 ExecStart={exe} watch --agent {agent}
 Restart=always
 RestartSec=5
-# A watcher that gives up is indistinguishable from one that was never started.
+RestartPreventExitStatus=2 3 8
 StartLimitIntervalSec=0
 
 [Install]
@@ -237,6 +237,13 @@ WantedBy=default.target
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now agentbus-{agent}.service
 #   loginctl enable-linger $USER      # keeps it running when you are logged out
+#
+# Exit statuses that will NOT be restarted, because waiting cannot fix them:
+#   8  authentication failed - the key is missing, malformed, unknown or revoked.
+#      AgentBus has no transient 401, so a retry loop here is 17k requests a day
+#      against a wall. Fix the key, then `systemctl --user start` it again.
+#   3  misconfigured   2  bad arguments in the unit itself
+# Every other failure (network, DNS, a bus deploy) still restarts forever.
 #
 # Verify it is ACTUALLY attached, not merely 'active':
 #   agentbus watch-status --agent {agent}
@@ -267,6 +274,7 @@ WantedBy=default.target
     </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>60</integer>
     <key>StandardOutPath</key><string>{_watch_logfile(agent)}</string>
     <key>StandardErrorPath</key><string>{_watch_logfile(agent)}</string>
 </dict>
@@ -280,6 +288,14 @@ WantedBy=default.target
 #
 # supervice is NOT an option here — it is Linux-only. launchd is the native
 # equivalent and KeepAlive gives the same restart-on-death guarantee.
+#
+# LIMITATION, stated rather than implied: launchd has no per-exit-status restart
+# suppression, so unlike the systemd unit this plist WILL keep restarting even
+# when the key is revoked and every request returns 401 — a permanent condition
+# that waiting cannot fix. ThrottleInterval=60 caps that at one attempt a minute
+# instead of one every ten seconds. If `agentbus watch` here exits 8, unload the
+# job and fix the credential:
+#   launchctl unload ~/Library/LaunchAgents/{label}.plist
 #
 # Verify it is ACTUALLY attached:
 #   agentbus watch-status --agent {agent}""",
@@ -327,9 +343,13 @@ command="/usr/sbin/daemon"
 # -P is the SUPERVISOR pidfile, -p the child. Using only one means
 # `service agentbus_watch stop` kills the wrong process and daemon(8)
 # immediately restarts the watcher you just tried to stop.
-# -r restarts on ANY exit including clean ones; -R 5 paces it so a config
-# error cannot become a hot loop.
-command_args="-r -R 5 -P ${{pidfile}} -p /var/run/${{name}}.child.pid \\
+# -r restarts on ANY exit including clean ones, and daemon(8) has no
+# per-exit-status suppression — so a revoked key (exit 8) restarts forever here
+# just as it would anywhere else. -R 60 caps that at one attempt a minute rather
+# than twelve; a measured instance of the 5s version made 24,324 failed requests
+# in a single day. If this job is looping, check `tail /var/log/${{name}}.log`
+# for exit 8 and fix the credential before re-enabling.
+command_args="-r -R 60 -P ${{pidfile}} -p /var/run/${{name}}.child.pid \\
               -o /var/log/${{name}}.log \\
               ${{agentbus_watch_bin}} watch --agent ${{agentbus_watch_agent}}"
 

@@ -60,6 +60,26 @@ An existing assertion pinned `-R 5` literally while its own message said the
 point was that `-r` must pair with `-R`. It was made STRICTER — it now parses the
 interval and requires >= 60 — rather than relaxed to accommodate the change.
 
+## Residual closed in 0.9.92
+
+The server team raised it as a question rather than a defect, and it was real:
+`RestartPreventExitStatus` closes only the terminal statuses. With
+`StartLimitIntervalSec=0` the start-rate brake stayed disabled for every other
+status, so a crash loop on exit 1 — corrupt config, missing file, an unhandled
+exception at startup — reproduced the same 24,324/day shape under a different
+code. The status was fixed; the mechanism that let it run for 23 days was not.
+
+Re-enabled as `StartLimitIntervalSec=300` / `StartLimitBurst=30`. Safe because
+the watcher does NOT exit on a network outage: it reconnects internally with
+backoff that persists across restarts, specifically so an OS-supervisor loop
+cannot reset it to 1s. Repeated fast exits therefore mean a real crash, not a
+blip, and a healthy watcher never approaches 30 starts in 5 minutes.
+
+At `RestartSec=5` a genuine crash loop reaches the burst in about 2.5 minutes
+and the unit latches into `failed`, which is what makes an operator notice.
+Recovery is `systemctl --user reset-failed` then `start`, named in the emitted
+unit.
+
 ## Not addressed here
 
 Exit 7 (dead wake socket) stays restartable by design. Server-side items — a

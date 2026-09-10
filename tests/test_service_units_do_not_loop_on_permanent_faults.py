@@ -78,3 +78,52 @@ def test_the_unsuppressable_managers_are_throttled(manager, needle):
     """If the loop cannot be prevented it must at least be paced: one attempt a
     minute instead of twelve turns 24,324 requests a day into ~1,440."""
     assert needle in _emit(manager)
+
+
+def test_a_crash_loop_on_any_other_status_is_also_capped():
+    """The residual the server team raised: RestartPreventExitStatus closes the
+    terminal statuses, but a crash loop on exit 1 (corrupt config, missing file,
+    an unhandled exception at startup) reproduced the same 24,324/day shape under
+    a different code, because StartLimitIntervalSec=0 disabled the start-rate
+    brake entirely.
+
+    Safe to re-enable because the watcher does NOT exit on a network outage: it
+    reconnects internally with backoff that persists across restarts, precisely
+    so an OS-supervisor loop cannot reset it. Repeated fast exits therefore mean
+    a real crash rather than a blip.
+    """
+    unit = _emit("systemd")
+    interval = next(x for x in unit.splitlines() if x.startswith("StartLimitIntervalSec="))
+    burst = next(x for x in unit.splitlines() if x.startswith("StartLimitBurst="))
+    assert int(interval.split("=", 1)[1]) > 0, "a 0 interval disables the brake entirely"
+    assert int(burst.split("=", 1)[1]) >= 10, (
+        "the burst must be generous enough that an occasionally-restarting healthy "
+        "watcher never latches into failed"
+    )
+
+
+def test_the_cap_is_loose_enough_not_to_strand_a_healthy_watcher():
+    """KNOWN-POSITIVE TWIN. A brake tight enough to stop a crash loop but tight
+    enough to also stop a legitimate restarter would be worse than none: a bus
+    client that gives up permanently after a fortnight of DNS blips is the
+    failure this whole feature exists to prevent."""
+    unit = _emit("systemd")
+    interval = int(
+        next(x for x in unit.splitlines() if x.startswith("StartLimitIntervalSec=")).split("=", 1)[
+            1
+        ]
+    )
+    burst = int(
+        next(x for x in unit.splitlines() if x.startswith("StartLimitBurst=")).split("=", 1)[1]
+    )
+    restart_sec = int(
+        next(x for x in unit.splitlines() if x.startswith("RestartSec=")).split("=", 1)[1]
+    )
+    starts_if_crash_looping = interval // restart_sec
+    assert starts_if_crash_looping > burst, (
+        "a genuine crash loop must reach the burst inside the window, or the cap never fires"
+    )
+    assert burst >= 6 * (interval // 60), (
+        "the burst must leave headroom for a healthy watcher that restarts "
+        "occasionally within the window"
+    )

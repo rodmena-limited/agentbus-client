@@ -224,7 +224,8 @@ ExecStart={exe} watch --agent {agent}
 Restart=always
 RestartSec=5
 RestartPreventExitStatus=2 3 8
-StartLimitIntervalSec=0
+StartLimitIntervalSec=300
+StartLimitBurst=30
 
 [Install]
 WantedBy=default.target
@@ -244,6 +245,13 @@ WantedBy=default.target
 #      against a wall. Fix the key, then `systemctl --user start` it again.
 #   3  misconfigured   2  bad arguments in the unit itself
 # Every other failure (network, DNS, a bus deploy) still restarts forever.
+#
+# StartLimitBurst=30 / StartLimitIntervalSec=300 caps a CRASH loop on any other
+# status: 30 starts inside 5 minutes puts the unit in `failed` so an operator
+# sees it. A healthy watcher never reaches that, because it holds a network
+# outage internally with persisted backoff rather than exiting — so repeated
+# fast exits mean a real crash, not a blip. Recover with:
+#   systemctl --user reset-failed agentbus-{agent}.service && systemctl --user start agentbus-{agent}.service
 #
 # Verify it is ACTUALLY attached, not merely 'active':
 #   agentbus watch-status --agent {agent}

@@ -12,6 +12,27 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.92] — 2026-09-10
+
+### Fixed
+- **The start-rate brake is back on, so a crash loop cannot reproduce the same
+  shape under a different exit status** (#58). 0.9.91 stopped the *terminal*
+  statuses (auth, misconfig, usage) but left `StartLimitIntervalSec=0`, which
+  disables systemd's rate limiting for everything else — so a client
+  crash-looping on exit 1 (corrupt config, missing file, an unhandled exception
+  at startup) still restarted every 5 seconds forever. Raised by the AgentBus
+  server team as a question rather than a defect; it was real. The status had
+  been fixed and the mechanism that let it run for 23 days had not.
+
+  Now `StartLimitIntervalSec=300` with `StartLimitBurst=30`. Safe because the
+  watcher does not exit on a network outage — it reconnects internally with
+  backoff that persists across restarts, specifically so an OS-supervisor loop
+  cannot reset it — so repeated fast exits mean a real crash rather than a blip,
+  and a healthy watcher never approaches 30 starts in 5 minutes. A genuine crash
+  loop latches into `failed` in about 2.5 minutes, which is what makes an
+  operator notice; the emitted unit names the `reset-failed` recovery.
+
+
 ## [0.9.91] — 2026-09-10
 
 ### Fixed

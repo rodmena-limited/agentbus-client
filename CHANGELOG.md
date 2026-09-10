@@ -12,6 +12,24 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.94] — 2026-09-10
+
+### Fixed
+- **The unreachable-agent check now matches the seal algorithm exactly** (#59).
+  0.9.93 used a prefix match (`algorithm.startswith("age")`) while the server
+  matches its `SEAL_ALGORITHM` constant exactly. Identical today, because
+  `age-x25519` is the only age-family algorithm in existence — but the day a
+  second `age-*` appears that is *not* the seal algorithm, the client would say
+  reachable while the server refuses to seal. That is a missing warning rather
+  than a spurious one: the silent direction, recreating the very defect this
+  feature exists to fix, one layer over.
+
+  Raised by the AgentBus server team. Two independently written predicates for
+  one question is the thing to avoid, so the client now names a constant rather
+  than describing the algorithm, and a test pins that an `age-*` value which is
+  not the seal algorithm still produces the warning.
+
+
 ## [0.9.93] — 2026-09-10
 
 ### Added

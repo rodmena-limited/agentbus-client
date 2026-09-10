@@ -110,3 +110,32 @@ def test_a_failed_lookup_claims_nothing_either_way(monkeypatch):
 def test_no_acting_agent_is_not_warned(monkeypatch, name):
     out = _run(monkeypatch, _Bus(_keys(), agent=name))
     assert "UNREACHABLE" not in out
+
+
+def test_a_future_age_algorithm_is_not_assumed_to_seal(monkeypatch):
+    """Raised by the server team: the client used a PREFIX match
+    (startswith("age")) while the server matches SEAL_ALGORITHM exactly.
+
+    Identical today, because age-x25519 is the only age-family algorithm that
+    exists. The day a second one appears that is NOT the seal algorithm, a prefix
+    match says REACHABLE while the server refuses to seal — no warning when there
+    should be one, which is the silent direction and recreates the very defect
+    this feature fixes, one layer over.
+
+    Two independently written predicates for one question is the thing to avoid,
+    so the client names the constant rather than describing it.
+    """
+    out = _run(monkeypatch, _Bus(_keys({"agent": "alpha", "algorithm": "age-somethingelse"})))
+    assert "UNREACHABLE" in out, (
+        "an age-family algorithm that is not the seal algorithm must not count as reachability"
+    )
+
+
+def test_the_real_seal_algorithm_still_counts(monkeypatch):
+    """KNOWN-POSITIVE TWIN: tightening to an exact match must not break the
+    algorithm that actually seals."""
+    from agentbus_client.cli._directory import SEAL_ALGORITHM
+
+    assert SEAL_ALGORITHM == "age-x25519"
+    out = _run(monkeypatch, _Bus(_keys({"agent": "alpha", "algorithm": SEAL_ALGORITHM})))
+    assert "UNREACHABLE" not in out

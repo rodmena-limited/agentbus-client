@@ -455,6 +455,9 @@ def add_commands(sub: argparse._SubParsersAction) -> None:
     p.set_defaults(func=cmd_liveness)
 
 
+SEAL_ALGORITHM = "age-x25519"
+
+
 def _warn_if_unsealable(bus: Any, agent: str) -> None:
     """Tell an agent when nobody on an encrypted workspace can write to it."""
     if not agent or agent == "(no acting agent)":
@@ -468,7 +471,7 @@ def _warn_if_unsealable(bus: Any, agent: str) -> None:
     sealing = {
         k.get("agent")
         for k in (data.get("keys") or [])
-        if str(k.get("algorithm") or "").startswith("age") and not k.get("revoked_at")
+        if k.get("algorithm") == SEAL_ALGORITHM and not k.get("revoked_at")
     }
     if agent in sealing:
         return

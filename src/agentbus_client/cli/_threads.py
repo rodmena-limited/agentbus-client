@@ -8,7 +8,7 @@ from typing import Any
 
 from ..client import AgentBusError, NotFoundError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _print
+from ._common import _print
 
 
 def _render_thread(result: dict[str, Any], highlight_message_id: str | None = None) -> None:
@@ -263,53 +263,3 @@ def cmd_reminders(args: argparse.Namespace) -> int:
         )
     print(f"\n{len(rows)} reminder(s)")
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser("thread", help="show a whole conversation")
-    p.add_argument("thread_id")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_thread)
-
-    p = sub.add_parser("history", help="what was said in a room before you joined (#170)")
-    p.add_argument("room", help="room name, without the room: prefix")
-    p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--since", default=None, metavar="ISO8601")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_history)
-
-    p = sub.add_parser("schema", help="read, declare or clear a room's payload contract (#169)")
-    p.add_argument("room")
-    p.add_argument(
-        "--set", default=None, metavar="JSON", help="literal JSON, @file, or @- for stdin"
-    )
-    p.add_argument("--clear", action="store_true", help="remove the contract")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_schema)
-
-    p = sub.add_parser("usage", help="show quota usage")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_usage)
-
-    p = sub.add_parser(
-        "reminders",
-        help="ack-tracking visibility (SPECS/0022). Defaults to --owing: what "
-        "you sent and are still waiting on. --owed shows what was sent TO you "
-        "that you owe an ack on. Reads only, scoped to your own agent.",
-    )
-    grp = p.add_mutually_exclusive_group()
-    grp.add_argument(
-        "--owed",
-        action="store_true",
-        help="show messages TO me that I owe an ack on (the recipient view)",
-    )
-    grp.add_argument(
-        "--owing",
-        action="store_true",
-        help="show messages I sent that I'm still waiting to be acked "
-        "(the sender view; the default)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_reminders)

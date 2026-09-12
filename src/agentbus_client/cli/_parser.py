@@ -3,29 +3,33 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import sys
+from collections.abc import Sequence
+from functools import lru_cache
 
 from ..client import AgentBusError, AuthError, QuotaExceeded, ServiceUnavailable
 from . import (
-    _block,
-    _compose,
-    _diag,
-    _directory,
-    _forward,
-    _identities,
-    _keys,
-    _memory,
-    _read,
-    _register,
-    _remind,
-    _sent,
-    _service,
-    _setup,
-    _threads,
-    _verify,
-    _watch_run,
-    _watch_status,
+    _cmds_block,
+    _cmds_compose,
+    _cmds_diag,
+    _cmds_directory,
+    _cmds_forward,
+    _cmds_identities,
+    _cmds_keys,
+    _cmds_memory,
+    _cmds_read,
+    _cmds_register,
+    _cmds_remind,
+    _cmds_sent,
+    _cmds_service,
+    _cmds_setup,
+    _cmds_threads,
+    _cmds_verify,
+    _cmds_watch_run,
+    _cmds_watch_status,
 )
+from ._app import Root, Verb, VerbGroup, parse
 
 # #50: what an operator TYPES, mapped to the verb that exists.
 #
@@ -84,92 +88,78 @@ _INTENT_HINTS = {
     "list": "inbox   (or `reminds` for scheduled ones)",
 }
 
-
-class _SuggestingParser(argparse.ArgumentParser):
-    """An unknown verb should point at the right one, not print 52 choices.
-
-    argparse's default lists every choice, which is a wall an agent skims and
-    concludes from. That is how a real session decided self-scheduling did not
-    exist while `remind` was sitting in the list it had just been shown.
-    """
-
-    def error(self, message: str) -> None:  # type: ignore[override]
-        import difflib
-        import re as _re
-
-        m = _re.search(r"invalid choice: '([^']+)'", message)
-        if m:
-            typed = m.group(1)
-            hint = _INTENT_HINTS.get(typed.lower())
-            if hint is None:
-                choices = self._subparser_choices()
-                # Cutoff chosen from DATA, not feel. Measured against the real
-                # verb list: genuine typos score 0.75-0.91 (sned->send 0.75,
-                # inbx->inbox 0.89, statu->status 0.91), while the nearest
-                # SEMANTIC false positive, nudge->usage, sits at exactly 0.60.
-                # At 0.60 the CLI confidently told someone who meant "remind"
-                # to run the quota command. 0.75 keeps every real typo and drops
-                # every false one; 0.80 starts losing genuine typos.
-                #
-                # A wrong suggestion is worse than argparse's list, because it
-                # will be followed — which is the whole reason this handler
-                # exists rather than the reason to relax it.
-                close = difflib.get_close_matches(typed.lower(), choices, n=1, cutoff=0.75)
-                hint = close[0] if close else None
-            if hint:
-                self.exit(
-                    2,
-                    f"agentbus: there is no `{typed}` command.\n\n"
-                    f"  You probably want:  agentbus {hint}\n\n"
-                    f"  `agentbus quickref` lists the common flows.\n",
-                )
-        super().error(message)
-
-    def _subparser_choices(self) -> list[str]:
-        for action in self._actions:
-            if isinstance(action, argparse._SubParsersAction):
-                return list(action.choices)
-        return []
+COMMAND_MODULES = (
+    _cmds_block,
+    _cmds_compose,
+    _cmds_diag,
+    _cmds_directory,
+    _cmds_forward,
+    _cmds_identities,
+    _cmds_keys,
+    _cmds_memory,
+    _cmds_read,
+    _cmds_register,
+    _cmds_remind,
+    _cmds_sent,
+    _cmds_service,
+    _cmds_setup,
+    _cmds_threads,
+    _cmds_verify,
+    _cmds_watch_run,
+    _cmds_watch_status,
+)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = _SuggestingParser(
-        prog="agentbus", description="AgentBus — a real inbox for every agent"
-    )
+def suggest(typed: str, choices: Sequence[str]) -> str | None:
+    hint = _INTENT_HINTS.get(typed.lower())
+    if hint is not None:
+        return hint
+    # Cutoff chosen from DATA, not feel. Measured against the real
+    # verb list: genuine typos score 0.75-0.91 (sned->send 0.75,
+    # inbx->inbox 0.89, statu->status 0.91), while the nearest
+    # SEMANTIC false positive, nudge->usage, sits at exactly 0.60.
+    # At 0.60 the CLI confidently told someone who meant "remind"
+    # to run the quota command. 0.75 keeps every real typo and drops
+    # every false one; 0.80 starts losing genuine typos.
+    #
+    # A wrong suggestion is worse than argparse's list, because it
+    # will be followed — which is the whole reason this handler
+    # exists rather than the reason to relax it.
+    close = difflib.get_close_matches(typed.lower(), list(choices), n=1, cutoff=0.75)
+    return close[0] if close else None
+
+
+@lru_cache(maxsize=1)
+def build() -> Root:
     from .. import __version__
 
-    parser.add_argument("--version", action="version", version=f"agentbus {__version__}")
-    parser.add_argument("--api-key", default=None, help="defaults to $AGENTBUS_API_KEY")
-    parser.add_argument("--base-url", default=None, help="defaults to $AGENTBUS_BASE_URL")
-    parser.add_argument("--agent", default=None, help="acting agent; defaults to $AGENTBUS_AGENT")
-    parser.add_argument("--json", action="store_true", help="machine-readable output")
-    sub = parser.add_subparsers(dest="command", required=True)
+    root = Root(suggest, __version__)
+    for module in COMMAND_MODULES:
+        for obj in vars(module).values():
+            if isinstance(obj, VerbGroup) or (isinstance(obj, Verb) and not obj.nested):
+                root.add_command(obj)
+    return root
 
-    # One module per command family; each wires its own subcommands.
-    _register.add_commands(sub)
-    _directory.add_commands(sub)
-    _identities.add_commands(sub)
-    _compose.add_commands(sub)
-    _forward.add_commands(sub)
-    _read.add_commands(sub)
-    _memory.add_commands(sub)
-    _remind.add_commands(sub)
-    _threads.add_commands(sub)
-    _sent.add_commands(sub)
-    _keys.add_commands(sub)
-    _verify.add_commands(sub)
-    _watch_status.add_commands(sub)
-    _watch_run.add_commands(sub)
-    _service.add_commands(sub)
-    _block.add_commands(sub)
-    _diag.add_commands(sub)
-    _setup.add_commands(sub)
-    return parser
+
+def verbs() -> list[str]:
+    return sorted(build().commands)
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    return parse(build(), argv)
+
+
+class _Parser:
+    def parse_args(self, argv: Sequence[str] | None = None) -> argparse.Namespace:
+        return parse_args(argv)
+
+
+def build_parser() -> _Parser:
+    return _Parser()
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    # (parser handles --version via argparse's version action)
+    args = parse_args(argv)
     try:
         result: int = args.func(args)
         return result

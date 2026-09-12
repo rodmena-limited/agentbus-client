@@ -238,33 +238,3 @@ def _harden_if_possible(path: Any) -> None:
 
     with contextlib.suppress(OSError):
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-
-
-def _accept_common_flags_after_subcommand(sub_parser: argparse.ArgumentParser) -> None:
-    """Let --agent and --json appear on either side of the subcommand.
-
-    A global-only flag that must precede the subcommand is a documented footgun
-    that already cost the previous bus real time: `agentbus watch --agent x`
-    reads perfectly and fails with 'unrecognized arguments'. SUPPRESS means an
-    omitted flag leaves the global value alone instead of overwriting it with
-    None.
-
-    `--json` HAD THAT FIX AND DID NOT GET IT, which is worse than never having
-    fixed either: the reasoning above was written down, applied to one flag, and
-    the other kept failing in exactly the way the docstring describes. Every
-    modern CLI accepts `cmd sub --json`; ours answered "unrecognized arguments"
-    without saying where the flag belonged.
-
-    And the footer of `phonebook` printed `agentbus phonebook --json` as the
-    remedy for its own elision — a printed instruction that lands on a usage
-    error, the same class as an advisory naming a deleted script.
-    """
-    sub_parser.add_argument(
-        "--agent", default=argparse.SUPPRESS, help="acting agent (may also precede the subcommand)"
-    )
-    sub_parser.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="machine-readable output (may also precede the subcommand)",
-    )

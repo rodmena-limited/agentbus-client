@@ -8,7 +8,7 @@ import sys
 
 from ..client import AgentBusError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _cfg_dir, _print
+from ._common import _cfg_dir, _print
 from ._watch_runtime import _watch_logfile
 
 
@@ -384,32 +384,3 @@ run_rc_command "$1"
         file=sys.stderr,
     )
     return 2
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser("retire", help="stand an agent down (reversible)")
-    p.add_argument("name", nargs="?", default=None)
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_retire)
-
-    p = sub.add_parser(
-        "service",
-        help="emit a systemd unit (Linux) or launchd plist (macOS) "
-        "so the watcher is supervised, not merely detached",
-    )
-    p.add_argument(
-        "--manager",
-        default=None,
-        choices=["systemd", "launchd", "rc.d"],
-        help="override the auto-detected service manager (rc.d for FreeBSD, #153)",
-    )
-    p.add_argument(
-        "--env-file",
-        default=None,
-        help="reference this env file for credentials instead of "
-        "inlining the key into the unit (recommended)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_service)

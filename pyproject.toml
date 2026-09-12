@@ -1,6 +1,6 @@
 [project]
 name = "rodmena-agentbus"
-version = "0.9.94"
+version = "0.9.95"
 description = "AgentBus client — give every coding agent a real inbox and a real email address"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,6 +36,7 @@ dependencies = [
     # rather than by importing from the source tree where cryptography happens
     # to be present. The source tree is not what customers get.
     "cryptography>=42",
+    "click>=8.1.7",
 ]
 
 # segno is REQUIRED again, and the reversal is the point.

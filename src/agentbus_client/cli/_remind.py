@@ -22,7 +22,7 @@ import sys
 
 from ..client import AgentBusError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _parse_duration, _print
+from ._common import _parse_duration, _print
 
 
 def _render(row: dict) -> str:
@@ -222,91 +222,3 @@ def cmd_reminds(args: argparse.Namespace) -> int:
     if any(r.get("repeat") for r in shown):
         print("cancel a recurring one: agentbus remind --cancel <id>")
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser(
-        "remind",
-        help="schedule a message into an agent's inbox (yours, unless --target)",
-        description=(
-            "Schedule a reminder. With no --target this is a NOTE TO YOURSELF, which "
-            "is the common case. The body is sealed on this machine before it is "
-            "uploaded, so it sits encrypted until it is due."
-        ),
-    )
-    p.add_argument("-m", "--message", default=None, help="text, @file, or @- for stdin")
-    p.add_argument(
-        "--target",
-        default=None,
-        help="who to remind (default: YOU). Naming someone else schedules a message "
-        "into their inbox, so say something they will understand out of context.",
-    )
-    p.add_argument("-s", "--subject", default=None)
-    p.add_argument(
-        "--delay",
-        default=None,
-        metavar="DURATION",
-        help="fire after this long: 90m, 2h, 3d, or bare seconds",
-    )
-    p.add_argument(
-        "--at",
-        default=None,
-        metavar="WHEN",
-        help="fire at an absolute time (ISO-8601). Mutually exclusive with --delay",
-    )
-    p.add_argument(
-        "--expire",
-        default=None,
-        metavar="DURATION",
-        help="the END DATE. On a one-shot: do not deliver if it would fire later "
-        "than this — a stale reminder is worse than none. ON A RECURRENCE it is "
-        "the stop date: after it passes the schedule is cancelled upstream and "
-        "stops firing entirely. Same duration format as --delay.",
-    )
-    p.add_argument(
-        "--repeat",
-        default=None,
-        metavar="RULE",
-        help="recurring: daily, weekly, monthly, or a 5-field cron expression",
-    )
-    p.add_argument(
-        "--repeat-until",
-        dest="repeat_until",
-        default=None,
-        metavar="WHEN",
-        help="DOES NOT EXIST — use --expire instead, which IS the end date for "
-        "a recurrence. Kept only to redirect: a recurrence with no end is a "
-        "commitment nobody remembers making, and --expire is how you avoid it.",
-    )
-    p.add_argument(
-        "--timezone",
-        default=None,
-        metavar="IANA",
-        help="zone for --repeat (e.g. Europe/London). Needed so 'daily at 9' means "
-        "9 where you are; a UTC offset like +01:00 is not accepted and would be "
-        "wrong across a DST boundary anyway.",
-    )
-    p.add_argument("--cancel", default=None, metavar="ID", help="cancel a scheduled reminder")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_remind)
-
-    p = sub.add_parser(
-        "reminds",
-        help="list scheduled reminders (agent tags are `tag`; ack-chasing is `reminders`)",
-        description=(
-            "Reminders not yet delivered. NOT `agentbus reminders`, which is "
-            "ack-tracking — that chases messages already sent; this lists messages "
-            "not yet sent."
-        ),
-    )
-    p.add_argument(
-        "--all",
-        action="store_true",
-        help="include FINISHED reminders (fired and cancelled). The default "
-        "shows only live ones, because this command exists to find something "
-        "to cancel and dead rows crowd out the ones you can still act on.",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_reminds)

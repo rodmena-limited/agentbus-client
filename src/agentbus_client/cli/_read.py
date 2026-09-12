@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..client import AgentBusError, NotFoundError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _print
+from ._common import _print
 from ._threads import _render_thread
 
 
@@ -361,93 +361,3 @@ def cmd_labels(args: argparse.Namespace) -> int:
     labels = _common._bus(args).label(args.delivery_id, add=args.add, remove=args.remove)
     _print(labels if args.json else f"labels: {', '.join(labels)}", args.json)
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser("inbox", help="list new messages")
-    p.add_argument("--cursor", type=int, default=0)
-    p.add_argument("--limit", type=int, default=50)
-    p.add_argument("--label", default=None)
-    p.add_argument(
-        "--unread",
-        action="store_true",
-        help="server-side filter to unread only (do not page-and-filter)",
-    )
-    p.add_argument("--wait", type=int, default=0, help="long-poll seconds (max 55)")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_inbox)
-
-    p = sub.add_parser(
-        "attachment", help="write an attachment from a delivery to disk (send -a is the other half)"
-    )
-    p.add_argument("delivery_id")
-    p.add_argument("-i", "--index", type=int, default=0, help="which attachment (default 0)")
-    p.add_argument(
-        "-o", "--output", help="path to write, or '-' for stdout (default: its own name)"
-    )
-    p.add_argument(
-        "--all",
-        action="store_true",
-        help="F8 (issuedb #5): fetch EVERY attachment on the delivery into the current "
-        "working directory using its original filename. Refuses to overwrite unless "
-        "--force is passed. Mutually exclusive with -i and -o.",
-    )
-    p.add_argument("--force", action="store_true", help="overwrite an existing file")
-    p.add_argument("--agent", help="acting agent (may also precede the subcommand)")
-    p.set_defaults(func=cmd_attachment)
-
-    p = sub.add_parser("show", help="read one delivery in full")
-    p.add_argument("delivery_id")
-    # #216. `--thread` is the primary spelling; `--all` is accepted because it is
-    # what an operator reaches for, and refusing it would only mean they try it,
-    # get an error, and read the help. BE CAREFUL WITH IT: on `agentbus reply`,
-    # `--all` means REPLY TO EVERYONE, which is a different axis entirely. Named
-    # here so the collision is documented rather than discovered.
-    p.add_argument(
-        "--thread",
-        "--all",
-        action="store_true",
-        dest="thread",
-        help="read the WHOLE conversation, oldest first, instead of this one "
-        "message (note: on `reply`, --all means reply-to-everyone instead)",
-    )
-    p.add_argument(
-        "--raw",
-        "--ciphertext",
-        action="store_true",
-        dest="raw",
-        help="print the stored body verbatim WITHOUT unsealing it, so you can "
-        "verify your own mail with an external decoder (e.g. `agentbus show "
-        "<id> --raw | age -d -i ~/.config/agentbus/keys/sealing-<agent>.key`)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_show)
-
-    # #205: SAY THAT IT TAKES SEVERAL, AND THAT IT MARKS READ. Both were true
-    # before this help text and stated nowhere, so an agent staring at a
-    # three-figure unread count had no way to learn that the backlog is
-    # clearable at all — `ack` sets read_at WITHOUT requiring `show`, which
-    # makes it the bulk mark-read path.
-    p = sub.add_parser(
-        "ack",
-        help="mark one or more deliveries read/acknowledged (accepts several ids)",
-        description=(
-            "Acknowledge deliveries. Accepts several ids at once, and marks each "
-            "READ without opening it — so this is how a backlog is cleared. "
-            "Read anything addressed TO you first: ack does not show you the body."
-        ),
-    )
-    p.add_argument("delivery_ids", nargs="+", metavar="DELIVERY_ID")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_ack)
-
-    p = sub.add_parser(
-        "labels", help="change labels on a delivery (mail filing — agent tags are `agentbus tag`)"
-    )
-    p.add_argument("delivery_id")
-    p.add_argument("--add", action="append", default=[])
-    p.add_argument("--remove", action="append", default=[])
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_labels)

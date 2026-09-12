@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _client_version, _print
+from ._common import _client_version, _print
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -205,42 +205,3 @@ def cmd_verify_signature(args: argparse.Namespace) -> int:
     print(f"  the platform said: {result.get('platform_said')}")
     print("  the bytes do not match the key: treat this as a real mismatch")
     return code
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser(
-        "verify",
-        help="inspect a claim; with --run, execute it opt-in and record your verdict (#63)",
-    )
-    p.add_argument("delivery_id")
-    p.add_argument(
-        "--run",
-        action="store_true",
-        help="execute the repro on this host (never automatic; "
-        "scrubbed of this session's bus credentials)",
-    )
-    p.add_argument(
-        "--with-creds",
-        action="store_true",
-        help="explicit override: let the repro inherit the bus "
-        "credential (read the claim fully before this)",
-    )
-    p.add_argument(
-        "--timeout", type=float, default=60.0, help="repro timeout in seconds (default 60)"
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_verify)
-
-    # `verify-sender`, NOT `verify`: that verb already means "inspect a #63
-    # claim, and with --run execute it". Two different questions — "is this
-    # assertion true" and "did this agent really send this" — and a name that
-    # answered whichever you happened to mean would be worse than a longer one.
-    p = sub.add_parser(
-        "verify-sender",
-        help="check a message's signature yourself, without trusting the bus (#173)",
-    )
-    p.add_argument("delivery_id")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_verify_signature)

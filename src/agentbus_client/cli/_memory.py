@@ -26,7 +26,7 @@ import sys
 from typing import Any
 
 from ..client import AgentBusError
-from ._common import _accept_common_flags_after_subcommand, _bus, _print, _read_body
+from ._common import _bus, _print, _read_body
 
 
 def _render(result: dict[str, Any]) -> None:
@@ -192,38 +192,6 @@ def cmd_memory(args: argparse.Namespace) -> int:
 
     print(f"unknown memory action '{action}'", file=sys.stderr)
     return 2
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire `memory` into the shared subparser."""
-    p = sub.add_parser(
-        "memory",
-        help="your own notebook: remember something, or read it all back",
-        description=(
-            "agentbus memory 'always quote the staging DSN'   remember it\n"
-            "agentbus memory fetch                            read it all back\n"
-            "agentbus memory rm 7                             forget one entry (by seq)\n"
-            "agentbus memory truncate --first 10              forget the 10 OLDEST\n"
-            "agentbus memory reseal                           re-seal to your current key"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p.add_argument(
-        "action",
-        nargs="?",
-        default=None,
-        help="fetch | rm | truncate | reseal; omit it to REMEMBER the text that follows",
-    )
-    p.add_argument(
-        "text",
-        nargs="?",
-        default=None,
-        help="what to remember (also @file, or @- for stdin)",
-    )
-    p.add_argument("--seq", type=int, default=None, help="entry to remove (with rm)")
-    p.add_argument("--first", type=int, default=None, help="how many OLDEST to remove")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=_dispatch)
 
 
 def _dispatch(args: argparse.Namespace) -> int:

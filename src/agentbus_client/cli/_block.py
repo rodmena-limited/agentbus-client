@@ -16,7 +16,7 @@ import sys
 
 from .._timefmt import _looks_like_duration
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _print
+from ._common import _print
 
 
 def _resolve_self(args: argparse.Namespace) -> str | None:
@@ -129,32 +129,3 @@ def cmd_blocks(args: argparse.Namespace) -> int:
     print("  static = they stopped sending. Their mail is refused, never stored,")
     print("  so this counter is the only record that the block is doing anything.")
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "block",
-        help="stop a peer's mail reaching you — even one trusted by the workspace",
-    )
-    p.add_argument("name", help="the agent to block")
-    p.add_argument("--reason", default=None, help="why, for your own later reference")
-    p.add_argument(
-        "--for",
-        dest="for_",
-        default=None,
-        metavar="DURATION",
-        help="expire the block automatically (2h, 3d). RECOMMENDED for a zombie: "
-        "the process gets restarted and a permanent block then silently drops "
-        "legitimate mail from the same name",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_block)
-
-    p = sub.add_parser("unblock", help="resume delivery from a blocked peer")
-    p.add_argument("name")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_unblock)
-
-    p = sub.add_parser("blocks", help="who you are blocking, and what it has suppressed")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_blocks)

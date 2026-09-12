@@ -21,12 +21,11 @@ from __future__ import annotations
 
 import pytest
 
-from agentbus_client.cli._parser import build_parser
+from agentbus_client.cli._parser import build_parser, verbs
 
 
 def _commands() -> set[str]:
-    sub = next(a for a in build_parser()._actions if a.dest == "command")
-    return set(sub.choices)
+    return set(verbs())
 
 
 # ------------------------------------------------------------------ surfaces

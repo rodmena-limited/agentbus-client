@@ -21,17 +21,21 @@ import argparse
 import io
 import json
 from contextlib import redirect_stdout
+from pathlib import Path
 
 from agentbus_client.cli._diag import cmd_quickref
-from agentbus_client.cli._parser import build_parser
+from agentbus_client.cli._parser import build
 
 
 def _parser_verbs() -> list[str]:
-    parser = build_parser()
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            return sorted(action.choices)
-    raise AssertionError("no subparsers found")
+    return sorted(build().commands)
+
+
+def test_no_verb_was_lost_or_added_by_the_click_migration():
+    oracle = json.loads(
+        (Path(__file__).parent / "fixtures" / "cli_argparse_oracle_0_9_94.json").read_text()
+    )
+    assert _parser_verbs() == oracle["verbs"]
 
 
 def _run(**flags) -> str:

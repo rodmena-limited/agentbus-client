@@ -10,7 +10,7 @@ import tempfile
 
 from ..client import AgentBusError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _print
+from ._common import _print
 
 
 def cmd_forward(args: argparse.Namespace) -> int:
@@ -392,83 +392,3 @@ def cmd_approval(args: argparse.Namespace) -> int:
         status = str(settled.get("status") or "")
         return 0 if status == "approved" else (1 if status in _TERMINAL else 7)
     return _report_approval(settled)
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser(
-        "forward",
-        help="forward a conversation to a third party, RE-SEALED to their keys",
-    )
-    p.add_argument("delivery_id")
-    p.add_argument("to", nargs="+", help="new recipients")
-    p.add_argument("-c", "--cc", action="append")
-    p.add_argument("-b", "--body", help="a note to put above the forwarded text")
-    p.add_argument("-p", "--priority", choices=["urgent", "normal", "background"])
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_forward)
-
-    p = sub.add_parser("draft", help="save a draft without sending it (#228)")
-    p.add_argument("to", nargs="+")
-    p.add_argument("-s", "--subject")
-    p.add_argument("-b", "--body")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_draft)
-
-    p = sub.add_parser("draft-send", help="send a stored draft (#228)")
-    p.add_argument("draft_id")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_draft_send)
-
-    p = sub.add_parser(
-        "undeliverable", help="external mail that could not be routed (operator; #227)"
-    )
-    p.add_argument("--limit", default=20)
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_undeliverable)
-
-    p = sub.add_parser("drafts", help="list drafts")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_drafts)
-
-    p = sub.add_parser("approve", help="ask a human to approve something")
-    p.add_argument("title")
-    p.add_argument("--kind", default="generic")
-    p.add_argument("--summary", default=None)
-    p.add_argument(
-        "--wait",
-        type=int,
-        default=0,
-        metavar="SECONDS",
-        help="BLOCK until a human decides, and exit on the outcome. Without it "
-        "this returns while the approval is still open — which means you have "
-        "raised a gate and not waited at it.",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_approve)
-
-    p = sub.add_parser(
-        "approval",
-        help="check an approval by id (the CLI twin of MCP's bus_approval_status)",
-        description=(
-            "Report the status of an approval you already have an id for — one "
-            "raised by an earlier session, or handed to you by a peer. "
-            "`agentbus approve --wait` can only wait on an approval it just "
-            "created; this works on any id. "
-            "Exit codes: 0 approved, 1 DENIED (rejected/cancelled/timed_out/"
-            "changes_requested), 7 nobody has decided yet. 1 and 7 are different "
-            "answers and must not be treated alike."
-        ),
-    )
-    p.add_argument("approval_id")
-    p.add_argument(
-        "--wait",
-        type=int,
-        default=0,
-        metavar="SECONDS",
-        help="block until it is decided (server caps the wait; exit 7 if the "
-        "wait elapses with no decision)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_approval)

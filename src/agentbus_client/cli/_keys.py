@@ -7,7 +7,7 @@ import argparse
 from .. import _signing, sealing
 from ..client import AgentBus, AgentBusError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _harden_if_possible, _print
+from ._common import _harden_if_possible, _print
 
 
 def _sealing_hostname() -> str:
@@ -423,41 +423,3 @@ def cmd_keys(args: argparse.Namespace) -> int:
         "revoke": _keys_revoke,
         "sign": _keys_sign,
     }[args.keys_action](bus, args, str(agent), _this_machines_fingerprint())
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser(
-        "keys",
-        help="see, rotate and revoke this agent's SEALING keys (encrypted workspaces)",
-    )
-    keys_sub = p.add_subparsers(dest="keys_action", required=True)
-    kp = keys_sub.add_parser("list", help="every published key, marking this machine's")
-    _accept_common_flags_after_subcommand(kp)
-    kp = keys_sub.add_parser("rotate", help="new local key, published; the old one stays valid")
-    kp.add_argument("--label", help="how this machine appears in the list (default: hostname)")
-    kp.add_argument("--yes", action="store_true", help="proceed past the old-mail warning")
-    _accept_common_flags_after_subcommand(kp)
-    kp = keys_sub.add_parser(
-        "sign", help="publish this machine's SIGNING key so peers can verify you (#173)"
-    )
-    kp.add_argument("--label", help="how this machine appears in the list (default: hostname)")
-    _accept_common_flags_after_subcommand(kp)
-    kp = keys_sub.add_parser("revoke", help="retire one key — forward only, never retroactive")
-    kp.add_argument("fingerprint")
-    # #191: --yes is now required for EVERY revocation, not only for this
-    # machine's own key. The warning that mail already sealed to a key stays
-    # sealed to it has to arrive before the irreversible half, and for any other
-    # fingerprint it used to print afterwards.
-    kp.add_argument(
-        "--yes",
-        action="store_true",
-        help="proceed past the warning (required — the warning comes first)",
-    )
-    kp.add_argument(
-        "--reason",
-        help="why, recorded against the key: a rotation and a compromise want different follow-up",
-    )
-    _accept_common_flags_after_subcommand(kp)
-    p.set_defaults(func=cmd_keys)

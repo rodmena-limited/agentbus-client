@@ -20,7 +20,6 @@ from . import (
     _read,
     _register,
     _service,
-    _setup,
     _threads,
     _verify,
     _watch_run,
@@ -29,7 +28,6 @@ from . import (
 )
 from ._common import *  # the module-level imports the flat cli.py exposed (cli.AgentBus, ...)
 from ._common import (
-    _accept_common_flags_after_subcommand,
     _as_message_id,
     _bus,
     _cfg_dir,

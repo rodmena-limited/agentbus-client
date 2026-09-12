@@ -10,7 +10,7 @@ from typing import Any
 
 from ..client import AgentBusError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _print
+from ._common import _print
 
 
 def cmd_identities(args: argparse.Namespace) -> int:
@@ -252,39 +252,3 @@ def cmd_health(args: argparse.Namespace) -> int:
         )
         return 1
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser(
-        "identities",
-        help="every agent identity credentialled on THIS machine, which one this "
-        "directory would act as, and (with --remote) whether each is live "
-        "somewhere else. Prints no key material.",
-    )
-    p.add_argument(
-        "--remote",
-        action="store_true",
-        help="also query each identity's health + registration device. Shows whether "
-        "each is live, and flags any that last REGISTERED from another device. Does "
-        "NOT detect a stolen key reused in place — see SPECS/0020.",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_identities)
-
-    p = sub.add_parser(
-        "health",
-        help="canary heartbeat for an agent — is their watcher actually alive "
-        "right now? (0.9.26) Consumes GET /v1/agents/{name}/health. "
-        "wake_channel_state 'stale' or 'none' means a send would be stored "
-        "into a queue nothing drains, even if presence reads 'responsive'.",
-    )
-    p.add_argument(
-        "target_agent",
-        nargs="?",
-        default=None,
-        help="the agent to check (default: acting agent from --agent / $AGENTBUS_AGENT)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_health)

@@ -8,8 +8,8 @@ import os
 import sys
 
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _git_remote, _print, _print_qr
-from ._identity_cmd import cmd_identity
+from ._common import _git_remote, _print, _print_qr
+from ._identity_cmd import cmd_identity as cmd_identity
 
 
 def cmd_device_id(_args: argparse.Namespace) -> int:
@@ -415,85 +415,3 @@ def cmd_qr(args: argparse.Namespace) -> int:
     if _print_qr(f"mailto:{address}"):
         print(f"  scan to mail {agent} directly")
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-    p = sub.add_parser(
-        "invite",
-        help="mint a one-time join token so a NEW agent can register itself "
-        "(operator; needs an unbound full/admin key)",
-    )
-    p.add_argument("--role", default=None, help="role recorded on the agent it creates")
-    p.add_argument(
-        "--ttl",
-        type=int,
-        default=3600,
-        metavar="SECONDS",
-        help="how long the token stays usable: 60 to 604800 (7 days), default 3600",
-    )
-    p.set_defaults(func=cmd_invite)
-
-    p = sub.add_parser(
-        "join",
-        help="register as a NEW agent using a one-time join token "
-        "(no existing key needed on this machine)",
-    )
-    p.add_argument("token", help="the ab_jt_… token your operator issued")
-    p.add_argument("name", help="the agent name to create (lowercase)")
-    p.add_argument("--role", default=None)
-    p.add_argument("--repo-remote", default=None, help="defaults to this repo's git origin")
-    p.add_argument("--capability", action="append", default=[])
-    p.set_defaults(func=cmd_join)
-
-    p = sub.add_parser("register", help="register this session as an agent")
-    p.add_argument("name", nargs="?", default=None)
-    p.add_argument(
-        "--label",
-        action="append",
-        default=None,
-        metavar="KEY[=VALUE]",
-        help="tag this agent at registration (repeatable): team:frontend, skill:playwright=...",
-    )
-    p.add_argument(
-        "--role",
-        default=None,
-        help="derive identity from this machine+repo+directory (preferred "
-        "over a name: a reopened session recomputes the same agent)",
-    )
-    p.add_argument("--workdir", default=None, help="defaults to the current directory")
-    p.add_argument(
-        "--ephemeral",
-        action="store_true",
-        help="throwaway environment; reclaimed in hours not days (auto-detected in CI)",
-    )
-    p.add_argument("--repo-remote", default=None, help="defaults to this repo's git origin")
-    p.add_argument("--capability", action="append", default=[])
-    p.add_argument("--unlisted", action="store_true")
-    p.add_argument(
-        "--persona",
-        default=None,
-        metavar="LANE",
-        help="declare this agent's responsibility lane (policy: the server validates "
-        "against the workspace vocabulary and an admin can override). Starter "
-        "vocabulary: legal, privacy, security, audit, compliance, frontend, "
-        "backend, database, mobile, data-engineering, data-quality, ml, infra, "
-        "ops, docs, product, orchestrator, generic. Workspaces can extend.",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_register)
-
-    p = sub.add_parser("identity", help="show this session's derived identity")
-    p.add_argument("--workdir", default=None)
-    p.set_defaults(func=cmd_identity)
-
-    p = sub.add_parser("device-id", help="print this machine's stable device id")
-    p.set_defaults(func=cmd_device_id)
-
-    # `qr` EXISTS AS ITS OWN SUBCOMMAND because a flag is not discoverable. A
-    # session asked for a QR, ran `agentbus --help`, saw no `qr`, concluded the
-    # feature did not exist, and pip-installed segno to build one by hand — for a
-    # feature shipped the same day. Top-level help is where people look.
-    p = sub.add_parser("qr", help="print a scannable QR of this agent's address")
-    p.add_argument("--agent", help="acting agent (may also precede the subcommand)")
-    p.set_defaults(func=cmd_qr)

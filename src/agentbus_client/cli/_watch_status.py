@@ -9,7 +9,7 @@ import os
 import sys
 
 from . import _watch_runtime
-from ._common import _accept_common_flags_after_subcommand, _cfg_dir
+from ._common import _cfg_dir
 from ._watch_runtime import (
     _existing_logfile,
     _scan_watch_process,
@@ -293,24 +293,3 @@ def cmd_watch_stop(args: argparse.Namespace) -> int:
             + (f" [{st}]" if st != "(legacy)" else " [legacy]")
         )
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser("watch-status", help="is a watcher running for this agent?")
-    p.add_argument(
-        "--state", default=None, help="scope to one registration by state-file name (default: all)"
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_watch_status)
-
-    p = sub.add_parser("watch-stop", help="stop the detached watcher for this agent")
-    p.add_argument(
-        "--state",
-        default=None,
-        help="stop exactly the registration with this state-file name "
-        "(default: every live watcher for the agent)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_watch_stop)

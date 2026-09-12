@@ -21,7 +21,7 @@ import datetime as dt
 import pytest
 
 from agentbus_client._timefmt import _as_instant, _duration_seconds
-from agentbus_client.cli._parser import build_parser
+from agentbus_client.cli._parser import build_parser, verbs
 
 # ------------------------------------------------------------------ durations
 
@@ -124,8 +124,7 @@ def test_remind_and_reminders_are_different_commands():
     """`reminders` is ack-CHASING (#265): it nags about messages already
     delivered. `remind` schedules one not yet sent. Similar words, opposite
     directions, and conflating them would make both harder to reason about."""
-    sub = next(a for a in build_parser()._actions if a.dest == "command")
-    assert {"remind", "reminds", "reminders"} <= set(sub.choices)
+    assert {"remind", "reminds", "reminders"} <= set(verbs())
 
 
 # --------------------------------------------------------- the sealing rule

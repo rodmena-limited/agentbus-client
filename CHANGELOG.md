@@ -12,6 +12,38 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.95] — 2026-09-12
+
+### Changed
+- **The command line runs on Click, and `agentbus` on its own now explains
+  itself** (#60). Bare `agentbus` used to print argparse's usage line — all 57
+  command names in one brace-delimited wall — and exit 2. It now prints the
+  commands in eight named groups, one line each, and exits 0.
+  `agentbus <command> --help` shows that command's arguments and options, and a
+  mistake is a three-line error: what is wrong, the usage, and the `--help` to
+  run. Colour on a terminal; plain text when piped or with `NO_COLOR` set.
+- **Every command line parses as it did in 0.9.94**, apart from the two items
+  below. That is measured, not asserted: 1,751 command lines — every option of
+  every command, both sides of `--agent`/`--json`, `--opt=value`, repeats, bad
+  values, missing arguments, `--help` — were captured from the 0.9.94 parser
+  before the change, and the new parser must produce the identical parsed
+  result or exit code for each. Exit codes are unchanged, including 2 for a
+  usage error, which the emitted systemd unit's `RestartPreventExitStatus`
+  depends on.
+- `agentbus_client.cli.build_parser().parse_args(argv)` still returns the parsed
+  namespace, for code that imports it.
+- Error wording is Click's rather than argparse's. A script that matched
+  `unrecognized arguments` or `invalid choice` in stderr needs the exit code
+  instead; the code did not change.
+
+### Removed
+- **Abbreviated long options.** argparse accepted `--subj` for `--subject`;
+  Click does not, and says `Did you mean '--subject'?`. Nothing in this
+  client, its README or the served skill used an abbreviation.
+
+### Dependencies
+- Adds `click>=8.1.7` — Click 8.1.x on Python 3.9, current Click on 3.10+.
+
 ## [0.9.94] — 2026-09-10
 
 ### Fixed

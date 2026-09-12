@@ -20,7 +20,7 @@ from typing import Any
 
 from ..client import AgentBusError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _parse_duration, _print
+from ._common import _parse_duration, _print
 
 # A --thread filter that matches nothing must not walk an unbounded history.
 _MAX_PAGES = 50
@@ -175,20 +175,3 @@ def cmd_sent(args: argparse.Namespace) -> int:
         # only ever the first page is not "you sent nothing in that thread".
         print(f"incomplete: {incomplete} — narrow --since or raise --limit.", file=sys.stderr)
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "sent",
-        help="mail YOU sent, newest first — the outbox (#51). What did my daemon post?",
-    )
-    p.add_argument("--limit", type=int, default=50, help="rows to show (default 50)")
-    p.add_argument("--thread", default=None, metavar="THREAD_ID", help="only this conversation")
-    p.add_argument(
-        "--since",
-        default=None,
-        help="only rows at or after this instant: ISO-8601 (2026-09-01T12:00:00Z) "
-        "or a duration back from now (2h, 90m, 3d)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_sent)

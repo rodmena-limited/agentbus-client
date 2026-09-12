@@ -12,7 +12,7 @@ from typing import Any
 
 from ..client import AgentBusError, AuthError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _cfg_dir
+from ._common import _cfg_dir
 from ._watch_runtime import _watch_logfile, _watch_pid, _watch_pidfile
 
 
@@ -336,58 +336,3 @@ def cmd_watch(args: argparse.Namespace) -> int:
             with contextlib.suppress(ValueError, OSError):
                 _signal.signal(_signal.SIGTERM, previous_handler)
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser("watch", help="stay connected and act on arriving messages")
-    p.add_argument(
-        "--exec",
-        default=None,
-        help="shell command per message; {subject} {sender} {delivery_id} "
-        "{message_id} {thread_id} {agent_seq} are substituted and shell-quoted",
-    )
-    p.add_argument("--append", default=None, help="append JSON lines to this file")
-    p.add_argument("--state", default=None, help="cursor checkpoint file")
-    p.add_argument("--cursor", type=int, default=0, help="start from this cursor")
-    p.add_argument("--once", action="store_true", help="drain and exit; do not stream")
-    p.add_argument(
-        "--daemon",
-        action="store_true",
-        help="detach and keep running after this session ends "
-        "(the wake channel is outbound SSE, so this works behind "
-        "a strict inbound firewall)",
-    )
-    # Coalescer flags (issuedb #9, SPECS/0009). Bursts of arrivals — up
-    # to a hard 2500 ms window, or until 800 ms of silence — collapse
-    # into a single envelope wake carrying every buffered message.
-    # A lone delivery still fires immediately (leading edge). urgent
-    # priority always bypasses.
-    p.add_argument(
-        "--coalesce-window",
-        type=int,
-        default=2500,
-        metavar="MS",
-        dest="coalesce_window",
-        help="max milliseconds the trailing envelope can accumulate (default 2500). "
-        "Cap on how long the tail of a burst can hold; overrides quiet.",
-    )
-    p.add_argument(
-        "--coalesce-quiet",
-        type=int,
-        default=800,
-        metavar="MS",
-        dest="coalesce_quiet",
-        help="close the envelope after this many ms of silence (default 800). "
-        "Bounded above by --coalesce-window.",
-    )
-    p.add_argument(
-        "--no-coalesce",
-        action="store_true",
-        dest="no_coalesce",
-        help="disable envelope coalescing entirely; fire the wake hook once per message. "
-        "Only useful if a downstream hook is not envelope-aware.",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_watch)

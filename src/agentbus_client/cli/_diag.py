@@ -6,7 +6,7 @@ import argparse
 
 from ..client import AgentBusError, QuotaExceeded, ServiceUnavailable
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _print
+from ._common import _print
 
 #: How long `doctor` waits for its own self-test message to come back.
 #:
@@ -154,15 +154,11 @@ def cmd_quickref(args: argparse.Namespace) -> int:
     # guard should never have to depend on one. This is the surface that cannot
     # wrap.
     if getattr(args, "verbs", False):
-        from ._parser import build_parser
+        from ._parser import verbs
 
-        parser = build_parser()
-        for action in parser._actions:
-            if isinstance(action, argparse._SubParsersAction):
-                verbs = sorted(action.choices)
-                _print(verbs, args.json) if args.json else print("\n".join(verbs))
-                return 0
-        return 1
+        names = verbs()
+        _print(names, args.json) if args.json else print("\n".join(names))
+        return 0
 
     _print(QUICKREF, args.json)
     return 0
@@ -379,37 +375,3 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ok = False
 
     return 0 if ok else 1
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser(
-        "refresh-skill",
-        help="re-download the served SKILL.md into ~/.claude/skills/agentbus/, "
-        "no registration flow. Use this when `agentbus doctor` says the skill "
-        "is stale but `agentbus setup claude` refuses because your cwd's repo "
-        "differs from the one this agent was registered from.",
-    )
-    _accept_common_flags_after_subcommand(p)  # adds --agent + --json
-    p.set_defaults(func=cmd_refresh_skill)
-
-    p = sub.add_parser("quickref", help="the six verbs and three rules, on one screen")
-    p.add_argument(
-        "--verbs",
-        action="store_true",
-        help="print every verb, one per line, for scripts and doc guards "
-        "(a stable contract; do NOT parse --help, which wraps)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_quickref)
-
-    p = sub.add_parser("doctor", help="prove connectivity, quota and the SMTP loop")
-    p.add_argument(
-        "--wake",
-        action="store_true",
-        help="prove the WAKE chain instead: a self-probe must surface "
-        "through the Stop re-waker exactly once",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_doctor)

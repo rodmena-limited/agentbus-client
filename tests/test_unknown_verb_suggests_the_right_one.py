@@ -78,7 +78,7 @@ def test_an_unguessable_verb_still_falls_back_to_argparse(capsys):
         parser.parse_args(["zzzzzzqqqq"])
     err = capsys.readouterr().err
     assert "You probably want" not in err
-    assert "invalid choice" in err
+    assert "there is no `zzzzzzqqqq` command" in err
 
 
 @pytest.mark.parametrize("verb", ["inbox", "remind", "reminds", "whoami", "show"])

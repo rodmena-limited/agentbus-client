@@ -137,13 +137,9 @@ def test_json_mode_emits_the_raw_result(monkeypatch):
 
 @pytest.mark.parametrize("verb", ["block", "unblock", "blocks"])
 def test_the_verbs_are_registered(verb):
-    import argparse as _ap
+    from agentbus_client.cli._parser import verbs
 
-    from agentbus_client.cli._parser import build_parser
-
-    p = build_parser()
-    choices = next(a.choices for a in p._actions if isinstance(a, _ap._SubParsersAction))
-    assert verb in choices
+    assert verb in verbs()
 
 
 def test_the_sync_and_async_sdks_agree():

@@ -7,7 +7,7 @@ from typing import Any
 
 from ..client import AgentBusError
 from . import _common
-from ._common import _accept_common_flags_after_subcommand, _print, _print_qr
+from ._common import _print, _print_qr
 
 
 def cmd_whoami(args: argparse.Namespace) -> int:
@@ -231,7 +231,7 @@ def cmd_phonebook(args: argparse.Namespace) -> int:
             "`agentbus phonebook --json` does not.)"
             # That command used to FAIL — --json was global-only, so the remedy
             # printed beside the problem landed on a usage error. It works now;
-            # see _accept_common_flags_after_subcommand.
+            # see Verb(common=True) in cli/_app.py.
         )
     return 0
 
@@ -362,97 +362,6 @@ def cmd_liveness(args: argparse.Namespace) -> int:
     print("reachable  = a key acted as it; with a shared key that may be someone else")
     print("idle       = neither")
     return 0
-
-
-def add_commands(sub: argparse._SubParsersAction) -> None:
-    """Wire this module's subcommands into the shared subparser."""
-
-    p = sub.add_parser("whoami", help="show the acting identity")
-    # `-qr` as well as `--qr`: a single-dash multi-character option is unusual,
-    # but it is what an operator will actually type, and argparse accepts it when
-    # declared explicitly rather than assembled from single-letter flags.
-    p.add_argument(
-        "-qr", "--qr", action="store_true", help="also print a scannable QR of this agent's address"
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_whoami)
-
-    p = sub.add_parser("phonebook", help="discover agents")
-    p.add_argument("query", nargs="?", default=None)
-    p.add_argument("--capability", default=None)
-    p.add_argument(
-        "--label",
-        action="append",
-        default=None,
-        help="filter by tag: `team:frontend` (key exists) or `env=prod` (exact); repeat to AND",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_phonebook)
-
-    p = sub.add_parser(
-        "tag",
-        help="this agent's discovery tags (teams/skills/projects — delivery mail labels are `labels`)",
-    )
-    p.add_argument(
-        "set",
-        nargs="*",
-        metavar="KEY[=VALUE]",
-        help=(
-            "tags to set — TWO GRAMMARS, both legal, they mean different things: "
-            "`skill:playwright` = wear the NAMESPACED KEY 'skill:playwright' (no value); "
-            "`skill=playwright` = wear the KEY 'skill' with the VALUE 'playwright'; "
-            "`skill:playwright=takes shots` = namespaced key WITH a value. "
-            "Split rule: everything before the FIRST `=` is the key (colons are part of it), "
-            "everything after is the value. Matching filters follow the same rule "
-            "(see `agentbus phonebook --label`)."
-        ),
-    )
-    p.add_argument("--remove", action="append", default=[], metavar="KEY")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_tag)
-
-    p = sub.add_parser(
-        "busy",
-        help="tell senders you cannot take new work for N seconds (0 clears it)",
-    )
-    p.add_argument("seconds", type=int, help="how long; 0 clears. Expires on its own.")
-    p.add_argument("--reason", default=None, help="shown to senders, e.g. 'deep in a repro'")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_busy)
-
-    p = sub.add_parser(
-        "status",
-        help="read or declare availability: online|busy|away|dnd|offline (#187)",
-    )
-    p.add_argument(
-        "state",
-        nargs="?",
-        default=None,
-        choices=("online", "busy", "away", "dnd", "offline"),
-        help="omit to READ. dnd and offline WITHHOLD mail; busy and away only tell senders",
-    )
-    p.add_argument(
-        "--for",
-        dest="seconds",
-        type=int,
-        default=None,
-        metavar="SECONDS",
-        help="how long (capped server-side; every state but online expires)",
-    )
-    p.add_argument("--reason", default=None)
-    p.add_argument(
-        "--hold-below",
-        dest="hold_below",
-        default=None,
-        choices=("urgent", "normal", "background"),
-        help="override what is withheld (default: dnd holds below urgent)",
-    )
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_status)
-
-    p = sub.add_parser("liveness", help="who is responsive, not merely reachable")
-    _accept_common_flags_after_subcommand(p)
-    p.set_defaults(func=cmd_liveness)
 
 
 SEAL_ALGORITHM = "age-x25519"

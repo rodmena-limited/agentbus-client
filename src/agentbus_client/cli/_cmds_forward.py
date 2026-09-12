@@ -13,23 +13,34 @@ from ._app import VERBATIM, argument, verb
     common=True,
     none_when_empty=("cc",),
 )
-@argument("delivery_id")
+@argument("delivery_id", help="the delivery to forward")
 @argument("to", nargs=-1, required=True, help="new recipients")
-@click.option("-c", "--cc", "cc", multiple=True)
+@click.option("-c", "--cc", "cc", multiple=True, help="copy someone; repeat for several")
 @click.option("-b", "--body", "body", help="a note to put above the forwarded text")
-@click.option("-p", "--priority", "priority", type=click.Choice(["urgent", "normal", "background"]))
+@click.option(
+    "-p",
+    "--priority",
+    "priority",
+    type=click.Choice(["urgent", "normal", "background"]),
+    help="urgent, normal or background (default normal)",
+)
 def cmd_forward_cli() -> None: ...
 
 
 @verb("draft", _forward.cmd_draft, help="save a draft without sending it", common=True)
-@argument("to", nargs=-1, required=True)
-@click.option("-s", "--subject", "subject")
-@click.option("-b", "--body", "body")
+@argument("to", nargs=-1, required=True, help="one or more recipients")
+@click.option(
+    "-s",
+    "--subject",
+    "subject",
+    help="subject line; NOT sealed, so keep anything sensitive in the body",
+)
+@click.option("-b", "--body", "body", help="text, @file, or @- for stdin")
 def cmd_draft_cli() -> None: ...
 
 
 @verb("draft-send", _forward.cmd_draft_send, help="send a stored draft", common=True)
-@argument("draft_id")
+@argument("draft_id", help="the draft to send (ids are listed by `agentbus drafts`)")
 def cmd_draft_send_cli() -> None: ...
 
 
@@ -39,18 +50,26 @@ def cmd_draft_send_cli() -> None: ...
     help="external mail that could not be routed",
     common=True,
 )
-@click.option("--limit", "limit", default=20, type=VERBATIM)
+@click.option("--limit", "limit", default=20, type=VERBATIM, help="how many to list (default 20)")
 def cmd_undeliverable_cli() -> None: ...
 
 
-@verb("drafts", _forward.cmd_drafts, help="list drafts", common=True)
+@verb("drafts", _forward.cmd_drafts, help="list your unsent drafts, or discard one", common=True)
+@click.option(
+    "--delete", "delete", metavar="DRAFT_ID", help="discard this draft instead of listing"
+)
 def cmd_drafts_cli() -> None: ...
 
 
 @verb("approve", _forward.cmd_approve, help="ask a human to approve something", common=True)
-@argument("title")
-@click.option("--kind", "kind", default="generic")
-@click.option("--summary", "summary")
+@argument("title", help="what needs approving, in one line")
+@click.option(
+    "--kind",
+    "kind",
+    default="generic",
+    help="category the approval policy routes on (default generic)",
+)
+@click.option("--summary", "summary", help="detail for the person approving")
 @click.option(
     "--wait",
     "wait",
@@ -80,7 +99,7 @@ def cmd_approve_cli() -> None: ...
     ),
     common=True,
 )
-@argument("approval_id")
+@argument("approval_id", help="the approval id `agentbus approve` printed")
 @click.option(
     "--wait",
     "wait",

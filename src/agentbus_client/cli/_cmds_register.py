@@ -33,9 +33,11 @@ def cmd_invite_cli() -> None: ...
 )
 @argument("token", help="the ab_jt_… token your operator issued")
 @argument("name", help="the agent name to create (lowercase)")
-@click.option("--role", "role")
+@click.option("--role", "role", help="role for the new agent's derived identity")
 @click.option("--repo-remote", "repo_remote", help="defaults to this repo's git origin")
-@click.option("--capability", "capability", multiple=True)
+@click.option(
+    "--capability", "capability", multiple=True, help="capability to declare; repeat for several"
+)
 def cmd_join_cli() -> None: ...
 
 
@@ -46,7 +48,9 @@ def cmd_join_cli() -> None: ...
     common=True,
     none_when_empty=("label",),
 )
-@argument("name", required=False)
+@argument(
+    "name", required=False, help="explicit agent name (prefer --role, which derives a stable one)"
+)
 @click.option(
     "--label",
     "label",
@@ -70,8 +74,10 @@ def cmd_join_cli() -> None: ...
     help="throwaway environment; reclaimed in hours not days (auto-detected in CI)",
 )
 @click.option("--repo-remote", "repo_remote", help="defaults to this repo's git origin")
-@click.option("--capability", "capability", multiple=True)
-@click.option("--unlisted", "unlisted", is_flag=True)
+@click.option(
+    "--capability", "capability", multiple=True, help="capability to declare; repeat for several"
+)
+@click.option("--unlisted", "unlisted", is_flag=True, help="keep this agent out of the phonebook")
 @click.option(
     "--persona",
     "persona",
@@ -88,7 +94,9 @@ def cmd_register_cli() -> None: ...
 
 
 @verb("identity", _identity_cmd.cmd_identity, help="show this session's derived identity")
-@click.option("--workdir", "workdir")
+@click.option(
+    "--workdir", "workdir", help="directory to derive the identity for (default: the current one)"
+)
 def cmd_identity_cli() -> None: ...
 
 

@@ -28,7 +28,7 @@ def cmd_block_cli() -> None: ...
 
 
 @verb("unblock", _block.cmd_unblock, help="resume delivery from a blocked peer", common=True)
-@argument("name")
+@argument("name", help="the agent to unblock")
 def cmd_unblock_cli() -> None: ...
 
 

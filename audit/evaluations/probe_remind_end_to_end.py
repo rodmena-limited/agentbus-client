@@ -59,7 +59,7 @@ def _wait_for(bus: AgentBus, sentinel: str, seconds: int) -> dict | None:
     """
     deadline = time.time() + seconds
     while time.time() < deadline:
-        for delivery in bus.inbox(limit=25):
+        for delivery in bus.inbox(limit=100, unread=True):
             try:
                 full = bus.read(delivery.delivery_id)
             except AgentBusError:
@@ -71,6 +71,9 @@ def _wait_for(bus: AgentBus, sentinel: str, seconds: int) -> dict | None:
 
 
 def main() -> int:
+    if os.environ.get("AUDIT_ALLOW_LIVE") != "1":
+        print("SKIP: live probe (talks to the production bus); set AUDIT_ALLOW_LIVE=1 to run it")
+        return 0
     bus = AgentBus()
     me = bus.agent or os.environ.get("AGENTBUS_AGENT")
     if not me:

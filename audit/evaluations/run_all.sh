@@ -1,5 +1,5 @@
 #!/bin/sh
-# Run all SAFE audit probes (local fakes on 127.0.0.1 only; no production bus). Exit non-zero on any FAIL.
+# Run all audit probes. Every probe uses local fakes on 127.0.0.1 unless AUDIT_ALLOW_LIVE=1, which also runs the live, self-addressed remind probe. Exit non-zero on any FAIL.
 # A probe that FAILS is an OPEN finding; a previously-failing probe that PASSES is the fix verification.
 set -u
 cd "$(dirname "$0")"

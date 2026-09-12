@@ -52,7 +52,7 @@ def cmd_keys_cli_sign() -> None: ...
     help="retire one key — forward only, never retroactive",
     common=True,
 )
-@argument("fingerprint")
+@argument("fingerprint", help="fingerprint of the key to revoke (see `agentbus keys list`)")
 @click.option(
     "--yes",
     "yes",

@@ -7,9 +7,15 @@ from ._app import argument, verb
 
 
 @verb("inbox", _read.cmd_inbox, help="list new messages", common=True)
-@click.option("--cursor", "cursor", default=0, type=int)
-@click.option("--limit", "limit", default=50, type=int)
-@click.option("--label", "label")
+@click.option(
+    "--cursor",
+    "cursor",
+    default=0,
+    type=int,
+    help="start after this message number; 0 is the oldest",
+)
+@click.option("--limit", "limit", default=50, type=int, help="messages per page (default 50)")
+@click.option("--label", "label", help="only deliveries carrying this label")
 @click.option(
     "--unread",
     "unread",
@@ -25,7 +31,7 @@ def cmd_inbox_cli() -> None: ...
     _read.cmd_attachment,
     help="write an attachment from a delivery to disk (send -a is the other half)",
 )
-@argument("delivery_id")
+@argument("delivery_id", help="the delivery holding the attachment")
 @click.option("-i", "--index", "index", default=0, type=int, help="which attachment (default 0)")
 @click.option(
     "-o", "--output", "output", help="path to write, or '-' for stdout (default: its own name)"
@@ -46,7 +52,7 @@ def cmd_attachment_cli() -> None: ...
 
 
 @verb("show", _read.cmd_show, help="read one delivery in full", common=True)
-@argument("delivery_id")
+@argument("delivery_id", help="the delivery id from your inbox")
 @click.option(
     "--thread",
     "--all",
@@ -82,7 +88,9 @@ def cmd_show_cli() -> None: ...
     ),
     common=True,
 )
-@argument("delivery_ids", nargs=-1, required=True, metavar="DELIVERY_ID")
+@argument(
+    "delivery_ids", nargs=-1, required=True, metavar="DELIVERY_ID", help="one or more delivery ids"
+)
 def cmd_ack_cli() -> None: ...
 
 
@@ -92,7 +100,7 @@ def cmd_ack_cli() -> None: ...
     help="change labels on a delivery (mail filing — agent tags are `agentbus tag`)",
     common=True,
 )
-@argument("delivery_id")
-@click.option("--add", "add", multiple=True)
-@click.option("--remove", "remove", multiple=True)
+@argument("delivery_id", help="the delivery to file")
+@click.option("--add", "add", multiple=True, help="label to add; repeat for several")
+@click.option("--remove", "remove", multiple=True, help="label to remove; repeat for several")
 def cmd_labels_cli() -> None: ...

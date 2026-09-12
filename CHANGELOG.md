@@ -12,6 +12,46 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.96] — 2026-09-12
+
+### Fixed
+- **Every command that needs an agent now defaults to the one `agentbus whoami`
+  reports** (#62). `watch-status`, `watch-stop`, `service`, `retire`, `health`,
+  `keys`, `watch` and `block`'s self-check each decided who they were on their
+  own, and several refused with "no acting agent" in a checkout that declared
+  one. One resolver now answers for all of them; `--agent` still wins.
+- **The approval gate no longer runs unvetted for large tool calls** (#63). The
+  guard rejects any string over 4,096 characters, and the gate treated that
+  rejection like an unreachable bus and allowed the action. Oversized strings are
+  now sent as their first and last 2,000 characters with a marker, so the check
+  runs. Content in the middle of a very long command is still not inspected.
+- **No more Python tracebacks for malformed input** such as `--delay soonish`: a
+  short usage error, exit 2. `AGENTBUS_DEBUG=1` brings the traceback back.
+- **Clear first-run and failure messages.** No credential on the machine names
+  `agentbus setup` and `agentbus signin`; an unreachable bus names the URL it
+  tried. Under `--json`, errors are one JSON object on stderr. Exit codes are
+  unchanged.
+- **A malformed-input sweep across every verb found five more crash paths, all
+  fixed**: `tag` with no resolvable agent, `undeliverable --limit` with a
+  non-number, `sent --since` with an unparseable time, `join` against an
+  unreachable bus (a raw `urllib` error), and a non-ASCII `--agent` or
+  `$AGENTBUS_AGENT` (a `UnicodeEncodeError` in the request header). Agent names
+  are now checked up front: letters, digits, `.`, `_` and `-`, the rule the shell
+  hooks already used.
+- The audit harness no longer touches the production bus by default, and its
+  live remind probe can see new mail on a busy inbox (#61).
+
+### Added
+- `agentbus help [COMMAND]`.
+- `agentbus drafts --delete ID` discards a draft; drafts could be listed,
+  created and sent, but never thrown away. `delete_draft()` on both SDKs.
+- Help text for every option and argument.
+
+### Changed
+- `agentbus drafts` prints a readable list instead of raw JSON.
+- `agentbus inbox` no longer calls an oldest-first page "new messages", and says
+  how to reach the next page and the unread-only view.
+
 ## [0.9.95] — 2026-09-12
 
 ### Changed

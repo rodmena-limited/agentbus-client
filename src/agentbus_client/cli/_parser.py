@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
+import os
 import sys
 from collections.abc import Sequence
 from functools import lru_cache
 
 from ..client import AgentBusError, AuthError, QuotaExceeded, ServiceUnavailable
+from ..client.errors import TransportError
 from . import (
     _cmds_block,
     _cmds_compose,
@@ -30,6 +33,7 @@ from . import (
     _cmds_watch_status,
 )
 from ._app import Root, Verb, VerbGroup, parse
+from ._common import InputError
 
 # #50: what an operator TYPES, mapped to the verb that exists.
 #
@@ -158,33 +162,62 @@ def build_parser() -> _Parser:
     return _Parser()
 
 
+def _base_url(args: argparse.Namespace) -> str:
+    from ..client.base import DEFAULT_BASE_URL
+
+    return str(
+        getattr(args, "base_url", None) or os.environ.get("AGENTBUS_BASE_URL") or DEFAULT_BASE_URL
+    ).rstrip("/")
+
+
+def _fail(
+    args: argparse.Namespace, exit_code: int, code: str, detail: str, lines: list[str]
+) -> int:
+    if getattr(args, "json", False):
+        error = {"code": code, "detail": detail, "exit_code": exit_code}
+        print(json.dumps({"error": error}), file=sys.stderr)
+    else:
+        print("\n".join(lines), file=sys.stderr)
+    return exit_code
+
+
+NOT_SIGNED_IN = [
+    "agentbus: this machine is not signed in to AgentBus.",
+    "  in a project:  agentbus setup claude        (or opencode, agy; wires this checkout)",
+    "  on this host:  agentbus signin <api-key>    (stores a key from the dashboard)",
+]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    verb = args.command if isinstance(getattr(args, "command", None), str) else "as"
     try:
         result: int = args.func(args)
         return result
     except QuotaExceeded as exc:
-        print(f"quota exceeded: {exc.detail}", file=sys.stderr)
+        lines = [f"quota exceeded: {exc.detail}"]
         if exc.reset_at:
-            print(f"  resets at {exc.reset_at}", file=sys.stderr)
+            lines.append(f"  resets at {exc.reset_at}")
         if exc.blocking_policy:
-            print(f"  blocking policy: {exc.blocking_policy.get('policy_name')}", file=sys.stderr)
-        return 4
+            lines.append(f"  blocking policy: {exc.blocking_policy.get('policy_name')}")
+        return _fail(args, 4, exc.code, exc.detail, lines)
     except ServiceUnavailable as exc:
-        print(
-            f"service unavailable: {exc.detail} (retry in {exc.retry_after or 30}s)",
-            file=sys.stderr,
-        )
-        return 5
+        line = f"service unavailable: {exc.detail} (retry in {exc.retry_after or 30}s)"
+        return _fail(args, 5, exc.code, exc.detail, [line])
     except AuthError as exc:
-        # A REJECTED CREDENTIAL GETS ITS OWN EXIT CODE (8), because the monitor
-        # must treat it as TERMINAL — retrying a revoked key is hammering the
-        # bus with a credential that will never work — while every other
-        # AgentBusError (including TransportError: bus down, DNS, refused) is
-        # transient and stays retryable on 3. The two were conflated on 3, and
-        # the monitor's terminal branch silenced legitimate reconnect loops.
-        print(f"{exc.code}: {exc.detail}", file=sys.stderr)
-        return 8
+        if not exc.status and str(exc.detail).startswith("no API key."):
+            return _fail(args, 8, "no_credential", exc.detail, NOT_SIGNED_IN)
+        return _fail(args, 8, exc.code, exc.detail, [f"{exc.code}: {exc.detail}"])
+    except TransportError as exc:
+        lines = [
+            f"agentbus: cannot reach AgentBus at {_base_url(args)} ({exc.detail})",
+            "  check the network, or --base-url / $AGENTBUS_BASE_URL",
+        ]
+        return _fail(args, 3, "transport_error", exc.detail, lines)
     except AgentBusError as exc:
-        print(f"{exc.code}: {exc.detail}", file=sys.stderr)
-        return 3
+        return _fail(args, 3, exc.code, exc.detail, [f"{exc.code}: {exc.detail}"])
+    except InputError as exc:
+        if os.environ.get("AGENTBUS_DEBUG"):
+            raise
+        lines = [f"agentbus {verb}: error: {exc}", f"  help:  agentbus {verb} --help"]
+        return _fail(args, 2, "invalid_input", str(exc), lines)

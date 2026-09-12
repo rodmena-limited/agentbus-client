@@ -21,7 +21,12 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         _print([d.raw for d in deliveries], True)
         return 0
     if not deliveries:
-        print("no new messages")
+        if args.unread:
+            print("no new messages")
+        elif args.cursor:
+            print(f"no messages after cursor {args.cursor}")
+        else:
+            print("your inbox is empty")
         return 0
     for delivery in deliveries:
         # THE STAR MEANS UNREAD, AND IT MEANS WHAT `--unread` MEANS (#145).
@@ -51,6 +56,10 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         print(f"{flag} #{delivery.seq}  {delivery.sender}  {delivery.subject}{attachments}{copied}")
         print(f"     {delivery.delivery_id}")
     print(f"\ncursor: {deliveries[-1].seq}")
+    if len(deliveries) >= args.limit:
+        print(f"  more after this page:  agentbus inbox --cursor {deliveries[-1].seq}")
+    if not args.unread:
+        print("  oldest first. Only what is new:  agentbus inbox --unread")
     return 0
 
 

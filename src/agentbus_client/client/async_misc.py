@@ -340,6 +340,9 @@ class AsyncMiscMixin(_MixinBase):
         result: dict[str, Any] = await self._request("GET", "/v1/drafts", agent=agent)
         return result["drafts"]
 
+    async def delete_draft(self, draft_id: str, agent: str | None = None) -> None:
+        await self._request("DELETE", f"/v1/drafts/{draft_id}", agent=agent)
+
     async def create_draft(
         self,
         to: Sequence[str],

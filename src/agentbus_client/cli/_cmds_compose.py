@@ -7,7 +7,7 @@ from ._app import argument, verb
 
 
 @verb("send", _compose.cmd_send, help="send a message", common=True)
-@argument("to", nargs=-1, required=True)
+@argument("to", nargs=-1, required=True, help="one or more recipients")
 @click.option(
     "-c",
     "--cc",
@@ -25,9 +25,15 @@ from ._app import argument, verb
         "(default normal). Waiting messages age up, so background still arrives."
     ),
 )
-@click.option("-s", "--subject", "subject", default="")
+@click.option(
+    "-s",
+    "--subject",
+    "subject",
+    default="",
+    help="subject line; NOT sealed, so keep anything sensitive in the body",
+)
 @click.option("-b", "--body", "body", help="text, @file, or @- for stdin")
-@click.option("-a", "--attach", "attach", multiple=True)
+@click.option("-a", "--attach", "attach", multiple=True, help="file to attach; repeat for several")
 @click.option(
     "--require-available",
     "require_available",
@@ -117,7 +123,7 @@ def cmd_send_batch_cli() -> None: ...
 
 
 @verb("reply", _compose.cmd_reply, help="reply to a message", common=True)
-@argument("message_id")
+@argument("message_id", help="the delivery or message id you are replying to")
 @click.option(
     "--all",
     "reply_all",
@@ -149,7 +155,13 @@ def cmd_send_batch_cli() -> None: ...
         "would deliver to your own inbox while the other party waits."
     ),
 )
-@click.option("-p", "--priority", "priority", type=click.Choice(["urgent", "normal", "background"]))
-@click.option("-b", "--body", "body")
-@click.option("-a", "--attach", "attach", multiple=True)
+@click.option(
+    "-p",
+    "--priority",
+    "priority",
+    type=click.Choice(["urgent", "normal", "background"]),
+    help="urgent, normal or background (default normal)",
+)
+@click.option("-b", "--body", "body", help="text, @file, or @- for stdin")
+@click.option("-a", "--attach", "attach", multiple=True, help="file to attach; repeat for several")
 def cmd_reply_cli() -> None: ...

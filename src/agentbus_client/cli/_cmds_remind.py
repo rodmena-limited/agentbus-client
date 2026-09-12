@@ -26,7 +26,7 @@ from ._app import verb
         "into their inbox, so say something they will understand out of context."
     ),
 )
-@click.option("-s", "--subject", "subject")
+@click.option("-s", "--subject", "subject", help="subject of the reminder message")
 @click.option(
     "--delay",
     "delay",

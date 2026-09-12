@@ -83,13 +83,14 @@ def cmd_thread(args: argparse.Namespace) -> int:
         try:
             delivery = bus.read(args.thread_id)
         except AgentBusError:
-            print(
-                f"not_found: {args.thread_id} is neither a thread you are in nor a "
-                "delivery of yours. `thread` takes a THREAD id; `show` takes a "
-                "DELIVERY id (from your inbox). They look alike and are not the same.",
-                file=sys.stderr,
-            )
-            raise exc from None
+            raise NotFoundError(
+                f"{args.thread_id} is neither a thread you are in nor a delivery of "
+                "yours. `thread` takes a THREAD id; `show` takes a DELIVERY id (from "
+                "your inbox). They look alike and are not the same.",
+                code=exc.code,
+                status=exc.status,
+                body=exc.body,
+            ) from None
         thread_id = delivery.get("thread_id")
         if not thread_id:
             raise exc from None

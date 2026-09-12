@@ -86,6 +86,28 @@ def _bus_reachable(base: str, timeout: float) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
 
 
+GUARD_FIELD_LIMIT = 4096
+_GUARD_KEEP = 2000
+
+
+class GuardRequestRejected(Exception):
+    pass
+
+
+def fit_to_guard_limit(value: Any) -> Any:
+    if isinstance(value, str):
+        if len(value) <= GUARD_FIELD_LIMIT:
+            return value
+        elided = len(value) - 2 * _GUARD_KEEP
+        marker = f"\n...[{elided} characters elided by the AgentBus gate]...\n"
+        return value[:_GUARD_KEEP] + marker + value[-_GUARD_KEEP:]
+    if isinstance(value, dict):
+        return {key: fit_to_guard_limit(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [fit_to_guard_limit(item) for item in value]
+    return value
+
+
 def pre_tool_use(_args: argparse.Namespace) -> int:
     """PreToolUse: ask AgentBus whether this tool call may run, BEFORE it does.
 
@@ -323,7 +345,9 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
         try:
             request = urllib.request.Request(
                 f"{base.rstrip('/')}/v1/guard/check",
-                data=json.dumps({"tool_name": tool_name, "tool_input": tool_input}).encode(),
+                data=json.dumps(
+                    {"tool_name": tool_name, "tool_input": fit_to_guard_limit(tool_input)}
+                ).encode(),
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {api_key}",
@@ -341,6 +365,13 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
             # caller's side. Read the problem body so we can say exactly that
             # instead of "could not be checked", which sent the container-registry
             # builder session hunting a phantom bus outage (2026-08-11, #89).
+            if exc.code == 422:
+                with contextlib.suppress(Exception):
+                    problem = json.loads(exc.read().decode())
+                    last_exc = GuardRequestRejected(
+                        f"HTTP 422 {problem.get('code') or 'validation_error'}: "
+                        f"{problem.get('detail') or ''}"
+                    )
             if exc.code == 410:
                 try:
                     detail = json.loads(exc.read().decode()).get("detail") or ""

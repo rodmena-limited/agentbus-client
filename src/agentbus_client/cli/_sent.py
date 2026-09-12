@@ -20,7 +20,7 @@ from typing import Any
 
 from ..client import AgentBusError
 from . import _common
-from ._common import _parse_duration, _print
+from ._common import InputError, _parse_duration, _print
 
 # A --thread filter that matches nothing must not walk an unbounded history.
 _MAX_PAGES = 50
@@ -38,7 +38,12 @@ def _since_instant(value: str | None) -> _dt.datetime | None:
     text = value.strip()
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
-    instant = _dt.datetime.fromisoformat(text)
+    try:
+        instant = _dt.datetime.fromisoformat(text)
+    except ValueError:
+        raise InputError(
+            f"--since takes a duration such as 2h or 3d, or an ISO-8601 time; got {value!r}"
+        ) from None
     if instant.tzinfo is None:
         instant = instant.replace(tzinfo=_dt.timezone.utc)
     return instant

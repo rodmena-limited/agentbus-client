@@ -7,6 +7,8 @@ from typing import Any
 
 import click
 
+from ._common import AGENT_NAME
+
 Handler = Callable[[argparse.Namespace], int]
 
 HELP_NAMES = ["-h", "--help"]
@@ -20,6 +22,14 @@ class _Verbatim(click.ParamType):
 
 
 VERBATIM = _Verbatim()
+
+
+def _check_agent_name(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
+    if value is not None and not AGENT_NAME.match(value):
+        raise click.BadParameter(
+            "agent names use only letters, digits, '.', '_' and '-'", ctx=ctx, param=param
+        )
+    return value
 
 
 class BusArgument(click.Argument):
@@ -52,6 +62,7 @@ class Verb(click.Command):
                 click.Option(
                     ["--agent", "sub_agent"],
                     default=None,
+                    callback=_check_agent_name,
                     metavar="NAME",
                     help="acting agent; defaults to the agent `agentbus whoami` shows",
                 ),
@@ -116,6 +127,32 @@ class UnknownVerb(click.UsageError):
         self.hint = hint
 
 
+class HelpCommand(click.Command):
+    def __init__(self) -> None:
+        super().__init__(
+            "help",
+            params=[click.Argument(["topic"], nargs=-1)],
+            add_help_option=False,
+            context_settings={"ignore_unknown_options": True},
+        )
+
+    def invoke(self, ctx: click.Context) -> None:
+        root_ctx = ctx.parent
+        assert root_ctx is not None
+        root = root_ctx.command
+        assert isinstance(root, Root)
+        target: click.Command = root
+        target_ctx = root_ctx
+        for word in ctx.params.get("topic") or ():
+            children = target.commands if isinstance(target, click.Group) else {}
+            if word not in children:
+                raise UnknownVerb(word, root.suggest(word, sorted(root.commands)), root_ctx)
+            target = children[word]
+            target_ctx = target.make_context(word, [], parent=target_ctx, resilient_parsing=True)
+        click.echo(target_ctx.get_help(), color=ctx.color)
+        ctx.exit(0)
+
+
 class Root(click.Group):
     def __init__(self, suggest: Callable[[str, Sequence[str]], str | None], version: str) -> None:
         params: list[click.Parameter] = [
@@ -144,6 +181,7 @@ class Root(click.Group):
                 default=None,
                 metavar="NAME",
                 help="acting agent; defaults to the agent `agentbus whoami` shows",
+                callback=_check_agent_name,
             ),
             click.Option(
                 ["--json", "json"], is_flag=True, default=False, help="machine-readable output"
@@ -159,11 +197,14 @@ class Root(click.Group):
         )
         self.suggest = suggest
         self.version = version
+        self.help_command = HelpCommand()
 
     def resolve_command(
         self, ctx: click.Context, args: list[str]
     ) -> tuple[str | None, click.Command | None, list[str]]:
         name = args[0]
+        if name == "help" and self.get_command(ctx, "help") is None:
+            return "help", self.help_command, args[1:]
         if (
             self.get_command(ctx, name) is None
             and not name.startswith("-")

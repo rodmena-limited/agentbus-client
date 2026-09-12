@@ -243,13 +243,16 @@ def cmd_tag(args: argparse.Namespace) -> int:
     and answer "who is on team frontend"; labels file one recipient's mail.
     """
     bus = _common._bus(args)
+    agent = _common.require_acting_agent(args, bus)
+    if not agent:
+        return 2
     set_labels: dict[str, str] = {}
     for item in args.set or []:
         key, _, value = item.partition("=")
         set_labels[key] = value
     if not set_labels and not args.remove:
         # No mutation asked: list current tags from whoami's agent record.
-        result = bus.whoami(agent=args.agent)
+        result = bus.whoami(agent=agent)
         labels = (result.get("agent") or {}).get("labels") or {}
         if args.json:
             _print(labels, True)
@@ -260,7 +263,7 @@ def cmd_tag(args: argparse.Namespace) -> int:
         for key, value in sorted(labels.items()):
             print(f"{key}\t{value}" if value else key)
         return 0
-    result = bus.tag(set_labels, args.remove, agent=args.agent)
+    result = bus.tag(set_labels, args.remove, agent=agent)
     if args.json:
         _print(result, True)
         return 0

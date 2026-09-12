@@ -117,8 +117,14 @@ from ._turn import (
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="agentbus-hook")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(
+        prog="agentbus-hook",
+        description=(
+            "Hook entry points that Claude Code, opencode and Antigravity run for you. "
+            "You do not normally run this by hand; the command line is `agentbus`."
+        ),
+    )
+    sub = parser.add_subparsers(dest="command", required=False)
 
     p = sub.add_parser("session-start")
     p.set_defaults(func=session_start)
@@ -181,6 +187,9 @@ def main(argv: list[str] | None = None) -> int:
     _agy_commands(sub)
 
     args = parser.parse_args(argv)
+    if not getattr(args, "command", None):
+        parser.print_help(sys.stderr)
+        return 2
     return args.func(args)
 
 

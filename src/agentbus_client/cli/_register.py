@@ -121,6 +121,10 @@ def cmd_join(args: argparse.Namespace) -> int:
             detail = _json.loads(exc.read()).get("detail", "")
         print(f"could not join: {detail or exc}", file=sys.stderr)
         return 1
+    except urllib.error.URLError as exc:
+        from ..client.errors import TransportError
+
+        raise TransportError(str(exc.reason)) from exc
 
     secret = result.get("api_key")
     agent = (result.get("agent") or {}).get("name") or args.name

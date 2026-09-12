@@ -235,6 +235,7 @@ def _detail_sections(
 def verb_help(command: click.Command, ctx: click.Context) -> str:
     pieces = " ".join(command.collect_usage_pieces(ctx))
     description = (command.help or "").strip()
+    description = description[:1].upper() + description[1:]
     sections = _detail_sections(command, ctx)
     if not styled(sys.stdout):
         formatter = ctx.make_formatter()

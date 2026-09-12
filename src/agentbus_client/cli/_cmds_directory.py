@@ -20,8 +20,8 @@ def cmd_whoami_cli() -> None: ...
     common=True,
     none_when_empty=("label",),
 )
-@argument("query", required=False)
-@click.option("--capability", "capability")
+@argument("query", required=False, help="only agents matching this text")
+@click.option("--capability", "capability", help="only agents declaring this capability")
 @click.option(
     "--label",
     "label",
@@ -51,7 +51,9 @@ def cmd_phonebook_cli() -> None: ...
         "the same rule (see `agentbus phonebook --label`)."
     ),
 )
-@click.option("--remove", "remove", multiple=True, metavar="KEY")
+@click.option(
+    "--remove", "remove", multiple=True, metavar="KEY", help="tag to remove; repeat for several"
+)
 def cmd_tag_cli() -> None: ...
 
 
@@ -85,7 +87,7 @@ def cmd_busy_cli() -> None: ...
     metavar="SECONDS",
     help="how long (capped server-side; every state but online expires)",
 )
-@click.option("--reason", "reason")
+@click.option("--reason", "reason", help="why, shown to senders")
 @click.option(
     "--hold-below",
     "hold_below",

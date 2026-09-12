@@ -6,12 +6,14 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 from ..client import AgentBus, AgentBusError
+from ..client.errors import TransportError
 
 
 def _parse_duration(value: str) -> Any:
@@ -27,11 +29,11 @@ def _parse_duration(value: str) -> Any:
     import re as _re
 
     if value is None:
-        raise ValueError("empty duration")
+        raise InputError("empty duration")
     v = str(value).strip().lower()
     m = _re.fullmatch(r"(\d+)(s|m|h|d)?", v)
     if not m:
-        raise ValueError(
+        raise InputError(
             f"invalid duration '{value}' — use seconds, or <number><unit> "
             "where unit is s/m/h/d (e.g. 90m, 2h, 3d, 3600)"
         )
@@ -77,6 +79,21 @@ def _git_remote() -> str | None:
         return None
 
 
+class InputError(ValueError):
+    pass
+
+
+AGENT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def checked_agent_name(name: str) -> str:
+    if not AGENT_NAME.match(name):
+        raise InputError(
+            f"--agent {name!r}: agent names use only letters, digits, '.', '_' and '-'"
+        )
+    return name
+
+
 def _print(data: Any, as_json: bool) -> None:
     if as_json:
         print(json.dumps(data, indent=2, default=str))
@@ -107,6 +124,11 @@ def _resolve_env_agent() -> str | None:
     env_agent = os.environ.get("AGENTBUS_AGENT")
     if not env_agent:
         return None
+    if not AGENT_NAME.match(env_agent):
+        raise InputError(
+            f"$AGENTBUS_AGENT is {env_agent!r}, which is not an agent name "
+            "(letters, digits, '.', '_' and '-' only)"
+        )
     from ..hooks import _identity as _hook_identity
 
     own = _hook_identity._worktree_identity_bleed(env_agent)
@@ -126,7 +148,7 @@ def acting_agent(
 ) -> str | None:
     explicit = getattr(args, "agent", None)
     if explicit:
-        return str(explicit)
+        return checked_agent_name(str(explicit))
     if bus is None:
         env_agent = _resolve_env_agent()
         if env_agent:
@@ -149,6 +171,8 @@ def acting_agent(
         return None
     try:
         answer = bus.whoami()
+    except TransportError:
+        raise
     except AgentBusError:
         return None
     name = (answer.get("agent") or {}).get("name") if isinstance(answer, dict) else None
@@ -197,7 +221,7 @@ def _key_for_agent(agent: str) -> str | None:
 
 def _bus(args: argparse.Namespace) -> AgentBus:
     api_key = args.api_key or os.environ.get("AGENTBUS_API_KEY")
-    explicit_agent = args.agent
+    explicit_agent = checked_agent_name(str(args.agent)) if args.agent else None
     agent = explicit_agent or _resolve_env_agent()
     # #161's credential half: when the identity was reversed out of the env,
     # the env's key is the MAIN agent's BOUND key — using it guarantees "this

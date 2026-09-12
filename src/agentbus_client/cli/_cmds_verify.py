@@ -12,7 +12,7 @@ from ._app import argument, verb
     help="inspect a claim; with --run, execute it opt-in and record your verdict",
     common=True,
 )
-@argument("delivery_id")
+@argument("delivery_id", help="the delivery whose claim to inspect")
 @click.option(
     "--run",
     "run",
@@ -43,5 +43,5 @@ def cmd_verify_cli() -> None: ...
     help="check a message's signature yourself, without trusting the bus",
     common=True,
 )
-@argument("delivery_id")
+@argument("delivery_id", help="the delivery whose signature to check")
 def cmd_verify_sender_cli() -> None: ...

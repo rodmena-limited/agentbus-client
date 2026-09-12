@@ -7,7 +7,9 @@ from ._app import argument, verb
 
 
 @verb("retire", _service.cmd_retire, help="stand an agent down (reversible)", common=True)
-@argument("name", required=False)
+@argument(
+    "name", required=False, help="agent to retire (default: the agent `agentbus whoami` shows)"
+)
 def cmd_retire_cli() -> None: ...
 
 

@@ -11,7 +11,7 @@ from ._app import VerbGroup, argument, verb
     _onboarding.cmd_signin,
     help="validate an API key against the live service, then store it",
 )
-@argument("key")
+@argument("key", help="an API key from the dashboard (ab_sk_...)")
 def cmd_signin_cli() -> None: ...
 
 
@@ -23,7 +23,11 @@ def cmd_signin_cli() -> None: ...
         "hooks, active re-waker. Idempotent; never touches foreign settings."
     ),
 )
-@argument("harness", type=click.Choice(["claude", "opencode", "codex", "agy", "antigravity"]))
+@argument(
+    "harness",
+    type=click.Choice(["claude", "opencode", "codex", "agy", "antigravity"]),
+    help="the coding tool to wire into this project",
+)
 @click.option(
     "--role",
     "role",
@@ -92,7 +96,7 @@ cmd_sibling_cli = VerbGroup(
     parent=cmd_sibling_cli,
     help="DEPRECATED: prints guidance, does nothing",
 )
-@argument("role")
+@argument("role", help="deprecated; prints guidance only")
 def cmd_sibling_cli_add() -> None: ...
 
 
@@ -111,7 +115,7 @@ def cmd_sibling_cli_list() -> None: ...
     help="DEPRECATED — run a command as a different agent via AGENTBUS_AGENT=role",
     remainder=True,
 )
-@argument("role")
+@argument("role", help="deprecated; prints guidance only")
 @argument(
     "command",
     nargs=-1,

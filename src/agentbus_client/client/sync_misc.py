@@ -288,6 +288,9 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
     def drafts(self, agent: str | None = None) -> list[dict[str, Any]]:
         return self._request("GET", "/v1/drafts", agent=agent)["drafts"]
 
+    def delete_draft(self, draft_id: str, agent: str | None = None) -> None:
+        self._request("DELETE", f"/v1/drafts/{draft_id}", agent=agent)
+
     def create_draft(
         self,
         to: Sequence[str],

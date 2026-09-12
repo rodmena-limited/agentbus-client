@@ -15,6 +15,7 @@ VERBS = set(ORACLE["verbs"])
 OPTIONS = {path: set(opts) for path, opts in ORACLE["options"].items()}
 TAKES_VALUE = {"--agent", "--api-key", "--base-url"}
 CASES = ORACLE["cases"]
+ADDED_AFTER_0_9_94 = {"drafts": {"delete": None}}
 
 
 def _path(argv: list[str]) -> tuple[str | None, int]:
@@ -59,6 +60,11 @@ def _observe(argv: list[str]) -> str:
         if key == "func":
             value = f"{value.__module__}.{value.__qualname__}"
         data[key] = value
+    command = data.get("command")
+    added = ADDED_AFTER_0_9_94.get(command, {}) if isinstance(command, str) else {}
+    for key, default in added.items():
+        if key in data and data[key] == default:
+            del data[key]
     return json.dumps({"namespace": data}, sort_keys=True)
 
 

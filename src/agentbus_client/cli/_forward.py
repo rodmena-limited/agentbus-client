@@ -165,6 +165,13 @@ def cmd_draft_send(args: argparse.Namespace) -> int:
     return 0
 
 
+def _whole_number(flag: str, value: object) -> int:
+    try:
+        return int(str(value))
+    except ValueError:
+        raise _common.InputError(f"{flag} must be a whole number, got {value!r}") from None
+
+
 def cmd_undeliverable(args: argparse.Namespace) -> int:
     """#227: the bounce quarantine — needs a DASHBOARD SESSION, not a key.
 
@@ -185,7 +192,7 @@ def cmd_undeliverable(args: argparse.Namespace) -> int:
     """
     try:
         result = _common._bus(args)._request(
-            "GET", f"/v1/admin/undeliverable?limit={int(args.limit)}"
+            "GET", f"/v1/admin/undeliverable?limit={_whole_number('--limit', args.limit)}"
         )
     except AgentBusError as exc:
         # NAMED, not swallowed. An empty list here would be indistinguishable
@@ -219,7 +226,28 @@ def cmd_undeliverable(args: argparse.Namespace) -> int:
 
 
 def cmd_drafts(args: argparse.Namespace) -> int:
-    _print(_common._bus(args).drafts(), True)
+    bus = _common._bus(args)
+    if getattr(args, "delete", None):
+        bus.delete_draft(args.delete)
+        if args.json:
+            _print({"deleted": args.delete}, True)
+        else:
+            print(f"discarded draft {args.delete}")
+        return 0
+    drafts = bus.drafts()
+    if args.json:
+        _print(drafts, True)
+        return 0
+    if not drafts:
+        print("no drafts")
+        return 0
+    for draft in drafts:
+        recipients = ", ".join(draft.get("recipients") or []) or "(no recipients)"
+        print(f"{draft.get('updated_at') or ''}  {draft.get('id')}")
+        print(f"    to      {recipients}")
+        print(f"    subject {draft.get('subject') or '(no subject)'}")
+    print("\n  send one:     agentbus draft-send <id>")
+    print("  discard one:  agentbus drafts --delete <id>")
     return 0
 
 

@@ -7,7 +7,7 @@ from ._app import argument, verb
 
 
 @verb("thread", _threads.cmd_thread, help="show a whole conversation", common=True)
-@argument("thread_id")
+@argument("thread_id", help="the thread id (a delivery id from your inbox also works)")
 def cmd_thread_cli() -> None: ...
 
 
@@ -15,8 +15,8 @@ def cmd_thread_cli() -> None: ...
     "history", _threads.cmd_history, help="what was said in a room before you joined", common=True
 )
 @argument("room", help="room name, without the room: prefix")
-@click.option("--limit", "limit", type=int)
-@click.option("--since", "since", metavar="ISO8601")
+@click.option("--limit", "limit", type=int, help="how many earlier messages to show")
+@click.option("--since", "since", metavar="ISO8601", help="only messages after this point")
 def cmd_history_cli() -> None: ...
 
 
@@ -26,7 +26,7 @@ def cmd_history_cli() -> None: ...
     help="read, declare or clear a room's payload contract",
     common=True,
 )
-@argument("room")
+@argument("room", help="the room name")
 @click.option("--set", "set", metavar="JSON", help="literal JSON, @file, or @- for stdin")
 @click.option("--clear", "clear", is_flag=True, help="remove the contract")
 def cmd_schema_cli() -> None: ...

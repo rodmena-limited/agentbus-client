@@ -53,7 +53,7 @@ class Verb(click.Command):
                     ["--agent", "sub_agent"],
                     default=None,
                     metavar="NAME",
-                    help="acting agent (may also precede the command)",
+                    help="acting agent; defaults to the agent `agentbus whoami` shows",
                 ),
                 click.Option(
                     ["--json", "sub_json"],
@@ -143,7 +143,7 @@ class Root(click.Group):
                 ["--agent", "agent"],
                 default=None,
                 metavar="NAME",
-                help="acting agent; defaults to $AGENTBUS_AGENT",
+                help="acting agent; defaults to the agent `agentbus whoami` shows",
             ),
             click.Option(
                 ["--json", "json"], is_flag=True, default=False, help="machine-readable output"

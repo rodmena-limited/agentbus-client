@@ -21,9 +21,7 @@ from ._common import _print
 
 def _resolve_self(args: argparse.Namespace) -> str | None:
     """This agent's own name, for the self-block refusal, without a round-trip."""
-    import os
-
-    return getattr(args, "agent", None) or os.environ.get("AGENTBUS_AGENT")
+    return _common.acting_agent(args, network=False)
 
 
 def cmd_block(args: argparse.Namespace) -> int:

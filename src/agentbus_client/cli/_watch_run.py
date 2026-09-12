@@ -29,9 +29,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
     from ..watch import Watcher, append_file, notify_command, print_line
 
     bus = _common._bus(args)
-    agent = args.agent or bus.agent
+    agent = _common.require_acting_agent(args, bus)
     if not agent:
-        print("no acting agent: pass --agent or set AGENTBUS_AGENT", file=sys.stderr)
         return 2
 
     # --exec and --append COMPOSE. They were an if/elif, so passing both silently

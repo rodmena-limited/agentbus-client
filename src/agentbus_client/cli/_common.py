@@ -121,6 +121,56 @@ def _resolve_env_agent() -> str | None:
     return env_agent
 
 
+def acting_agent(
+    args: argparse.Namespace, bus: AgentBus | None = None, *, network: bool = True
+) -> str | None:
+    explicit = getattr(args, "agent", None)
+    if explicit:
+        return str(explicit)
+    if bus is None:
+        env_agent = _resolve_env_agent()
+        if env_agent:
+            return env_agent
+        if not (getattr(args, "api_key", None) or os.environ.get("AGENTBUS_API_KEY")):
+            from ..onboarding._identity import _session_identity
+
+            declared = _session_identity()
+            if declared or not network:
+                return declared
+        if not network:
+            return None
+        try:
+            bus = _bus(args)
+        except (SystemExit, AgentBusError, ValueError):
+            return None
+    if bus.agent:
+        return str(bus.agent)
+    if not network:
+        return None
+    try:
+        answer = bus.whoami()
+    except AgentBusError:
+        return None
+    name = (answer.get("agent") or {}).get("name") if isinstance(answer, dict) else None
+    return str(name) if name else None
+
+
+NO_ACTING_AGENT = (
+    "no acting agent: nothing here says which agent this is.\n"
+    "  checked: --agent, $AGENTBUS_AGENT, this checkout's .agentbus/agent and\n"
+    "           .claude/settings.local.json, the signin default, and the server's\n"
+    "           answer for the key in use\n"
+    "  fix:     pass --agent NAME, or run `agentbus setup <harness>` in this checkout"
+)
+
+
+def require_acting_agent(args: argparse.Namespace, bus: AgentBus | None = None) -> str | None:
+    agent = acting_agent(args, bus)
+    if not agent:
+        print(NO_ACTING_AGENT, file=sys.stderr)
+    return agent
+
+
 def _key_for_agent(agent: str) -> str | None:
     """The agent's own stored key, if one exists (keys/<agent>.env).
 

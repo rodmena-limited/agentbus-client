@@ -8,7 +8,7 @@ import json
 import os
 import sys
 
-from . import _watch_runtime
+from . import _common, _watch_runtime
 from ._common import _cfg_dir
 from ._watch_runtime import (
     _existing_logfile,
@@ -81,9 +81,8 @@ def _read_running_client_version(
 
 
 def cmd_watch_status(args: argparse.Namespace) -> int:
-    agent = args.agent or os.environ.get("AGENTBUS_AGENT") or ""
+    agent = _common.require_acting_agent(args)
     if not agent:
-        print("no acting agent: pass --agent or set AGENTBUS_AGENT", file=sys.stderr)
         return 2
     # A SILENTLY FAILING WAKE PATH IS THE THING THIS COMMAND EXISTS TO FIND.
     #
@@ -258,7 +257,9 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
 def cmd_watch_stop(args: argparse.Namespace) -> int:
     import signal
 
-    agent = args.agent or os.environ.get("AGENTBUS_AGENT") or ""
+    agent = _common.require_acting_agent(args)
+    if not agent:
+        return 2
     # SCOPING, for the per-(agent,state) model: `--state NAME` stops exactly
     # the registrations whose pid-file state key is NAME (matched by SUFFIX so
     # `--state foobar.json` matches `{agent}-foobar.json.pid`). Without it, stop

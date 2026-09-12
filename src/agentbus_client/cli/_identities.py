@@ -186,9 +186,12 @@ def cmd_health(args: argparse.Namespace) -> int:
     returns 404 (existence undisclosed — same rule as message reads).
     """
     bus = _common._bus(args)
-    target = args.target_agent or bus.agent
+    target = args.target_agent or _common.acting_agent(args, bus)
     if not target:
-        print("no target agent — pass a name or set AGENTBUS_AGENT", file=sys.stderr)
+        print(
+            "no target agent: pass a name, or run where this checkout declares its agent",
+            file=sys.stderr,
+        )
         return 2
     try:
         result = bus.health(target)

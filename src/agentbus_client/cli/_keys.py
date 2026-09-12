@@ -413,9 +413,8 @@ def cmd_keys(args: argparse.Namespace) -> int:
     machine that no longer exists and possibly for whoever now owns the disk.
     """
     bus = _common._bus(args)
-    agent = args.agent or bus.agent
+    agent = _common.require_acting_agent(args, bus)
     if not agent:
-        print("no agent: pass --agent or set AGENTBUS_AGENT")
         return 2
     return {
         "list": _keys_list,

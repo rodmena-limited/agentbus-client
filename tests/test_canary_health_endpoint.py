@@ -94,6 +94,9 @@ class _FakeBus:
             raise self._raises
         return self._response
 
+    def whoami(self, agent=None):
+        return {"agent": None}
+
 
 def test_cli_health_live_prints_and_exits_zero(monkeypatch, capsys):
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _FakeBus(LIVE_RESPONSE))

@@ -20,9 +20,9 @@ def cmd_retire(args: argparse.Namespace) -> int:
     naming a command the binary lacks is worse than no doc: the reader concludes
     their install is broken.
     """
-    name = args.name or args.agent or os.environ.get("AGENTBUS_AGENT")
+    name = args.name or _common.acting_agent(args)
     if not name:
-        print("which agent? pass a name, --agent, or set AGENTBUS_AGENT", file=sys.stderr)
+        print(_common.NO_ACTING_AGENT.replace("pass --agent NAME", "pass a name"), file=sys.stderr)
         return 2
 
     # ACT AS THE AGENT YOU NAMED, when we hold its bound key (#57).
@@ -143,9 +143,8 @@ def cmd_service(args: argparse.Namespace) -> int:
     import platform
     import shutil
 
-    agent = args.agent or os.environ.get("AGENTBUS_AGENT") or ""
+    agent = _common.require_acting_agent(args)
     if not agent:
-        print("no acting agent: pass --agent or set AGENTBUS_AGENT", file=sys.stderr)
         return 2
 
     exe = shutil.which("agentbus") or f"{sys.executable} -m agentbus_client.cli"

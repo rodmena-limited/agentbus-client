@@ -130,7 +130,11 @@ def inject(args: argparse.Namespace) -> int:
         print(notice, flush=True)
 
     sock = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET")
-    if not sock:
+    # #67: --dry-run renders the notice, so it must survive having no socket —
+    # that is the commonest way someone inspects this from a shell. Placed
+    # after this branch first, it printed the fallback line and exited 0, which
+    # looks exactly like a working dry run.
+    if not sock and not getattr(args, "dry_run", False):
         # No socket is a SUPPORTED configuration, not a fault — and it is the
         # case the stdout path exists for. Announce and go.
         _notify()
@@ -321,6 +325,10 @@ def inject(args: argparse.Namespace) -> int:
         "needs nothing from you (its 'reply via SendMessage' does not apply "
         "— bus mail uses the agentbus reply command above)."
     )
+    if getattr(args, "dry_run", False):
+        print(body)
+        return 0
+
     try:
         import socket as _socket
 

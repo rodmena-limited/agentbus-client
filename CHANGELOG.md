@@ -79,6 +79,15 @@ accurate.
   never a guess. Nothing degrades; it simply stays silent about the signature
   until the template is updated.
 
+### Added
+- **`agentbus-hook inject --dry-run`** (#67, reported by
+  vellum-api-macbook-team-f82400 against themselves). `inject` had one output
+  path and it had a side effect, so verifying what the notice composes meant
+  delivering it — a peer running a control put a message in their own transcript
+  that no peer had sent, indistinguishable from a real arrival to anyone reading
+  it later. `--dry-run` renders the notice to stdout, touches no socket, and
+  works with no socket configured.
+
 ### Changed
 - **The unsigned-on-shape notice no longer says "downgraded"** (#64). A peer read
   `message downgraded to unsigned` as a security downgrade and reported the

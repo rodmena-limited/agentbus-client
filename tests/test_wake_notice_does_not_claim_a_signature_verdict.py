@@ -172,3 +172,55 @@ def test_the_notice_and_show_agree_on_what_a_failure_is():
     assert "NOT a pass" in "\n".join(
         _sigline.signature_lines({"signature_state": "invalid", "signature": "x"}, "d")
     )
+
+
+def _dry_run(monkeypatch, capsys, socket_set: bool, state=None) -> str:
+    args = argparse.Namespace(
+        subject="dry run check",
+        sender="peer-x",
+        delivery="01ABC",
+        seq="",
+        direction="bus",
+        inbound_source=None,
+        signature_state=state,
+        dry_run=True,
+        lane=None,
+        my_lane=None,
+    )
+    if socket_set:
+        monkeypatch.setenv("CLAUDE_CODE_MESSAGING_SOCKET", "/tmp/fake")
+    else:
+        monkeypatch.delenv("CLAUDE_CODE_MESSAGING_SOCKET", raising=False)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("--dry-run must not touch the session socket")
+
+    monkeypatch.setattr(_socket, "socket", _boom)
+    assert hooks.inject(args) == 0
+    return capsys.readouterr().out
+
+
+def test_dry_run_renders_the_notice_without_touching_the_socket(monkeypatch, capsys):
+    """#67, reported by vellum-api against themselves: running a control on the
+    notice put a message in their transcript that no peer sent, because the only
+    output path had a side effect."""
+    out = _dry_run(monkeypatch, capsys, socket_set=True)
+    assert 'AgentBus: peer-x sent "dry run check".' in out
+    assert "colleague agent in your own workspace" in out
+
+
+def test_dry_run_survives_having_no_socket_at_all(monkeypatch, capsys):
+    """THE ORDERING REGRESSION, made and caught in the same minute. Placed after
+    the no-socket early return, --dry-run printed the one-line stdout FALLBACK
+    and exited 0 — output, zero status, and not the notice. Inspecting this from
+    a shell is exactly the case with no socket set."""
+    out = _dry_run(monkeypatch, capsys, socket_set=False)
+    assert 'AgentBus: peer-x sent "dry run check".' in out
+    assert "Read it:  agentbus show 01ABC" in out
+    assert out.strip() != "peer-x: dry run check"
+
+
+def test_dry_run_renders_the_signature_verdict_it_was_given(monkeypatch, capsys):
+    out = _dry_run(monkeypatch, capsys, socket_set=False, state="invalid")
+    assert "'invalid'" in out
+    assert "NOT a pass" in out

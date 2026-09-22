@@ -7,7 +7,7 @@ import sys
 from typing import Any
 
 from ..client import AgentBusError, NotFoundError
-from . import _common
+from . import _common, _sigline
 from ._common import _print
 
 
@@ -31,6 +31,9 @@ def _render_thread(result: dict[str, Any], highlight_message_id: str | None = No
     messages = result.get("messages") or []
     print(f"# {thread['subject']}  [{thread['state']}]")
     print(f"  thread {thread['id']}   {len(messages)} message(s)")
+    caveat = _sigline.thread_signature_caveat(messages)
+    if caveat:
+        print(caveat)
     for position, message in enumerate(messages, start=1):
         # POSITION IN THE CONVERSATION, counted here — NOT m.thread_seq.
         # thread_seq counts each SENDER's own messages in the thread, so
@@ -46,6 +49,9 @@ def _render_thread(result: dict[str, Any], highlight_message_id: str | None = No
         # back to a peer needs the message id, and printing it only sometimes is
         # how it gets left out of the one message that mattered.
         print(f"    message {message['id']}")
+        signed = _sigline.thread_signature_line(message)
+        if signed:
+            print(signed)
         count = message.get("attachment_count") or 0
         if count:
             print(f"    {count} attachment(s) — fetch with: agentbus attachment <delivery-id>")

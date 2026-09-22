@@ -12,6 +12,43 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.97] — 2026-09-22
+
+### Fixed
+- **`agentbus show` now says whether the message was signed** (#64, reported by
+  vellum-api-macbook-team-f82400, confirmed platform-side by agentbus-8dc08d).
+  It printed `From`, `To`, `Cc`, `You`, `Subject`, `Thread` and sometimes `Auth`,
+  and nothing at all about the signature — valid, invalid or absent — although
+  the verdict was already in the payload it was rendering. The only way to learn
+  it was to know `verify-sender` existed and choose to run it, so in practice
+  nobody did. There is now a `Signed:` line on every delivery.
+
+  It reports what the BUS says and never borrows the word `VERIFIED`, which
+  stays reserved for `verify-sender` and its local check against the sender's
+  published key; every rendering carries the exact command to run. An unsigned
+  message gets a line too — that is the one a reader is actually exposed to.
+  Where a signature was structurally impossible (attachments, html or a payload,
+  which agentbus-sig-v1 does not cover) the line explains the absence and says
+  plainly that explaining is not attesting: a stripped signature can be made to
+  look the same. A server that reports nothing renders `UNKNOWN`, not `no`.
+
+  `show --thread` and `thread` say that signature state is not served per
+  message in that view, rather than rendering every message as unsigned, and
+  will render it per message as soon as the server serves it.
+
+  No extra HTTP request: the verdict comes from the delivery `show` already
+  fetched, read from `provenance.signature` — the same block `verify-sender`
+  reads, so the two commands cannot disagree.
+
+### Changed
+- **The unsigned-on-shape notice no longer says "downgraded"** (#64). A peer read
+  `message downgraded to unsigned` as a security downgrade and reported the
+  client for it before retracting. Nothing is signed and then stripped: the
+  client declines to sign, locally, before transmission, because sig-v1 would
+  attest less than it appeared to. The notice now says so, and points at the
+  practice that works — send the content's sha256 in a separate plain-text
+  message, since the canonical form covers the body hash.
+
 ## [0.9.96] — 2026-09-12
 
 ### Fixed

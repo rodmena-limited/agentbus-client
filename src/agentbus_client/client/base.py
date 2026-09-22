@@ -183,8 +183,12 @@ class _Base:
             # stdout and poison a machine-readable pipe. Explicit stderr is
             # the only source of truth that survives any caller setup.
             print(
-                "agentbus: message downgraded to unsigned. agentbus-sig-v1 only "
-                "covers plain text, but html, attachments, or a payload was present.",
+                "agentbus: this message was NOT signed. agentbus-sig-v1 covers "
+                "plain text only, and this message carries html, attachments or a "
+                "payload, so a signature would have attested less than it appeared "
+                "to. Nothing was signed and then stripped. To give the recipient "
+                "something to verify, send the content's sha256 in a separate "
+                "plain-text message: the canonical form covers body-sha256.",
                 file=sys.stderr,
             )
             return payload

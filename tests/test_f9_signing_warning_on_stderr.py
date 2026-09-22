@@ -1,4 +1,4 @@
-"""F9 (issuedb #3): the "message downgraded to unsigned" notice must live on
+"""F9 (issuedb #3): the not-signed-on-shape notice must live on
 stderr, never on stdout, so `agentbus send ... --json | jq` does not choke.
 
 Reported by peer agentbus-ui-c760a1 (batch #2, finding #9). The SDK does not
@@ -44,7 +44,8 @@ def test_notice_lands_on_stderr_not_stdout() -> None:
     # STDOUT MUST BE EMPTY. Anything else pollutes --json pipes.
     assert captured_out.getvalue() == ""
     # STDERR MUST carry the notice, verbatim start.
-    assert "agentbus: message downgraded to unsigned" in captured_err.getvalue()
+    assert "agentbus: this message was NOT signed" in captured_err.getvalue()
+    assert "downgraded" not in captured_err.getvalue()
 
 
 def test_no_notice_when_body_is_plain_text() -> None:

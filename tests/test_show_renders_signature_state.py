@@ -242,3 +242,31 @@ def test_the_thread_view_renders_per_message_the_moment_provenance_appears():
     assert "VALID" in (_sigline.thread_signature_line(served[0]) or "")
     assert "53965be0" in (_sigline.thread_signature_line(served[0]) or "")
     assert "no signature" in (_sigline.thread_signature_line(served[1]) or "")
+
+
+def test_the_thread_line_does_not_render_a_bad_verdict_as_valid():
+    """THE SURVIVOR. Found by mutation, not by reading: replacing
+    `if signed and state == "valid"` with `if signed` in thread_signature_line
+    left the whole suite green, because the VALID branch was asserted only in
+    the direction where it should be VALID.
+
+    Same shape vellum-api-macbook-team-f82400 hit on `mounted_this_boot` — a
+    field asserted once, as True, in the case where it is True, so it could have
+    been hardcoded and nothing would have noticed.
+    """
+    bad = _sigline.thread_signature_line(
+        {"id": "m1", "signature_state": "invalid", "signing_key_fingerprint": "abc"}
+    )
+    assert bad is not None
+    assert "VALID" not in bad
+    assert "invalid" in bad
+    assert "NOT a pass" in bad
+
+
+def test_the_thread_line_does_not_render_a_missing_verdict_as_valid():
+    no_verdict = _sigline.thread_signature_line(
+        {"id": "m1", "signature": "absigv1x", "signature_state": None}
+    )
+    assert no_verdict is not None
+    assert "VALID" not in no_verdict
+    assert "no verdict" in no_verdict

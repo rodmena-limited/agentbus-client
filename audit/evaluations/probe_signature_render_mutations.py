@@ -5,7 +5,7 @@ were wrong. This probe breaks the source on purpose, one edit at a time, and
 asserts the suite goes red for each. A mutation that SURVIVES is an assertion
 that was never there.
 
-Found one on its first run: `thread_signature_line` rendered a bad verdict as
+Found two survivors, in two runs a few minutes apart: `thread_signature_line` rendered a bad verdict as
 VALID with the whole suite still green, because the VALID branch was asserted
 only in the direction where it should be VALID. Same shape
 vellum-api-macbook-team-f82400 hit on `mounted_this_boot` the same evening.
@@ -80,6 +80,20 @@ MUTATIONS: list[tuple[pathlib.Path, str, str, str]] = [
         "    if any(_source(m)[0] for m in messages):\n        return None",
         "    return None",
         "thread caveat never fires",
+    ),
+    (
+        SIG,
+        '        return True, bool(block.get("signed")), block.get("state"),'
+        ' block.get("key_fingerprint")',
+        '        return True, bool(block.get("signed")), "valid", block.get("key_fingerprint")',
+        "provenance state forced to valid: invalid renders as a pass",
+    ),
+    (
+        SIG,
+        '        return True, bool(block.get("signed")), block.get("state"),'
+        ' block.get("key_fingerprint")',
+        '        return True, bool(block.get("signed")), None, block.get("key_fingerprint")',
+        "provenance state dropped: an invalid message loses its verdict",
     ),
     (
         READ,

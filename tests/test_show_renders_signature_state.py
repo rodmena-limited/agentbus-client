@@ -270,3 +270,45 @@ def test_the_thread_line_does_not_render_a_missing_verdict_as_valid():
     assert no_verdict is not None
     assert "VALID" not in no_verdict
     assert "no verdict" in no_verdict
+
+
+_PROV_INVALID = {"signature": {"signed": True, "state": "invalid", "key_fingerprint": "53965be0"}}
+
+
+def test_a_bad_verdict_arriving_through_provenance_is_not_a_pass():
+    """SECOND SURVIVOR. Forcing `state = "valid"` inside the provenance branch of
+    _source left the suite green: every provenance test fed `valid` or
+    `signed: false`, so no test ever carried a bad verdict down that path.
+
+    It is the path agentbus-8dc08d's #350 makes primary — once get_thread
+    composes provenance, this is how an invalid signature reaches a reader.
+    """
+    lines = _sigline.signature_lines({"provenance": _PROV_INVALID}, "del_1")
+    text = "\n".join(lines)
+    assert "invalid" in text
+    assert "NOT a pass" in text
+    assert "yes" not in text
+    assert "agentbus verify-sender del_1" in text
+
+
+def test_the_thread_line_carries_a_bad_verdict_through_provenance_too():
+    line = _sigline.thread_signature_line({"id": "m1", "provenance": _PROV_INVALID})
+    assert line is not None
+    assert "VALID" not in line
+    assert "invalid" in line
+    assert "NOT a pass" in line
+
+
+def test_provenance_and_flat_fields_agree_on_a_bad_verdict():
+    """The two sources must not differ in what they call a failure — the whole
+    reason `show` reads the block `verify-sender` reads."""
+    via_prov = _sigline.signature_lines({"provenance": _PROV_INVALID}, "del_1")
+    via_flat = _sigline.signature_lines(
+        {
+            "signature": "absigv1x",
+            "signature_state": "invalid",
+            "signing_key_fingerprint": "53965be0",
+        },
+        "del_1",
+    )
+    assert via_prov == via_flat

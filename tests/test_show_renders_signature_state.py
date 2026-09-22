@@ -216,3 +216,29 @@ def test_a_server_that_reports_nothing_renders_unknown_not_unsigned():
     assert "UNKNOWN" in text
     assert "neither a yes nor a no" in text
     assert "Signed:  no" not in text
+
+
+def test_the_thread_view_renders_per_message_the_moment_provenance_appears():
+    """FORWARD GUARD for agentbus-8dc08d's #350.
+
+    They confirmed the gap is one query's column list in get_thread(), and said
+    it will compose `provenance` the way get_delivery() already does. This
+    fixture is that shape, copied from a real get_delivery payload — not a live
+    check against their endpoint, which still omits the fields.
+
+    If #350 lands as described, the caveat goes silent and each message renders
+    on its own, with no change needed here.
+    """
+    served = [
+        {
+            "id": "m1",
+            "provenance": {
+                "signature": {"signed": True, "state": "valid", "key_fingerprint": "53965be0"}
+            },
+        },
+        {"id": "m2", "provenance": {"signature": {"signed": False, "means": "no signature."}}},
+    ]
+    assert _sigline.thread_signature_caveat(served) is None
+    assert "VALID" in (_sigline.thread_signature_line(served[0]) or "")
+    assert "53965be0" in (_sigline.thread_signature_line(served[0]) or "")
+    assert "no signature" in (_sigline.thread_signature_line(served[1]) or "")

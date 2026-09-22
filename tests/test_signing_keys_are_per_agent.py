@@ -74,7 +74,11 @@ def test_the_old_shared_key_is_not_adopted_by_anyone(
 
     mine, _public = sealing.ensure_signing_keypair("agent-one")
     assert mine != shared, "the shared machine key was adopted; the collision is back"
-    assert legacy.read_text().strip() == shared, "the old file was mutated rather than left alone"
+    assert legacy.read_text() == shared + "\n", (
+        "the old file was mutated rather than left alone. Byte-exact on purpose: "
+        "`.strip() == shared` normalises away a rewritten trailing byte, which is "
+        "exactly the mutation this line exists to catch (#65's defect class)"
+    )
 
 
 def test_a_signing_key_cannot_be_read_without_an_agent(

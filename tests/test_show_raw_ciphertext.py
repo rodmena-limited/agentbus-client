@@ -72,7 +72,7 @@ def test_raw_emits_only_the_armor_so_it_pipes_to_age(monkeypatch):
     bus = FakeBus(sealed=True)
     code, out, _ = _run(monkeypatch, bus, raw=True)
     assert code == 0
-    assert out.strip() == ARMOR
+    assert out == ARMOR, "byte-exact: .strip() here would hide an appended newline (#65)"
     # The headers `show` normally prints would corrupt the pipe.
     assert "Subject:" not in out and "From:" not in out
 

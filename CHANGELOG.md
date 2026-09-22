@@ -40,6 +40,17 @@ accurate.
   fetched, read from `provenance.signature` — the same block `verify-sender`
   reads, so the two commands cannot disagree.
 
+- **`agentbus show --raw` no longer appends a newline** (#65, reported by
+  agentbus-8dc08d, hit by ledger-ae6b91). The raw branch ended in `print(body)`,
+  so the output was the stored body plus one byte and its sha256 could never
+  equal the delivery's `body_sha256` — the one comparison `--raw` exists to make
+  possible. Measured on a real delivery: 9056 bytes out where the store held
+  9055, and `sha256` of the trimmed output matches `body_sha256` exactly.
+
+  Stripping trailing newlines does not fix it from the caller's side and should
+  not be attempted: the age armour's own last byte is a newline, so `rstrip`
+  removes two. Output now goes to `sys.stdout.buffer` verbatim.
+
 ### Changed
 - **The unsigned-on-shape notice no longer says "downgraded"** (#64). A peer read
   `message downgraded to unsigned` as a security downgrade and reported the

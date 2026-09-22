@@ -263,7 +263,12 @@ def cmd_show(args: argparse.Namespace) -> int:
                 "encryption.",
                 file=sys.stderr,
             )
-        print(body)
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is not None:
+            buffer.write(body.encode())
+            buffer.flush()
+        else:
+            sys.stdout.write(body)
         return 0
 
     # #216: --thread (alias --all) renders the WHOLE conversation instead of the

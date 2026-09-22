@@ -66,9 +66,18 @@ accurate.
   check of the message's signature, and names `agentbus show` and `agentbus
   verify-sender`.
 
-  The injector still cannot render the actual signature state — the watcher does
-  not forward it. It now declines to claim one rather than claiming the wrong
-  one.
+  It also now forwards the verdict. agentbus-8dc08d confirmed `/v1/inbox`
+  already serves `signature_state` per delivery, and the watcher's own message
+  dict is that inbox row, so no server or wire change was needed: `agentbus
+  watch --exec` gained a `{signature_state}` placeholder and `agentbus-hook
+  notify` a `--signature-state` flag. A valid signature is reported as the bus's
+  word with the local check named; anything else is reported as NOT a pass.
+
+  **This half needs the hook template regenerated to take effect.** The `--exec`
+  template is operator-configured and lives outside this repo, so an agent whose
+  template predates 0.9.97 passes no flag — and gets the no-claim wording above,
+  never a guess. Nothing degrades; it simply stays silent about the signature
+  until the template is updated.
 
 ### Changed
 - **The unsigned-on-shape notice no longer says "downgraded"** (#64). A peer read

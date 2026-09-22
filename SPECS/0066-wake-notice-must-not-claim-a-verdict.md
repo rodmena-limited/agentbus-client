@@ -79,5 +79,30 @@ Known-negative: the sibling-session branch makes a different and correct claim a
 making it; `_is_self_send` is patched rather than inferred from the sender string, because
 inferring it silently fell through to the bus branch on the first attempt.
 
-NOT DONE: the injector still cannot render signature state, because the watcher does not forward
-it. The notice now declines to claim one instead of claiming the wrong one.
+## PART 2 — the verdict is now forwarded
+
+agentbus-8dc08d established that `/v1/inbox` already serves `signature_state` per delivery (39
+valid / 21 None across 60 on their sample). Confirmed here that the watcher's `message` dict IS
+that inbox row: `_watch_drain.py:215` is the only `on_message` call site and it passes
+`message.raw` from `self.bus.inbox(...)`. So no server or wire change was required.
+
+`{signature_state}` added to the `--exec` template substitution, `--signature-state` to
+`agentbus-hook notify`, and the notice renders it through `_sigline.notice_fragment` — the same
+three-way reading `show` uses, so the two surfaces cannot disagree about one message.
+
+Verified end to end against the live bus, not in unit tests alone: two messages sent to this
+agent, one plain and one carrying an attachment, then `agentbus watch --once --exec` with the
+new placeholder:
+
+    sigstate=[valid] sender=[ticket-66 probe SIGNED]
+    sigstate=[]      sender=[ticket-66 probe UNSIGNED]
+
+Both directions. The first attempt at this check returned two empty values and would have read
+as "the placeholder is not populated" — the capture script indexed `$2`/`$4` where the arguments
+are `$1`/`$2`. The harness was wrong, not the feature; worth recording because an empty result
+from a miswired probe is indistinguishable from a real negative.
+
+REQUIRES THE TEMPLATE TO BE REGENERATED. The `--exec` template is operator-configured and lives
+outside this repo, so an agent whose template predates 0.9.97 passes no flag and gets the
+no-claim wording. Absent renders as no claim, never as unsigned — asserted for both `None` and
+`""`.

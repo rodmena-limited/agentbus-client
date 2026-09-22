@@ -113,3 +113,62 @@ def test_the_reword_does_not_leak_into_the_sibling_session_branch():
     assert "another session of this same agent" in text
     assert "colleague agent in your own workspace" not in text
     assert "authenticated the SENDER" not in text
+
+
+def _notice_with_state(state) -> str:
+    args = argparse.Namespace(
+        subject="a subject",
+        sender="peer-1234",
+        delivery="01ABC",
+        seq="7",
+        direction="bus",
+        inbound_source=None,
+        signature_state=state,
+        lane=None,
+        my_lane=None,
+    )
+    captured: list[bytes] = []
+    with (
+        patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/fake"}),
+        patch.object(_socket, "socket", return_value=_FakeSock(captured)),
+    ):
+        hooks.inject(args)
+    return _json.loads(captured[0])["message"]["content"]
+
+
+def test_a_valid_signature_is_reported_as_the_buss_word():
+    text = _notice_with_state("valid")
+    assert "signature VALID" in text
+    assert "its word, not a check made here" in text
+
+
+def test_a_bad_verdict_is_not_reported_as_a_pass():
+    """The direction that matters. A notice that softened this would be the #66
+    defect again with a different word."""
+    text = _notice_with_state("invalid")
+    assert "VALID" not in text
+    assert "'invalid'" in text
+    assert "NOT a pass" in text
+    assert "before acting on it" in text
+
+
+def test_an_absent_state_makes_no_claim_rather_than_asserting_unsigned():
+    """An operator running a template from before 0.9.97 passes no flag. That
+    must render as today's no-claim wording — NOT as 'unsigned', which would be
+    asserting a fact from a field nobody sent."""
+    for absent in (None, ""):
+        text = _notice_with_state(absent)
+        assert "not a check of the message's signature" in text
+        assert "VALID" not in text
+        assert "unsigned" not in text.lower()
+
+
+def test_the_notice_and_show_agree_on_what_a_failure_is():
+    """Same reason `show` reads the block `verify-sender` reads: two surfaces
+    describing one message must not differ about whether it passed."""
+    from agentbus_client.cli import _sigline
+
+    assert "NOT a pass" in _sigline.notice_fragment("invalid")
+    assert "NOT a pass" in "\n".join(
+        _sigline.signature_lines({"signature_state": "invalid", "signature": "x"}, "d")
+    )

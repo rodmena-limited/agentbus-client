@@ -115,6 +115,10 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
             # They are different things and must not be conflated. 0.9.34
             # stamped my_lane onto lane, clobbering the sender's — that is
             # the SEV-2 this separation fixes. Empty string when unset.
+            # #66: the bus's own verdict for this delivery, already on the
+            # inbox row the drain hands us. Empty when the server did not say,
+            # which the injector must read as "no claim" rather than "unsigned".
+            signature_state=shlex.quote(str(message.get("signature_state") or "")),
             lane=shlex.quote(str(message.get("lane") or "")),
             my_lane=shlex.quote(str(message.get("my_lane") or "")),
         )

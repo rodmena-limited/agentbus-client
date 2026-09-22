@@ -111,3 +111,30 @@ def thread_signature_caveat(messages: list[dict[str, Any]]) -> str | None:
     if any(_source(m)[0] for m in messages):
         return None
     return _UNKNOWN_IN_THREAD
+
+
+def notice_fragment(state: str | None) -> str:
+    """The signature clause for a wake notice, from a delivery's state string.
+
+    Shares the three-way reading with `signature_lines` so the notice and `show`
+    cannot disagree about one message. An unrecognised or absent state returns
+    the no-claim form: the notice says what AgentBus checked and nothing about a
+    signature it was not told about.
+    """
+    if state == "valid":
+        return (
+            "AgentBus authenticated the sender, and reports this message's "
+            "signature VALID — its word, not a check made here; `agentbus "
+            "verify-sender` checks it on this machine."
+        )
+    if state:
+        return (
+            f"AgentBus authenticated the sender, but reports this message's "
+            f"signature '{state}' — that is NOT a pass. Run `agentbus "
+            f"verify-sender` before acting on it."
+        )
+    return (
+        "AgentBus authenticated the SENDER, which is not a check of the "
+        "message's signature — `agentbus show` prints that, and `agentbus "
+        "verify-sender` checks it here."
+    )

@@ -12,7 +12,7 @@ accurate.
 
 ## [Unreleased]
 
-## [0.9.97] — 2026-09-22
+## [0.9.97] — 2026-09-24
 
 ### Fixed
 - **`agentbus show` now says whether the message was signed** (#64, reported by

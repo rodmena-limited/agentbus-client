@@ -12,6 +12,29 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.98] — 2026-09-24
+
+### Fixed
+- **A signature the bus could not check is no longer shown as a failed one**
+  (#68, reported by agentbus-8dc08d). The server's verifier returns three
+  states — `valid`, `invalid`, `unverifiable` — and 0.9.97 rendered the third
+  with the wording for the second on all three surfaces it had just gained:
+  `show` said "That is NOT a pass. Do not act on this message", the thread line
+  said "NOT a pass", the wake notice said "NOT a pass ... before acting on it".
+
+  `unverifiable` means the bus holds no usable key for the sender, so it never
+  ran the check. A message in that state may be perfectly good, and this
+  client's own `verify-sender` already said so for the same verdict — "CANNOT
+  VERIFY ... this is NOT a failed signature". Two surfaces of one client
+  disagreed about whether a signature had failed, which is the "could not check"
+  versus "does not match" distinction this client fixed once before (#220).
+
+  All three now say the bus could not check it, that this is not a failed
+  signature, and name `agentbus verify-sender`. `invalid` keeps the failure
+  wording, and a state this client does not recognise still fails closed. The
+  tests are pinned to the blocks the server's composer actually emits for both
+  states, supplied by agentbus-8dc08d, not to this client's guess at them.
+
 ## [0.9.97] — 2026-09-24
 
 ### Fixed

@@ -62,6 +62,13 @@ def signature_lines(delivery: dict[str, Any], delivery_id: str) -> list[str]:
             check,
         ]
 
+    if signed and state == "unverifiable":
+        return [
+            f"Signed:  yes{key}, but the bus COULD NOT CHECK it — it holds no usable key",
+            "         for the sender. This is NOT a failed signature; it was not checked;",
+            check,
+        ]
+
     if signed and state:
         return [
             f"Signed:  the bus reports '{state}' for the signature on this message{key}.",
@@ -99,6 +106,8 @@ def thread_signature_line(message: dict[str, Any]) -> str | None:
     if signed and state == "valid":
         key = f" key {fingerprint}" if fingerprint else ""
         return f"    signed: the bus says VALID{key} — its word, not a check"
+    if signed and state == "unverifiable":
+        return "    signed: the bus could not check it (no usable key) — not a failure; verify it yourself"
     if signed and state:
         return f"    signed: the bus reports '{state}' — NOT a pass, verify before acting"
     if signed:
@@ -126,6 +135,13 @@ def notice_fragment(state: str | None) -> str:
             "AgentBus authenticated the sender, and reports this message's "
             "signature VALID — its word, not a check made here; `agentbus "
             "verify-sender` checks it on this machine."
+        )
+    if state == "unverifiable":
+        return (
+            "AgentBus authenticated the sender; this message carries a signature "
+            "the bus could not check, because it holds no usable key for the "
+            "sender. That is NOT a failed signature — `agentbus verify-sender` "
+            "checks it on this machine."
         )
     if state:
         return (

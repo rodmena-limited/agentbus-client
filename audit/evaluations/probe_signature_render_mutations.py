@@ -31,6 +31,7 @@ READ = ROOT / "src/agentbus_client/cli/_read.py"
 
 TESTS = [
     "tests/test_show_renders_signature_state.py",
+    "tests/test_unverifiable_is_not_a_failed_signature.py",
     "tests/test_raw_is_byte_exact.py",
     "tests/test_show_raw_ciphertext.py",
     "tests/test_show_reads_the_whole_thread.py",
@@ -94,6 +95,24 @@ MUTATIONS: list[tuple[pathlib.Path, str, str, str]] = [
         ' block.get("key_fingerprint")',
         '        return True, bool(block.get("signed")), None, block.get("key_fingerprint")',
         "provenance state dropped: an invalid message loses its verdict",
+    ),
+    (
+        SIG,
+        '    if signed and state == "unverifiable":\n        return [',
+        "    if False:\n        return [",
+        "#68 show: unverifiable falls into the failure wording",
+    ),
+    (
+        SIG,
+        '    if signed and state == "unverifiable":\n        return "',
+        '    if False:\n        return "',
+        "#68 thread: unverifiable falls into the failure wording",
+    ),
+    (
+        SIG,
+        '    if state == "unverifiable":\n        return (',
+        "    if False:\n        return (",
+        "#68 notice: unverifiable falls into the failure wording",
     ),
     (
         READ,

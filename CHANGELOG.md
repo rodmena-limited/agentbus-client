@@ -12,6 +12,60 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.99] — 2026-09-27
+
+### Removed
+- **Python 3.9 support** (#69, reported by infra-manager-c13110). The lock
+  carried five packages with known vulnerabilities — anyio 4.12.1, click 8.1.8,
+  cryptography 47.0.0, pytest 8.4.2, python-dotenv 1.2.1 — every one a second
+  copy that uv kept only for Python 3.9. Every fixed release of anyio, click,
+  pytest and python-dotenv requires Python 3.10 or newer; for 3.9 the vulnerable
+  release is the newest that exists. Installing 0.9.98 on CPython 3.9.25 pulls in
+  the vulnerable anyio, click and python-dotenv today.
+
+  `requires-python` is now `>=3.10`. Python 3.9 reached end of life in October
+  2025. Nothing breaks for anyone still on 3.9: pip keeps them on 0.9.98.
+
+  Restricting only the lockfile while still advertising 3.9 was rejected. The
+  scan would read clean while every 3.9 user still installed the vulnerable
+  packages.
+
+### Changed
+- **Requires `resilient-circuit>=0.8.6` and `bulkman>=2.0.4`** (were `>=0.5` and
+  `>=2.0`). Your house libraries both shipped important fixes, and minimums are
+  what users of this library actually receive. The lock had resilient-circuit
+  0.7.0 and could not move: bulkman 2.0.3 caps resilient-circuit below 0.8, and
+  2.0.4 lifts that cap. Upstream fixes now included:
+  - **0.8.4 / 0.8.5:** database passwords can no longer leak into logs or
+    exception text.
+  - **0.8.5:** `CircuitProtectorPolicy` and `RetryWithBackoffPolicy` now actually
+    protect `async def` functions. Before, they did nothing: the breaker never
+    opened and retries never ran.
+  - **0.8.6:** routine two-replica state races log at INFO instead of WARNING.
+
+  This client was not exposed to the async bug. resilient-circuit wraps only
+  synchronous code here, and the async client runs its own breaker and bulkhead,
+  written because resilient-circuit was synchronous-only at the time.
+- The rest of the lock is at latest: anyio 4.15.1, cryptography 50.0.1, idna
+  3.20, psycopg 3.3.6 (only via resilient-circuit's unused `[postgres]` extra,
+  and not the binary build), tzdata 2026.4, and ruff 0.16.9 (dev only).
+
+### Fixed
+- **The lock records the right version of this project.** It still said 0.9.96
+  through the 0.9.97 and 0.9.98 releases, because neither bump re-locked. Any
+  SBOM or provenance record generated from the lock showed the wrong version.
+
+- **`agentbus-hook inject` closes its socket when the connect fails.** `close()`
+  came after `connect()`, so a dead session socket leaked the file descriptor.
+  The process exits within milliseconds, so the practical cost was nil, but it
+  was a real leak on exactly the path that runs when a session has gone. It only
+  showed up as a ResourceWarning once pytest stopped filtering warnings.
+
+### Added
+- `audit/evaluations/probe_osv_lockfile.py`: an OSV sweep of every lock entry,
+  including per-interpreter duplicates. It also queries a known-vulnerable pin as
+  a control, and reports the sweep void if that control comes back clean.
+
 ## [0.9.98] — 2026-09-24
 
 ### Fixed

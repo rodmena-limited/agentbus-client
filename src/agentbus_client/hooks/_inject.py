@@ -335,10 +335,12 @@ def inject(args: argparse.Namespace) -> int:
 
         payload = json.dumps({"type": "user", "message": {"role": "user", "content": body}}) + "\n"
         conn = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-        conn.settimeout(5)
-        conn.connect(sock)
-        conn.sendall(payload.encode())
-        conn.close()
+        try:
+            conn.settimeout(5)
+            conn.connect(sock)
+            conn.sendall(payload.encode())
+        finally:
+            conn.close()
     except (FileNotFoundError, ConnectionRefusedError, BrokenPipeError) as exc:
         # A CONFIGURED socket that is gone or refuses is the dead-wake-channel
         # case, NOT a "no cross-session messaging" configuration. The watcher

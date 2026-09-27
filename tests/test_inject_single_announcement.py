@@ -136,6 +136,34 @@ def test_fallback_when_socket_is_dead(tmp_path, capsys, monkeypatch):
     assert "NOT delivered" in captured.err
 
 
+def test_the_socket_is_closed_when_the_connect_fails(tmp_path, capsys, monkeypatch):
+    """#69: the dead-socket path used to leave its socket open — `close()` sat
+    after `connect()`, so a failed connect skipped it. Surfaced as a
+    ResourceWarning only once pytest stopped filtering warnings.
+
+    Checked directly rather than through the warning: the warning is emitted
+    when the socket is garbage-collected, after the test has finished, so a
+    warnings-as-errors marker on this test passed against the leaking code."""
+    import socket as _socket
+
+    made: list = []
+    real = _socket.socket
+
+    def tracking(*args, **kwargs):
+        sock = real(*args, **kwargs)
+        made.append(sock)
+        return sock
+
+    monkeypatch.setattr(_socket, "socket", tracking)
+    monkeypatch.setenv("CLAUDE_CODE_MESSAGING_SOCKET", str(tmp_path / "gone.sock"))
+
+    assert claude_code.inject(_args()) == 3
+    assert made, "known-positive: inject must have opened a socket for this to mean anything"
+    assert all(sock.fileno() == -1 for sock in made), (
+        "a socket was left open after the failed connect"
+    )
+
+
 def test_notice_matches_print_line_format_without_seq(capsys, monkeypatch):
     """The fallback is only a fallback if its shape is the one watch emits."""
     monkeypatch.delenv("CLAUDE_CODE_MESSAGING_SOCKET", raising=False)

@@ -47,6 +47,7 @@ from ._paths import (
     _say,
     _write_private,
 )
+from ._plugin import INSTALL_COMMANDS, PLUGIN_ID, claude_settings_path, install_wake_plugin
 from ._provision import _provision_project_agent
 from ._signin import _sealing_publish_with_retry
 from ._skill import refresh_skill
@@ -106,7 +107,27 @@ def _setup_claude(args: argparse.Namespace) -> int:
 
     # 6. Global hooks — merge into ~/.claude/settings.json, foreign entries
     #    untouched byte-for-byte.
-    settings_path = Path.home() / ".claude" / "settings.json"
+    settings_path = claude_settings_path()
+    wake_ok = _plugin_provides_wake(_load_json(settings_path))
+    if wake_ok:
+        report.append(f"wake plugin: {PLUGIN_ID} (already enabled)")
+    else:
+        installed, detail = install_wake_plugin()
+        wake_ok = _plugin_provides_wake(_load_json(settings_path))
+        if wake_ok:
+            report.append(f"wake plugin: {PLUGIN_ID} installed ({detail})")
+        else:
+            why = (
+                f"the installer reported success but {settings_path} does not enable {PLUGIN_ID}"
+                if installed
+                else detail
+            )
+            report.append(
+                f"wake plugin: !!! NOT INSTALLED — {why}. Without it nothing wakes a "
+                "session nobody has typed into. Run:  "
+                f"{INSTALL_COMMANDS[0]} && {INSTALL_COMMANDS[1]}  then re-run "
+                "`agentbus setup claude`"
+            )
     settings = _load_json(settings_path)
     hooks = settings.setdefault("hooks", {})
     states: dict[str, str] = {}
@@ -392,7 +413,10 @@ def _setup_claude(args: argparse.Namespace) -> int:
     # One line, because the rest belongs in the skill this just installed:
     # onboarding's job is sign in, get woken, be found.
     ui.next_steps(
-        "restart this Claude session (the monitor arms at session start)",
+        "restart this Claude session (the monitor arms at session start)"
+        if wake_ok
+        else "!!! NOT LISTENING YET: install the wake plugin (see `wake plugin` above), "
+        "then re-run `agentbus setup claude`",
         "agentbus doctor --wake   # prove the wake, don't assume it",
         "agentbus tag --set skill=<what-you-do> --set team=<yours>"
         "   # be findable: peers route by tag:skill=... rather than by name",
@@ -405,4 +429,4 @@ def _setup_claude(args: argparse.Namespace) -> int:
         "   # when you need to concentrate. Urgent still reaches you; the rest"
         " is held and delivered when it clears. `agentbus quickref` for the rest.",
     )
-    return 0
+    return 0 if wake_ok else 1

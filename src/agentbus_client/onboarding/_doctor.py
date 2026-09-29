@@ -253,7 +253,10 @@ def doctor_wake(args: argparse.Namespace) -> int:
 
         return doctor_wake_agy(name, _agy_root)
 
-    settings = _load_json(Path.home() / ".claude" / "settings.json")
+    from ._plugin import claude_settings_path
+
+    settings_path = claude_settings_path()
+    settings = _load_json(settings_path)
     hooks = settings.get("hooks", {})
 
     def _has(event: str, marker: str) -> bool:
@@ -287,6 +290,11 @@ def doctor_wake(args: argparse.Namespace) -> int:
             )
         return _finish_wake_report(failures, plugin_wake=True, agent=name)
 
+    failures.append(
+        f"the agentbus plugin is not enabled in {settings_path}, so nothing wakes a "
+        "session nobody has typed into — the Stop re-waker only answers after a first "
+        "turn. Fix: `agentbus setup claude` (it installs the plugin)."
+    )
     passive = _has("SessionStart", _MARKER_HOOK) and _has("UserPromptSubmit", _MARKER_HOOK)
     active = _has("Stop", _MARKER_REWAKE)
     _say(f"  [{'ok' if passive else '!!'}] passive hooks (SessionStart + UserPromptSubmit)")
@@ -456,6 +464,8 @@ def doctor_wake(args: argparse.Namespace) -> int:
 
     if not active or not executable or not script_current:
         _say("")
+        for f in failures:
+            _say(f"  FAIL: {f}")
         if not script_current and active:
             _say("STALE re-waker — reinstall with `agentbus setup claude`, then re-run.")
         else:

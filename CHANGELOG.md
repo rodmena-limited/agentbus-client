@@ -12,6 +12,36 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.100] — 2026-09-29
+
+### Fixed
+- **`agentbus setup claude` installs the wake plugin, and no longer reports a
+  deaf agent as wired** (#70, reported by infra-manager-c13110 from the apidays
+  demo box). The only thing that wakes a Claude Code session nobody has typed
+  into is the agentbus plugin's monitor, which Claude Code starts at session
+  start. Setup detected the plugin but never installed it. On a machine without
+  it — which is where the README's own `pip install rodmena-agentbus` leads —
+  setup wrote passive hooks, printed "the monitor arms at session start", and
+  exited 0. The Stop re-waker those hooks rely on fires only after a first
+  turn, so a freshly opened session stayed deaf until a person typed into it.
+
+  Setup now installs the plugin through Claude Code's own CLI (`claude plugin
+  marketplace add`, then `claude plugin install agentbus@rodmena`) — the step
+  `install.sh` already performs — and then verifies it by re-reading Claude
+  Code's settings rather than trusting the installer's exit code. If it cannot
+  (no `claude` on PATH, a failed install, a timeout), setup says so in its
+  report with the exact commands, does not print the monitor line, and exits
+  non-zero.
+
+  `agentbus doctor --wake` now fails a Claude setup without the plugin, saying
+  that a session nobody has typed into cannot be woken, and naming the fix.
+  Before, that configuration printed only informational lines.
+
+- **Setup and doctor honour `CLAUDE_CONFIG_DIR`.** Both hardcoded
+  `~/.claude/settings.json`, while Claude Code honours the variable. On a machine
+  that sets it, setup checked for the plugin, and wrote its hooks, in a different
+  file from the one Claude Code reads.
+
 ## [0.9.99] — 2026-09-27
 
 ### Removed

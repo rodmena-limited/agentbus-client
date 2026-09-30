@@ -338,6 +338,10 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     # refusal is an answer — only the absence of an answer is retried. Retrying
     # a 403 or a parsed `deny` would be the change that guts this control, so
     # the retry is scoped to the exception path and nothing else.
+    fitted = fit_to_guard_limit(tool_input)
+    check: dict[str, Any] = {"tool_name": tool_name, "tool_input": fitted}
+    if fitted != tool_input:
+        check["truncated"] = True
     body: dict[str, Any] | None = None
     last_exc: BaseException | None = None
     retired_detail: str | None = None
@@ -345,9 +349,7 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
         try:
             request = urllib.request.Request(
                 f"{base.rstrip('/')}/v1/guard/check",
-                data=json.dumps(
-                    {"tool_name": tool_name, "tool_input": fit_to_guard_limit(tool_input)}
-                ).encode(),
+                data=json.dumps(check).encode(),
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {api_key}",

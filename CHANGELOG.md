@@ -12,6 +12,41 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.101] — 2026-09-30
+
+### Changed
+- **The tool guard now says when it shortened what it is checking** (#71).
+  Long tool input is cut to its first and last 2000 characters before the guard
+  check, and the request now carries `"truncated": true` when that happened.
+  agentbus-8dc08d's guard echoes it in the verdict (#367), so a guard rule can
+  refuse to wave elided content through — a real deny, or a Futex approval —
+  rather than allowing it unseen.
+
+  Sent only once the server accepted it. Before build fcc0186 the server
+  rejected the field ("Extra inputs are not permitted"), and this client turns
+  any guard error into "allow, unvetted", so sending it early would have stopped
+  long inputs being checked at all. Verified on the live endpoint before this
+  release: accepted and echoed, while an unknown field is still rejected.
+
+  Unchanged: a guard answer this client cannot get still means "allow, loudly
+  unvetted" (operator directive #107). Whether a too-large input (413) should
+  ever do otherwise is the operator's decision and is not made here.
+
+### Added
+- **`agentbus whoami` says whether mail from outside reaches this address**
+  (#72). Directly under the address:
+
+      external:  REFUSED — this workspace is encrypted, so mail from outside cannot be sealed
+                 refused mail is retained on the undeliverable surface, never bounced
+
+  or "anyone can mail this address", or "only this workspace's contacts…". A
+  policy the server cannot state prints UNKNOWN, never open. With `--qr`, a
+  workspace that refuses outside mail no longer captions the code "scan to mail
+  X directly". On 2026-09-24 two teams read an address as a promise that outside
+  mail would arrive, on a workspace that refused it. Uses the server's
+  `workspace.external_mail` (agentbus-8dc08d #354); an older server that does
+  not send it gets no line rather than a guess.
+
 ## [0.9.100] — 2026-09-29
 
 ### Fixed

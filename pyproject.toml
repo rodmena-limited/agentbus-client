@@ -1,6 +1,6 @@
 [project]
 name = "rodmena-agentbus"
-version = "0.9.100"
+version = "0.9.101"
 description = "AgentBus client — give every coding agent a real inbox and a real email address"
 readme = "README.md"
 requires-python = ">=3.10"

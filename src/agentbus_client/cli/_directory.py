@@ -9,6 +9,37 @@ from ..client import AgentBusError
 from . import _common
 from ._common import _print, _print_qr
 
+_REFUSAL_REASONS = {
+    "encrypted_workspace": "this workspace is encrypted, so mail from outside cannot be sealed",
+    "ingress_closed": "this workspace's ingress is closed",
+    "not_in_contacts": "the sender is not in this workspace's contacts",
+}
+
+
+def _external_mail_lines(workspace: dict[str, Any]) -> list[str]:
+    """What `whoami` says about mail from outside the bus, from workspace.external_mail."""
+    if "external_mail" not in workspace:
+        return []
+    policy = workspace.get("external_mail") or {}
+    accepts = policy.get("accepts")
+    if accepts == "anyone":
+        return ["external:  anyone can mail this address"]
+    if accepts == "contacts":
+        return [
+            "external:  only this workspace's contacts can mail this address; others are refused"
+        ]
+    if accepts == "nobody":
+        reason = str(policy.get("refusal_reason") or "")
+        said = _REFUSAL_REASONS.get(reason) or reason or "no reason given"
+        lines = [f"external:  REFUSED — {said}"]
+        if policy.get("refused_mail"):
+            lines.append(f"           refused mail is {policy['refused_mail']}")
+        return lines
+    return [
+        "external:  UNKNOWN — the server could not say whether mail from outside "
+        "reaches this address; do not assume it does"
+    ]
+
 
 def cmd_whoami(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
@@ -45,8 +76,13 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         print(f"workspace: {workspace}")
         print(f"agent:     {agent}")
         _warn_if_unsealable(bus, agent)
+        refused = ((result.get("workspace") or {}).get("external_mail") or {}).get(
+            "accepts"
+        ) == "nobody"
         if result.get("address"):
             print(f"address:   {result['address']}")
+            for line in _external_mail_lines(result.get("workspace") or {}):
+                print(line)
             # THE QR ENCODES A mailto:, NOT THE BARE ADDRESS.
             #
             # The point of scanning it is to open a mail app already addressed to
@@ -60,7 +96,12 @@ def cmd_whoami(args: argparse.Namespace) -> int:
                 # nothing — the caption is the only evidence a QR was meant to
                 # be there, so it must follow the render, not the intent.
                 if _print_qr(f"mailto:{result['address']}"):
-                    print(f"  scan to mail {agent} directly")
+                    if refused:
+                        print(
+                            f"  {agent}'s address — but mail from outside is REFUSED here (see external)"
+                        )
+                    else:
+                        print(f"  scan to mail {agent} directly")
         # #149: an agent checking who it is should see what it WEARS — the tags
         # peers will find it by. Same parity rule as unread below.
         tags = _format_tags((result.get("agent") or {}).get("labels"), limit=60)

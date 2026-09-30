@@ -52,6 +52,17 @@ def _guard_with_the_servers_contract(sent: list[dict[str, Any]]):
     def fake_urlopen(request, timeout=None):
         body = json.loads(request.data.decode())
         sent.append(body)
+        unknown = set(body) - {"tool_name", "tool_input", "truncated"}
+        if unknown or not isinstance(body.get("truncated", False), bool):
+            raise _HTTPError(
+                422,
+                json.dumps(
+                    {
+                        "code": "validation_error",
+                        "detail": f"{unknown}: Extra inputs are not permitted",
+                    }
+                ),
+            )
         longest = _longest_string(body["tool_input"])
         if longest > LIMIT:
             raise _HTTPError(
@@ -125,3 +136,33 @@ def test_shortening_keeps_both_ends_and_names_the_gap():
     assert len(short) <= LIMIT
     assert short.startswith("HEAD") and short.endswith("TAIL")
     assert "characters elided by the AgentBus gate" in short
+
+
+def test_a_shortened_input_is_declared_truncated(monkeypatch):
+    """#71: agentbus-8dc08d's guard (#367) accepts `truncated` and echoes it, so a
+    rule can refuse to wave elided content through. Verified live before shipping:
+    truncated:true -> 200 and echoed; an unknown field is still rejected."""
+    _, sent = _decide(monkeypatch, "echo " + "x" * (LIMIT * 2))
+    assert sent[-1].get("truncated") is True
+
+
+def test_an_unshortened_input_carries_no_truncated_field(monkeypatch):
+    """The field is a claim that something was elided; absent means nothing was."""
+    _, sent = _decide(monkeypatch, "echo hello")
+    assert "truncated" not in sent[-1]
+
+
+def test_the_fake_server_rejects_unknown_fields_like_the_real_one():
+    """Known-positive for the two tests above: the fake must be as strict as the live
+    endpoint, or a misspelled flag would pass here and 422 in production — which the
+    gate turns into an UNVETTED allow."""
+    sent: list[dict[str, Any]] = []
+    fake = _guard_with_the_servers_contract(sent)
+
+    class _Req:
+        data = json.dumps({"tool_name": "Read", "tool_input": {}, "truncate": True}).encode()
+
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        fake(_Req())
+    assert exc.value.code == 422
+    assert "Extra inputs are not permitted" in exc.value.read().decode()

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Generated artifacts, fixtures, lockfiles and data blobs are out of scope —
 # the cap is about code a person has to read.
-SKIP_PARTS = {".venv", "__pycache__", "build", "dist", ".git", "node_modules"}
+SKIP_PARTS = {".venv", "__pycache__", "build", "dist", ".git", "node_modules", "mutants"}
 
 
 def main() -> int:

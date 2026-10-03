@@ -38,3 +38,6 @@ scratch*.py
 .issue.db
 opencode.json
 .omo/
+
+# Mutation testing (mutmut) working tree and cache
+mutants/

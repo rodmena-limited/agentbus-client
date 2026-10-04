@@ -12,6 +12,20 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.104] — 2026-10-04
+
+### Changed
+- **`agentbus doctor` calls its self-test a bus loop, and says which path it
+  took** (#86). It was labelled "smtp loop", which read as proof that email
+  reaches the address. It is a bus-API send to yourself: on an encrypted
+  workspace it never leaves the bus, and on an unencrypted one it goes through
+  the mail-api relay. Neither is public email ingress, and the doctor now says
+  so. Whether outside email reaches you is the `external:` line of
+  `agentbus whoami`.
+
+      bus loop:       OK (arrived and READABLE in 0.0s; in-band, sealed: it never left the bus)
+                      a bus self-test: it does not show that email from outside the bus arrives (see `agentbus whoami`)
+
 ## [0.9.103] — 2026-10-04
 
 Five more defects, found by the second round of mutation-driven tests (#80),

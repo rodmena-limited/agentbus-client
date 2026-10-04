@@ -47,7 +47,7 @@ def test_the_loop_check_no_longer_gates_on_a_state_value():
 def test_the_loop_check_reads_the_body_back():
     """It must actually fetch and inspect the message, not just see it listed."""
     src = _source()
-    window = src[src.index("smtp loop") - 3000 : src.index("smtp loop") + 500]
+    window = src[src.index("bus loop") - 3000 : src.index("bus loop") + 500]
     assert "bus.read(" in window, "the loop check never reads the delivery back"
     assert "text_body" in window
 
@@ -75,5 +75,5 @@ def test_the_source_file_is_the_one_we_think():
     """KNOWN-POSITIVE. Every assertion above is a grep over a file path; if the
     path were wrong they would all pass or all fail for the wrong reason."""
     src = _source()
-    assert "smtp loop" in src
+    assert "bus loop" in src
     assert "def cmd_doctor" in src or "doctor" in src

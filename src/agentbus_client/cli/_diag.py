@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 from ..client import AgentBusError, QuotaExceeded, ServiceUnavailable
 from . import _common
@@ -186,6 +187,18 @@ def cmd_refresh_skill(args: argparse.Namespace) -> int:
     return 0 if state in ("updated", "current", "installed") else 1
 
 
+def _loop_path(bus: Any, delivery_id: str) -> str:
+    from .. import sealing
+
+    try:
+        stored = (bus.read(delivery_id, raw=True) or {}).get("text_body") or ""
+    except Exception:
+        return "path not determined"
+    if sealing.is_sealed(stored):
+        return "in-band, sealed: it never left the bus"
+    return "via the mail-api relay, not public email ingress"
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "wake", False):
         from .. import onboarding
@@ -317,7 +330,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                     body = (bus.read(match[0].delivery_id) or {}).get("text_body") or ""
                 except Exception as exc:
                     print(
-                        f"smtp loop:      BROKEN — arrived in {elapsed:.1f}s but "
+                        f"bus loop:       BROKEN — arrived in {elapsed:.1f}s but "
                         f"could not be read back ({type(exc).__name__}). The loop "
                         f"delivered something this agent cannot open."
                     )
@@ -326,12 +339,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                     # Arrived and unreadable is WORSE than not arriving: the
                     # sender believes it landed.
                     print(
-                        f"smtp loop:      BROKEN — arrived in {elapsed:.1f}s but the "
+                        f"bus loop:       BROKEN — arrived in {elapsed:.1f}s but the "
                         f"body did not come back readable ({len(body)} chars). "
                         f"A delivery this agent cannot read is data loss, not health."
                     )
                     return 1
-                print(f"smtp loop:      OK (arrived and READABLE in {elapsed:.1f}s)")
+                print(
+                    f"bus loop:       OK (arrived and READABLE in {elapsed:.1f}s; "
+                    f"{_loop_path(bus, match[0].delivery_id)})"
+                )
+                print(
+                    "                a bus self-test: it does not show that email from "
+                    "outside the bus arrives (see `agentbus whoami`)"
+                )
                 bus.ack(match[0].delivery_id)
                 print("ack:            OK")
                 break
@@ -349,11 +369,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # The honest statement is that we stopped looking, and that the
             # message is still in flight — the sender can check it themselves.
             print(
-                f"smtp loop:      NOT CONFIRMED within {LOOP_WAIT_SECONDS}s — this is a "
+                f"bus loop:       NOT CONFIRMED within {LOOP_WAIT_SECONDS}s — this is a "
                 f"LATENCY result, not a delivery failure."
             )
             print(f"                The message ({sent['id']}) was accepted and is still")
-            print("                in flight; the SMTP loop is often slower than this")
+            print("                in flight; the loop is often slower than this")
             print("                window under load. Check it rather than assume:")
             print(f"                  agentbus inbox --unread    # look for {sent['id']}")
             print("                Only treat it as an outage if it never arrives.")

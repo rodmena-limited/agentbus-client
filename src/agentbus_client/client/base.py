@@ -353,7 +353,7 @@ class _Base:
             sealed["attachments"] = resealed
         return sealed
 
-    def unseal_message(self, message: dict[str, Any]) -> dict[str, Any]:
+    def unseal_message(self, message: dict[str, Any], agent: str | None = None) -> dict[str, Any]:
         """Decrypt a message body in place, or mark plainly why it could not be.
 
         A READER THAT CANNOT DECRYPT MUST SAY SO. Returning ciphertext as if it
@@ -366,14 +366,15 @@ class _Base:
         """
         from .. import sealing
 
+        who = agent or self.agent
         body = message.get("text_body") or message.get("text") or ""
         if not sealing.is_sealed(body):
             return message
-        if not sealing.load_private_keys(self.agent):
+        if not sealing.load_private_keys(who):
             message["sealed_unreadable"] = "no sealing key on this machine"
             return message
         try:
-            message["text_body"] = sealing.unseal_with_any(body, self.agent)
+            message["text_body"] = sealing.unseal_with_any(body, who)
             message["sealed_opened"] = True
         except sealing.MalformedSealed as exc:
             message["sealed_unreadable"] = f"the sealed body is damaged: {exc}"

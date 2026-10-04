@@ -151,7 +151,7 @@ class AsyncMiscMixin(_MixinBase):
             body_sha256=message.get("body_sha256"),
         )
         try:
-            _signing.verify(match["public_key"], payload, block["signature"])
+            _signing.verify(match["public_key"], payload, block.get("signature"))
         except _signing.BadSignature as exc:
             return {
                 "verified": False,
@@ -475,12 +475,12 @@ class AsyncMiscMixin(_MixinBase):
             raise TransportError(str(exc)) from exc
 
         if content[:64].lstrip().startswith(b"-----BEGIN AGE ENCRYPTED FILE-----"):
-            if not sealing.load_private_keys(self.agent):
+            if not sealing.load_private_keys(agent or self.agent):
                 raise AgentBusError(
                     "this attachment is sealed and this machine holds no sealing key"
                 )
             try:
-                return sealing.unseal_bytes_with_any(content, self.agent)
+                return sealing.unseal_bytes_with_any(content, agent or self.agent)
             except sealing.MalformedSealed as exc:
                 raise AgentBusError(f"this attachment is damaged: {exc}") from exc
             except sealing.CannotDecrypt as exc:

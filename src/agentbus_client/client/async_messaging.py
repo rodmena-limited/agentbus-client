@@ -207,7 +207,7 @@ class AsyncMessagingMixin(_MixinBase):
         test exists to police.
         """
         delivery = await self._request("GET", f"/v1/deliveries/{delivery_id}", agent=agent)
-        return delivery if raw else self.unseal_message(delivery)
+        return delivery if raw else self.unseal_message(delivery, agent)
 
     async def ack(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
         return await self._request("POST", f"/v1/deliveries/{delivery_id}/ack", agent=agent)

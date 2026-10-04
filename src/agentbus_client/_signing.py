@@ -172,7 +172,7 @@ def sign(private_key: str, payload: bytes) -> str:
     return bech32_encode(SIGNATURE_PREFIX, signature)
 
 
-def verify(public_key: str, payload: bytes, signature: str) -> None:
+def verify(public_key: object, payload: bytes, signature: object) -> None:
     """Returns None on success, raises BadSignature otherwise.
 
     RAISES RATHER THAN RETURNING A BOOL. A boolean gets used in an `if` that
@@ -180,6 +180,8 @@ def verify(public_key: str, payload: bytes, signature: str) -> None:
     position — and a function that returns None on success would then read as
     failure. An exception cannot be ignored by accident.
     """
+    if not isinstance(signature, str) or not isinstance(public_key, str):
+        raise BadSignature("the signature or the public key is missing or not text")
     try:
         raw_sig = _decode(signature, SIGNATURE_PREFIX)
         raw_key = _decode(public_key, PUBLIC_PREFIX)

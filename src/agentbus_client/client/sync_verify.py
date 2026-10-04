@@ -124,7 +124,7 @@ class SyncVerifyMixin(_MixinBase):
             body_sha256=message.get("body_sha256"),
         )
         try:
-            _signing.verify(match["public_key"], payload, block["signature"])
+            _signing.verify(match["public_key"], payload, block.get("signature"))
         except _signing.BadSignature as exc:
             return {
                 "verified": False,
@@ -255,14 +255,14 @@ class SyncVerifyMixin(_MixinBase):
             # `agentbus keys rotate` the old private key is kept precisely so
             # yesterday's mail stays readable, and only trying the current one
             # would make that promise empty.
-            if not sealing.load_private_keys(self.agent):
+            if not sealing.load_private_keys(agent or self.agent):
                 raise AgentBusError(
                     "this attachment is sealed and this machine holds no sealing "
                     "key — run `agentbus signin` to publish one, though anything "
                     "sealed before that remains unreadable here"
                 )
             try:
-                return sealing.unseal_bytes_with_any(content, self.agent)
+                return sealing.unseal_bytes_with_any(content, agent or self.agent)
             except sealing.MalformedSealed as exc:
                 # DAMAGED is not the same as NOT FOR ME, and the remedies are
                 # opposites: re-fetch the file, versus find the key. Now that

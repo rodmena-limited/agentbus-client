@@ -12,6 +12,34 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.103] — 2026-10-04
+
+Five more defects, found by the second round of mutation-driven tests (#80),
+which added 543 behaviour tests across the security-critical modules. Each fix
+was reproduced first, and each new test fails on 0.9.102.
+
+### Fixed
+- **Checking a signature never crashes on a missing one** (#85). A delivery
+  marked signed but carrying no signature (or a non-text one) raised
+  AttributeError or KeyError in `verify-sender`; it is now reported invalid.
+- **Reading as another agent opens that agent's sealed mail** (#84).
+  `read(id, agent=X)` and `attachment(id, agent=X)` fetched as X but unsealed
+  with the client's own identity, so an operator client could not open X's
+  sealed body or attachment even with X's key on disk. Sync and async.
+- **The credential doctor no longer skips or aborts on a broken config**
+  (#82, #83). An unparseable `~/.claude.json` was silently left out of the
+  report, and an invalid project `.claude/settings.local.json` stopped the
+  whole report. Both are now reported as NOT CHECKED and the other slots are
+  still checked.
+- **A fresh container registers as ephemeral** (#81). The device id was
+  written before the "container with no persisted device id" check ran, so
+  that check could never fire.
+
+### Changed
+- `client/resilience.py` was split (the async circuit breaker moved to
+  `client/_async_breaker.py`) to stay under the file-size cap. No behaviour
+  change.
+
 ## [0.9.102] — 2026-10-04
 
 Six defects found by the first mutation-testing round (#73) and fixed here.

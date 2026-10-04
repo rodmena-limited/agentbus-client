@@ -113,7 +113,14 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
     lines: list[str] = []
     try:
         # 1. THIS DIRECTORY's own wiring.
-        local = _load_json(_project_claude_dir() / "settings.local.json")
+        try:
+            local = _load_json(_project_claude_dir() / "settings.local.json")
+        except SystemExit:
+            lines.append(
+                f"project ({_project_claude_dir()}/settings.local.json): "
+                "NOT CHECKED — could not parse it"
+            )
+            local = {}
         proj_agent = (local.get("env") or {}).get("AGENTBUS_AGENT")
         if proj_agent:
             lines.append(
@@ -128,10 +135,19 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
         import json as _json
 
         cj = Path.home() / ".claude.json"
+        data: dict = {}
         if cj.exists():
-            data = _json.loads(cj.read_text())
+            try:
+                data = _json.loads(cj.read_text())
+            except ValueError as exc:
+                lines.append(
+                    "user-scope ~/.claude.json: NOT CHECKED — could not parse it "
+                    f"({type(exc).__name__})"
+                )
             # {global,project} less entry for 'agentbus' -> auto-inherited.
-            entry = (data.get("mcpServers") or {}).get("agentbus")
+            entry = (
+                (data.get("mcpServers") or {}).get("agentbus") if isinstance(data, dict) else None
+            )
             if entry:
                 header = (entry.get("headers") or {}).get("Authorization") or ""
                 scope = _scope_of_bearer(header, base_url)

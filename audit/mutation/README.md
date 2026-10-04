@@ -2,6 +2,7 @@
 
 Ticket #73, spec `SPECS/0073-mutation-testing.md`. Tool: mutmut 3.8.0 (dev dependency).
 Scope and test selection live in `[tool.mutmut]` in `pyproject.toml`.
+`client/_async_breaker.py` was split out of `client/resilience.py` (file-size cap) and is mutated with it.
 
 ## When to run
 

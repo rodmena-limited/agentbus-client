@@ -158,6 +158,7 @@ def describe(workdir: str | None = None) -> dict[str, object]:
     """
     path = str(Path(workdir).resolve() if workdir else Path.cwd())
     remote = git_remote(path)
+    ephemeral = is_ephemeral()
     device = device_id()
     fingerprint = repo_fingerprint(remote) if remote else None
     return {
@@ -166,5 +167,5 @@ def describe(workdir: str | None = None) -> dict[str, object]:
         "repo_remote": remote,
         "repo_fingerprint": fingerprint,
         "session_key": session_key(device, fingerprint, path),
-        "ephemeral": is_ephemeral(),
+        "ephemeral": ephemeral,
     }

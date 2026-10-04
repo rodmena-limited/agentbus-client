@@ -257,7 +257,7 @@ class SyncMessagingMixin(_MixinBase):
         go red.
         """
         delivery = self._request("GET", f"/v1/deliveries/{delivery_id}", agent=agent)
-        return delivery if raw else self.unseal_message(delivery)
+        return delivery if raw else self.unseal_message(delivery, agent)
 
     def ack(self, delivery_id: str, agent: str | None = None) -> dict[str, Any]:
         return self._request("POST", f"/v1/deliveries/{delivery_id}/ack", agent=agent)

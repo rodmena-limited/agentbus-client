@@ -160,6 +160,8 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
         payload = json.loads(raw) if raw.strip() else {}
     except ValueError:
         payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
 
     tool_name = str(payload.get("tool_name") or "")
     tool_input = payload.get("tool_input")
@@ -292,8 +294,9 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
                 # is the timezone-safe pair for gmtime.
                 import calendar
 
-                last_ts = calendar.timegm(time.strptime(last_at, "%Y-%m-%dT%H:%M:%SZ"))
-                if (time.time() - last_ts) < _FAST_FAIL_COOLDOWN:
+                opened_at = state.get("opened_at") or last_at
+                opened_ts = calendar.timegm(time.strptime(opened_at, "%Y-%m-%dT%H:%M:%SZ"))
+                if (time.time() - opened_ts) < _FAST_FAIL_COOLDOWN:
                     # Record this too — a fast-fail is still a degraded call.
                     with contextlib.suppress(Exception):
                         record_gate_degraded(agent, "fast_fail", f"circuit open (count={count})")
@@ -358,7 +361,12 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
                 method="POST",
             )
             with urllib.request.urlopen(request, timeout=_GATE_TIMEOUT) as response:
-                body = json.loads(response.read().decode())
+                parsed = json.loads(response.read().decode())
+            if not isinstance(parsed, dict):
+                raise ValueError(
+                    f"guard answered with a JSON {type(parsed).__name__}, not an object"
+                )
+            body = parsed
             break
         except urllib.error.HTTPError as exc:
             last_exc = exc

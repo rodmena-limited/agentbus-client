@@ -144,16 +144,18 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
     # 3. opencode fallback config.
     try:
         import json as _json
-        import re as _re
 
         for name in ("opencode.jsonc", "opencode.json"):
             p = Path.home() / ".config" / "opencode" / name
             if not p.exists():
                 continue
-            text = p.read_text()
-            text = _re.sub(r"/\*.*?\*/", "", text, flags=_re.DOTALL)
-            text = _re.sub(r"//.*", "", text)
-            data = _json.loads(_re.sub(r",(\s*[}\]])", r"\1", text))
+            try:
+                data = _json.loads(_strip_jsonc(p.read_text()))
+            except ValueError as exc:
+                lines.append(
+                    f"opencode {name}: NOT CHECKED — could not parse it ({type(exc).__name__})"
+                )
+                break
             entry = (data.get("mcp") or {}).get("agentbus")
             if entry:
                 header = (entry.get("headers") or {}).get("Authorization") or ""
@@ -169,6 +171,46 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
         scope = "full (operator.env: can MINT — never auto-inherit it)"
         lines.append(f"operator: {op_path} — {scope}")
     return lines
+
+
+def _strip_jsonc(text: str) -> str:
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end == -1 else end
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+            continue
+        if ch in "}]":
+            j = len(out) - 1
+            while j >= 0 and out[j].isspace():
+                j -= 1
+            if j >= 0 and out[j] == ",":
+                del out[j]
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _inherited_flag(scope: str) -> str:

@@ -149,6 +149,8 @@ def _breaker_should_handle(exc: BaseException) -> bool:
     exc = _root_cause(exc)
     if isinstance(exc, _Abandoned):
         return True
+    if isinstance(exc, _NonIdempotent):
+        exc = exc.original
     return _is_transient_sdk_error(exc)
 
 

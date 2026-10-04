@@ -280,12 +280,18 @@ def record_gate_degraded(agent: str, reason: str, detail: str) -> None:
                 except Exception:
                     prior = {}
                 count = int(prior.get("count") or 0) + 1
-                first = prior.get("first_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                first = prior.get("first_at") or now
+                if reason == "fast_fail":
+                    opened = prior.get("opened_at") or prior.get("last_at") or now
+                else:
+                    opened = now
                 path.write_text(
                     json.dumps(
                         {
                             "first_at": first,
-                            "last_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "opened_at": opened,
+                            "last_at": now,
                             "count": count,
                             "reason": _scrub(reason)[:60],
                             "detail": _scrub(detail)[:400],

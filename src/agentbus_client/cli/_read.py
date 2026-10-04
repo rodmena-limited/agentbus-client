@@ -146,6 +146,20 @@ def cmd_attachment(args: argparse.Namespace) -> int:
         for i, item in enumerate(attachments):
             name = _safe_attachment_name(item.get("filename") or f"attachment-{i}", i)
             targets.append(Path(name))
+        indexes_by_name: dict[str, list[int]] = {}
+        for i, t in enumerate(targets):
+            indexes_by_name.setdefault(str(t), []).append(i)
+        shared = {n: ix for n, ix in indexes_by_name.items() if len(ix) > 1}
+        if shared:
+            clashes = "; ".join(
+                f"{n} (attachments {', '.join(str(i) for i in ix)})" for n, ix in shared.items()
+            )
+            print(
+                f"refusing --all: more than one attachment would be written as {clashes}, "
+                "so one would overwrite the other — fetch each with -i N -o PATH",
+                file=sys.stderr,
+            )
+            return 1
         if not args.force:
             existing = [str(t) for t in targets if t.exists()]
             if existing:

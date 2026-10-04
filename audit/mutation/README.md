@@ -5,14 +5,16 @@ Scope and test selection live in `[tool.mutmut]` in `pyproject.toml`.
 
 ## When to run
 
-Once per development phase, and whenever one of the 11 scoped modules changes materially.
-Not per commit. Runs are long; run them in the background.
+Manually, before shipping a big feature, and after a material change to one of the 11 scoped
+modules. Never automatically: not in CI, not per commit, and not from
+`audit/evaluations/run_all.sh` (the canary lives here, outside the `probe_*` set, for that
+reason). A full run takes about 16 minutes on 16 workers; run it in the background.
 
 ## Order of operations
 
 1. Prove the harness can say both YES and NO before reading any result:
 
-       .venv/bin/python audit/evaluations/probe_mutation_harness_live.py
+       .venv/bin/python audit/mutation/canary.py
 
    It must print PASS (strong run kills at least one `_safe_attachment_name` mutant, weak run
    lets at least one survive, and the weak run kills fewer). If it fails, no survivor count
@@ -50,10 +52,10 @@ ledger also reports killed / (total − equivalent), which does not.
 
 ## Deselected from mutation runs
 
-14 tests that reach `Watcher._backoff_and_drain` (`watch.py:370` binds `sys.stderr` at import, #74). Under mutmut's
-in-process sessions that stream is closed, so these fail with no mutant active and would count as false kills. Found
-by swapping the default for a closed stream in a normal run: exactly 14 failed, 2967 passed. The list is in
-`[tool.mutmut] pytest_add_cli_args`. Fixing #74 returns them to the kill set.
+None. Round 1 deselected 14 tests that reached `watch.py:370`, which bound `sys.stderr` at
+import and hit a closed stream in mutmut's later in-process sessions. #74 fixed the cause, so
+they are back in the kill set. If a future clean run fails with no mutant active, find the
+cause; deselect only with the reason recorded here.
 
 ## Isolation
 

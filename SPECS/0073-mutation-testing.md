@@ -54,7 +54,7 @@ mutmut, selective scope, once per development phase.
 - `tests/test_mutation_run_imports_the_mutants.py`: skipped outside mutmut. Inside a run it fails
   the clean run unless `agentbus_client.__file__` is under `mutants/`. Shown to go red with
   `MUTANT_UNDER_TEST=x` set outside mutmut (imports the original `src/`, fails).
-- `audit/evaluations/probe_mutation_harness_live.py`: two mutmut runs on
+- `audit/mutation/canary.py`: two mutmut runs on
   `_safe_attachment_name` in a scratch copy. Measured 2026-10-03:
 
       strong (tests/test_attachment_verb.py):     killed 13, survived 8
@@ -67,6 +67,7 @@ mutmut, selective scope, once per development phase.
 14 tests reaching `watch.py:370` (`stream: Any = sys.stderr` default, ticket #74): 1 in test_audit_sweep_0929,
 8 in test_persisted_backoff, 5 in test_watcher_survives_cft_outage. They fail with no mutant active once mutmut's
 earlier session closes that stream. No source-reading test failed the clean run.
+Removed after #74 fixed the cause (2026-10-04); the mutation run now deselects nothing.
 
 ## QUARANTINED (FLAKY)
 

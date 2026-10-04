@@ -12,6 +12,42 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.102] — 2026-10-04
+
+Six defects found by the first mutation-testing round (#73) and fixed here.
+Each was reproduced before it was fixed, and each new test fails on 0.9.101.
+
+### Fixed
+- **The tool guard turns itself back on after an outage** (#75, security).
+  Three failed guard checks open a 30-second fast-fail window in which tool
+  calls run unvetted. Every fast-fail used to restart that window, so a session
+  making a tool call at least every 30 seconds never asked the guard again —
+  after one rolling deploy, approval checking stayed off for as long as the
+  session kept working. The window now runs from when it opened; the next call
+  after 30 seconds asks the guard, and a deny is enforced.
+- **The guard hook no longer crashes on JSON that is not an object** (#78).
+  A JSON array or string on stdin, or a guard reply whose body is not an object,
+  raised AttributeError and exited 1 with no decision. Stdin is now treated as
+  empty, and a non-object reply as no verdict (loudly unvetted, as for any
+  unreadable reply).
+- **`agentbus setup opencode` and the credential doctor see the opencode key**
+  (#76). Stripping `//` comments also cut every `https://` URL, so the config
+  that `setup opencode` writes never parsed and an over-scoped inherited key was
+  never reported. Comments are now removed only outside strings, and a config
+  that cannot be parsed is reported as NOT CHECKED instead of left out.
+- **The SDK circuit breaker counts server errors on non-repeatable calls**
+  (#77). A 5xx on a call that must not be retried (no idempotency key) was
+  never counted, so a failing `register` or send could not open the breaker.
+  Such calls are still tried exactly once.
+- **`agentbus attachment --all` refuses attachments that share a filename**
+  (#79). Two attachments named `report.pdf` were both written to one file;
+  the first was lost while the command reported two written. It now refuses
+  before downloading anything and names the clashing attachments; fetch each
+  with `-i N -o PATH`.
+- **`agentbus watch` reports reconnects on the current stderr** (#74). The
+  stream was fixed at import, so a replaced or closed stderr crashed the
+  reconnect path.
+
 ## [0.9.101] — 2026-09-30
 
 ### Changed

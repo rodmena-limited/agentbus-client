@@ -1,6 +1,8 @@
+import atexit
 import http.server
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,6 +42,8 @@ class H(http.server.BaseHTTPRequestHandler):
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 home = tempfile.mkdtemp(prefix="gate-repro-")
+atexit.register(shutil.rmtree, home, True)
+atexit.register(srv.shutdown)
 COOLDOWN = 5
 env = {
     "PATH": "/usr/bin:/bin",

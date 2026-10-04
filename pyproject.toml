@@ -1,6 +1,6 @@
 [project]
 name = "rodmena-agentbus"
-version = "0.9.101"
+version = "0.9.102"
 description = "AgentBus client — give every coding agent a real inbox and a real email address"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -144,19 +144,3 @@ only_mutate = [
 also_copy = [".gitignore"]
 process_isolation = "forkserver"
 pytest_add_cli_args_test_selection = ["tests/", "--ignore=tests/integration"]
-pytest_add_cli_args = [
-    "--deselect", "tests/test_audit_sweep_0929.py::test_backoff_does_not_block_forever_on_an_in_flight_drain",
-    "--deselect", "tests/test_persisted_backoff.py::test_failures_persist_across_restart_within_ttl",
-    "--deselect", "tests/test_persisted_backoff.py::test_failures_reset_after_ttl_expires",
-    "--deselect", "tests/test_persisted_backoff.py::test_successful_reconnect_clears_persisted_failures",
-    "--deselect", "tests/test_persisted_backoff.py::test_sleep_delay_is_jittered_around_the_base_step",
-    "--deselect", "tests/test_persisted_backoff.py::test_jitter_never_produces_a_negative_delay",
-    "--deselect", "tests/test_persisted_backoff.py::test_backoff_walks_persisted_ladder_across_restarts",
-    "--deselect", "tests/test_persisted_backoff.py::test_backoff_state_persisted_before_sleep_completes",
-    "--deselect", "tests/test_persisted_backoff.py::test_state_file_writes_new_backoff_fields",
-    "--deselect", "tests/test_watcher_survives_cft_outage.py::test_backoff_and_drain_survives_cft_from_inbox",
-    "--deselect", "tests/test_watcher_survives_cft_outage.py::test_backoff_and_drain_survives_arbitrary_exception_from_drain",
-    "--deselect", "tests/test_watcher_survives_cft_outage.py::test_backoff_sleep_fires_even_when_drain_raises",
-    "--deselect", "tests/test_watcher_survives_cft_outage.py::test_backoff_reraises_dead_wake_socket",
-    "--deselect", "tests/test_watcher_survives_cft_outage.py::test_backoff_escalates_across_repeated_failures",
-]

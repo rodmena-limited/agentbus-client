@@ -367,7 +367,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
                 # line. Back off and log exactly like any other drop.
                 self._backoff_and_drain("stream ended (closed cleanly by the far end)")
 
-    def _backoff_and_drain(self, reason: str, stream: Any = sys.stderr) -> None:
+    def _backoff_and_drain(self, reason: str, stream: Any = None) -> None:
         """Announce the failure, opportunistically drain HTTP, THEN back off.
 
         SEV-1 (macbook-admin-bd8e86 thread 01M08ZBXDD8PQ9J70MM4VDBZR0): this
@@ -393,6 +393,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
         upstream, so this catch-all is defense in depth, not the primary
         gate.
         """
+        stream = sys.stderr if stream is None else stream
         base_delay = RECONNECT_BACKOFF[min(self._failures, len(RECONNECT_BACKOFF) - 1)]
         # SEV-1 fix #6 (macbook, backend endorsed >= +/-10% recommended):
         # jitter the sleep by +/-_BACKOFF_JITTER_FRACTION so N watchers coming

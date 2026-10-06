@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from ._body_guard import _refuse_empty_body
 from ._reply_guard import _refuse_self_reply
 from .attachments import _encode_attachments
 from .errors import AgentBusError, TransportError, _raise_for
@@ -52,7 +53,11 @@ class AsyncMessagingMixin(_MixinBase):
         # servers that predate the delivery_reminders table.
         require_ack: bool = False,
         ack_window: Any = None,
+        allow_empty: bool = False,
     ) -> dict[str, Any]:
+        _refuse_empty_body(
+            text, html=html, attachments=attachments, payload=payload, allow_empty=allow_empty
+        )
         recipients = [to] if isinstance(to, str) else list(to)
         copied = [cc] if isinstance(cc, str) else list(cc or [])
         ack_window_seconds = _ack_window_seconds(ack_window, default_when_set=require_ack)
@@ -106,7 +111,9 @@ class AsyncMessagingMixin(_MixinBase):
         idempotency_key: str | None = None,
         # #53: parity with the sync guard — see _refuse_self_reply.
         allow_self: bool = False,
+        allow_empty: bool = False,
     ) -> dict[str, Any]:
+        _refuse_empty_body(text, attachments=attachments, allow_empty=allow_empty)
         payload = {
             "text": text,
             "reply_all": reply_all,

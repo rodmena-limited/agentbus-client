@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Any
 
-from ..client import AgentBusError, SelfReplyError
+from ..client import AgentBusError, EmptyBodyError, SelfReplyError
 from . import _common
 from ._common import _as_message_id, _parse_duration, _print
 
@@ -158,20 +158,25 @@ def cmd_send(args: argparse.Namespace) -> int:
 
         raw = getattr(args, "ack_window", None)
         ack_window = _parse_duration(raw) if raw else _dt.timedelta(hours=24)
-    result = bus.send(
-        args.to,
-        cc=args.cc or None,
-        priority=args.priority,
-        subject=args.subject,
-        text=_common._read_body(args.body),
-        attachments=args.attach,
-        require_available=args.require_available,
-        payload=payload,
-        guarantee=args.guarantee,
-        derived_from=args.derived_from or None,
-        require_ack=bool(getattr(args, "require_ack", False)),
-        ack_window=ack_window,
-    )
+    try:
+        result = bus.send(
+            args.to,
+            cc=args.cc or None,
+            priority=args.priority,
+            subject=args.subject,
+            text=_common._read_body(args.body),
+            attachments=args.attach,
+            require_available=args.require_available,
+            payload=payload,
+            guarantee=args.guarantee,
+            derived_from=args.derived_from or None,
+            require_ack=bool(getattr(args, "require_ack", False)),
+            ack_window=ack_window,
+            allow_empty=bool(getattr(args, "allow_empty", False)),
+        )
+    except EmptyBodyError as exc:
+        print(f"refused: {exc.detail}", file=sys.stderr)
+        return 2
     # F13 (issuedb #7): a fire_and_forget send has no id, no delivery_count,
     # and — against some server versions — an empty response body. Scripts
     # piping this through jq crash on {}. Normalise: always give the caller
@@ -232,20 +237,54 @@ def _suggest_reply_target(bus: Any, exc: SelfReplyError) -> str:
     )
 
 
+def _warn_reply_reach(bus: Any, message_id: str, reply_all: bool, cc: list[str]) -> None:
+    acting = bus.agent
+    try:
+        everyone = bus.reply_recipients(message_id, reply_all=True)
+        chosen = everyone if reply_all else bus.reply_recipients(message_id, reply_all=False)
+    except Exception:
+        return
+    reached = set(chosen["to"]) | set(chosen["cc"]) | set(cc)
+    if not reply_all:
+        left = [n for n in everyone["to"] + everyone["cc"] if n not in reached and n != acting]
+        if left:
+            print(
+                f"note: this reply does NOT go to {', '.join(left)}, who were on the "
+                "original; add --all to include them",
+                file=sys.stderr,
+            )
+    elif acting and acting in reached and len(reached) > 1:
+        print(
+            f"note: the bus addresses this reply-all to you ({acting}) too, so a copy "
+            "will land in your own inbox",
+            file=sys.stderr,
+        )
+
+
 def cmd_reply(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     subject = getattr(args, "subject", None) or None
+    message_id = _as_message_id(bus, args.message_id)
+    reply_all = bool(getattr(args, "reply_all", False))
+    body = _common._read_body(args.body) or ""
+    allow_empty = bool(getattr(args, "allow_empty", False))
+    if body.strip() or args.attach or allow_empty:
+        _warn_reply_reach(bus, message_id, reply_all, list(args.cc or []))
     try:
         result = bus.reply(
-            _as_message_id(bus, args.message_id),
-            _common._read_body(args.body) or "",
-            reply_all=getattr(args, "reply_all", False),
+            message_id,
+            body,
+            reply_all=reply_all,
             cc=args.cc or None,
             priority=getattr(args, "priority", None),
             subject=subject,
             attachments=args.attach,
             allow_self=getattr(args, "to_self", False),
+            allow_empty=allow_empty,
         )
+    except EmptyBodyError as exc:
+        print(f"refused: {exc.detail}", file=sys.stderr)
+        return 2
     except SelfReplyError as exc:
         # #53: REFUSED, NOT SENT. Say why, say what to do instead, exit 2 so a
         # daemon's `bus: replied` log line cannot be written for this call.

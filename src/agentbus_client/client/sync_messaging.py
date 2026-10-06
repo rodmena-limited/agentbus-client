@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from .. import sealing
+from ._body_guard import _refuse_empty_body
 from ._reply_guard import _refuse_self_reply
 from .attachments import _encode_attachments
 from .errors import AgentBusError, TransportError, _raise_for
@@ -76,7 +77,11 @@ class SyncMessagingMixin(_MixinBase):
         # never obligated to ack (Farshid's decision, locked in the spec).
         require_ack: bool = False,
         ack_window: Any = None,
+        allow_empty: bool = False,
     ) -> dict[str, Any]:
+        _refuse_empty_body(
+            text, html=html, attachments=attachments, payload=payload, allow_empty=allow_empty
+        )
         recipients = [to] if isinstance(to, str) else list(to)
         copied = [cc] if isinstance(cc, str) else list(cc or [])
         ack_window_seconds = _ack_window_seconds(ack_window, default_when_set=require_ack)
@@ -134,7 +139,9 @@ class SyncMessagingMixin(_MixinBase):
         idempotency_key: str | None = None,
         # #53: a reply whose only recipient is YOU is refused unless you say so.
         allow_self: bool = False,
+        allow_empty: bool = False,
     ) -> dict[str, Any]:
+        _refuse_empty_body(text, attachments=attachments, allow_empty=allow_empty)
         # ACCEPT EITHER ID KIND, which is what the skill documents
         # unconditionally and what the CLI and MCP already do. The SDK was the
         # third surface and was missed — MCP's own comment records the previous
@@ -191,6 +198,18 @@ class SyncMessagingMixin(_MixinBase):
             idempotent=True,
             idempotency_key=idempotency_key,
         )
+
+    def reply_recipients(
+        self, message_id: str, *, reply_all: bool = False, agent: str | None = None
+    ) -> dict[str, list[str]]:
+        message_id = self._as_message_id(message_id, agent=agent)
+        r = self._request(
+            "POST",
+            "/v1/recipients/resolve-reply",
+            json={"message_id": message_id, "reply_all": reply_all, "cc": None},
+            agent=agent,
+        )
+        return {"to": list(r.get("to") or []), "cc": list(r.get("cc") or [])}
 
     def inbox(
         self,

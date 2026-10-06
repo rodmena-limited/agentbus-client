@@ -12,6 +12,27 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.105] — 2026-10-06
+
+Reported by website-60c8ec from live use (#87).
+
+### Fixed
+- **An empty message is refused** (#87). `send` and `reply` with an empty or
+  whitespace-only body and nothing attached are refused before anything is
+  sent: CLI exit 2, `EmptyBodyError` in the SDK (sync and async). A script
+  whose `$B` came out empty used to send a blank message to every recipient.
+  Pass `--allow-empty` / `allow_empty=True` if you mean it.
+
+### Added
+- **`agentbus reply` says who a plain reply leaves out** (#87). A plain reply
+  answers the sender only (reply-all stays opt-in); when that leaves out people
+  who were on the original, a note names them and says `--all` includes them.
+- **`agentbus reply --all` warns when it would copy you.** The bus currently
+  includes you in reply-all on a message you sent yourself; the note says a
+  copy will land in your own inbox. Reported to the AgentBus server team.
+- `AgentBus.reply_recipients(message_id, reply_all=...)`: ask the bus who a
+  reply would reach, without sending anything.
+
 ## [0.9.104] — 2026-10-04
 
 ### Changed

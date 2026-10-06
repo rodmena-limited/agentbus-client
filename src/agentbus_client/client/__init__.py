@@ -4,6 +4,7 @@ from .base import DEFAULT_BASE_URL, _Base, _key_from_disk
 from .errors import (
     AgentBusError,
     AuthError,
+    EmptyBodyError,
     NotFoundError,
     PermissionError_,
     QuotaExceeded,
@@ -35,6 +36,7 @@ __all__ = [
     "AsyncAgentBus",
     "AuthError",
     "Delivery",
+    "EmptyBodyError",
     "NotFoundError",
     "PermissionError_",
     "QuotaExceeded",

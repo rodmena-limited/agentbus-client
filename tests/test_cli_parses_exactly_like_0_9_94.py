@@ -15,7 +15,11 @@ VERBS = set(ORACLE["verbs"])
 OPTIONS = {path: set(opts) for path, opts in ORACLE["options"].items()}
 TAKES_VALUE = {"--agent", "--api-key", "--base-url"}
 CASES = ORACLE["cases"]
-ADDED_AFTER_0_9_94 = {"drafts": {"delete": None}}
+ADDED_AFTER_0_9_94 = {
+    "drafts": {"delete": None},
+    "send": {"allow_empty": False},
+    "reply": {"allow_empty": False},
+}
 
 
 def _path(argv: list[str]) -> tuple[str | None, int]:

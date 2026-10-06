@@ -97,6 +97,12 @@ from ._app import argument, verb
         "Accepts 90m, 2h, 3d, or bare seconds. Server caps at 7 days (168h)."
     ),
 )
+@click.option(
+    "--allow-empty",
+    "allow_empty",
+    is_flag=True,
+    help="send even though the body is empty or only whitespace (refused by default)",
+)
 def cmd_send_cli() -> None: ...
 
 
@@ -164,4 +170,10 @@ def cmd_send_batch_cli() -> None: ...
 )
 @click.option("-b", "--body", "body", help="text, @file, or @- for stdin")
 @click.option("-a", "--attach", "attach", multiple=True, help="file to attach; repeat for several")
+@click.option(
+    "--allow-empty",
+    "allow_empty",
+    is_flag=True,
+    help="send even though the body is empty or only whitespace (refused by default)",
+)
 def cmd_reply_cli() -> None: ...

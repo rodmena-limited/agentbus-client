@@ -113,3 +113,9 @@ class SelfReplyError(AgentBusError):
         super().__init__(detail, **kwargs)
         self.message_id = message_id
         self.acting = acting
+
+
+class EmptyBodyError(AgentBusError):
+    def __init__(self, detail: str, **kwargs: Any) -> None:
+        kwargs.setdefault("code", "empty_body_refused")
+        super().__init__(detail, **kwargs)

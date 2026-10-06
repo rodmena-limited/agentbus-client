@@ -12,6 +12,12 @@ accurate.
 
 ## [Unreleased]
 
+### Changed
+- `agentbus reply --to-self` help no longer says that replying to your own
+  sent message lands in your own inbox (#88). Since the server's #379 fix
+  (2026-10-06) such a reply goes to the message's original recipients and
+  never to you; the self-reply guard stays as a safety net for older servers.
+
 ## [0.9.105] — 2026-10-06
 
 Reported by website-60c8ec from live use (#87).

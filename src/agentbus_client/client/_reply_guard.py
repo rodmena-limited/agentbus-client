@@ -27,8 +27,9 @@ def _refuse_self_reply(
       * the set includes ANYONE but you (reply-all, an explicit cc): that is
         a reply that reaches someone, which is what the caller wanted.
 
-    KNOWN-POSITIVE: resolve-reply on your own outbound message id answers
-    to=[you], cc=[] (probed live 2026-09-01 on 01M1FD9QRFF39WTTMQA8ZP7M4X).
+    Since server #379 (2026-10-06) a reply to your own sent message resolves to
+    its original recipients, so this guard is defence in depth for a server
+    that still resolves a reply to the replier alone.
     """
     if allow_self or resolved is None or not acting:
         return

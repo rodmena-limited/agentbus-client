@@ -156,9 +156,9 @@ def cmd_send_batch_cli() -> None: ...
     "to_self",
     is_flag=True,
     help=(
-        "allow a reply whose ONLY recipient is you. Without this, replying to "
-        "your own outbound message id is refused, because 'answer the sender' "
-        "would deliver to your own inbox while the other party waits."
+        "allow a reply whose ONLY recipient is you. Without this, a reply the bus "
+        "would deliver only to you is refused. Replying to a message you sent "
+        "goes to its original recipients, never to you."
     ),
 )
 @click.option(

@@ -6,6 +6,7 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
+from agentbus_client._settings_env import _settings_agent
 from agentbus_client.client import AgentBusError
 
 from . import _common
@@ -99,16 +100,14 @@ def _warn_local_wiring_will_revive(name: str) -> None:
     root = _git_root_or_none() or Path.cwd()
     declares: list[str] = []
     agent_file = root / ".agentbus" / "agent"
-    with contextlib.suppress(OSError):
+    with contextlib.suppress(OSError, ValueError):
         if agent_file.is_file() and agent_file.read_text().strip() == name:
             declares.append(str(agent_file))
     settings = root / ".claude" / "settings.local.json"
     with contextlib.suppress(OSError, ValueError):
         import json as _json
 
-        if settings.is_file() and (
-            (_json.loads(settings.read_text()).get("env") or {}).get("AGENTBUS_AGENT") == name
-        ):
+        if settings.is_file() and _settings_agent(_json.loads(settings.read_text())) == name:
             declares.append(str(settings))
     if not declares:
         return

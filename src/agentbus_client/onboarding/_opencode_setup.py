@@ -28,6 +28,8 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agentbus_client._settings_env import _settings_agent
+
 from ._agy_setup import _setup_agy, teardown_agy_machine
 from ._claude_setup import _setup_claude
 from ._credentials import doctor_credential_scope
@@ -43,7 +45,7 @@ from ._paths import (
     canonical_harness,
 )
 from ._provision import _provision_project_agent
-from ._settings_shape import _object_field, _settings_agent
+from ._settings_shape import _append_ignore_entries, _object_field, _stops_plainly
 from ._skill import _opencode_skill_path
 
 if TYPE_CHECKING:
@@ -117,8 +119,7 @@ def _ignore_opencode_json(report: list[str]) -> None:
             # it must never be committed. opencode reads opencode.json; a
             # project that already tracks one for non-secret settings should
             # keep it — but this one is ours, and it holds a key.
-            with gitignore.open("a", encoding="utf-8") as fh:
-                fh.write("opencode.json\n")
+            _append_ignore_entries(gitignore, ["opencode.json"])
             report.append("gitignore: added opencode.json (holds the bound key)")
     except OSError as exc:
         report.append(
@@ -262,7 +263,7 @@ def _drop_settings_identity(local: dict[str, Any], local_path: Path, removed: li
 
 def _declared_agent(agent_file: Path, local: dict[str, Any]) -> str | None:
     if agent_file.is_file():
-        with contextlib.suppress(OSError):
+        with contextlib.suppress(OSError, ValueError):
             declared = agent_file.read_text().strip()
             if declared:
                 return declared
@@ -300,6 +301,7 @@ def _teardown_machine(removed: list[str]) -> None:
         removed.append(f"{cfg}/ (machine-level: operator credential, device-id, all keys)")
 
 
+@_stops_plainly("teardown")
 def cmd_teardown(args: argparse.Namespace) -> int:
     """Remove ALL AgentBus wiring from this project, in one command (#118).
 
@@ -357,6 +359,7 @@ def cmd_teardown(args: argparse.Namespace) -> int:
     return 0
 
 
+@_stops_plainly("setup")
 def cmd_setup(args: argparse.Namespace) -> int:
     # An alias is normalized ONCE, here, before anything branches on the name —
     # so `antigravity` and `agy` cannot diverge downstream (#56).

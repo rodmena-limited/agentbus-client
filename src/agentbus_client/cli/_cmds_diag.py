@@ -10,10 +10,11 @@ from ._app import verb
     "refresh-skill",
     _diag.cmd_refresh_skill,
     help=(
-        "re-download the served SKILL.md into ~/.claude/skills/agentbus/, no "
-        "registration flow. Use this when `agentbus doctor` says the skill is "
-        "stale but `agentbus setup claude` refuses because your cwd's repo "
-        "differs from the one this agent was registered from."
+        "re-download the served SKILL.md for this checkout's harness, no "
+        "registration flow: ~/.claude/skills/agentbus/ for claude, "
+        "~/.config/opencode/skills/agentbus/ for opencode. Use this when "
+        "`agentbus doctor` says the skill is stale but `agentbus setup` refuses "
+        "because your cwd's repo differs from the one this agent was registered from."
     ),
     common=True,
 )

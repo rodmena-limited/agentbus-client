@@ -54,6 +54,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agentbus_client._settings_env import _settings_agent
+
 from . import _identity
 from ._identity import _resolve_agent
 from ._state import EXIT_NOT_WIRED, _hook_warn, _wake_file, _warn_if_shadow_queue
@@ -141,9 +143,7 @@ def _warn_if_env_overrides_this_checkout(agent: str) -> None:
         with contextlib.suppress(OSError, ValueError):
             s = root / ".claude" / "settings.local.json"
             if s.exists():
-                declared = str(
-                    (json.loads(s.read_text()).get("env") or {}).get("AGENTBUS_AGENT") or ""
-                ).strip()
+                declared = (_settings_agent(json.loads(s.read_text())) or "").strip()
     # Only a genuine DISAGREEMENT is worth interrupting for. An unwired checkout
     # has nothing to override, and agreement is the normal wired case.
     if not declared or declared == env_agent:

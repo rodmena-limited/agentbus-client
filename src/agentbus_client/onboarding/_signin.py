@@ -86,7 +86,8 @@ def _ensure_sealing_key(bus: AgentBus, ui: ModuleType) -> bool:
     except Exception as exc:  # noqa: BLE001
         ui.fail(f"this workspace is ENCRYPTED but the public key could not be registered: {exc}")
         _say("  Until it is, this agent cannot read sealed mail and peers cannot seal to it.")
-        return True
+        _say("  Signin still stores your API key. Run `agentbus signin <key>` again to retry.")
+        return False
     ui.ok("encrypted workspace — sealing key ready")
     ui.item("fingerprint", str(registered.get("fingerprint")))
     ui.item("private key", f"{sealing.key_path(bus.agent)}  (0600, never leaves this machine)")

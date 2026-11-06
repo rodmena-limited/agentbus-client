@@ -27,8 +27,10 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
 
+from agentbus_client._settings_env import _settings_agent
+
 from ._paths import _git_root_or_none
-from ._settings_shape import _read_object_or_empty, _settings_agent
+from ._settings_shape import _read_object_or_empty
 
 _MIN_SKILL_BYTES = 500
 

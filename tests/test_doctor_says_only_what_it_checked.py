@@ -1,4 +1,4 @@
-"""#93 items 3, 4, 8: `doctor --wake` reports what it ran and survives what a hook prints."""
+"""#93 items 3, 4, 8, #94 item 9: `doctor --wake` reports what it ran, and no more."""
 
 from __future__ import annotations
 
@@ -281,3 +281,45 @@ def test_a_watcher_state_file_of_the_wrong_shape_reports_no_version(
     monkeypatch.setattr(_doctor, "identity_config_dir", lambda: tmp_path)
     (tmp_path / "monitor-alpha-s1.json").write_text(state)
     assert _doctor._running_watcher_version("alpha") is None
+
+
+@pytest.mark.parametrize(
+    ("loaded", "installed"), [("1.2.2", "1.2.2"), ("1.2.2", "0.0.0+source"), (None, "1.2.2")]
+)
+def test_a_running_monitor_is_reported_as_a_process_and_nothing_more(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    loaded: str | None,
+    installed: str | None,
+) -> None:
+    rc, out = _finish(monkeypatch, capsys, loaded, installed)
+    assert rc == 0
+    assert "wake chain: the plugin monitor process is running." in out
+    assert "did not test its stream or deliver a message" in out
+    assert "PROVEN" not in out
+    assert "live stream" not in out
+    assert "13-19s" not in out
+
+
+def test_the_monitor_line_gives_the_pid_and_claims_no_stream(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(_doctor, "_monitor_pids", lambda name: [4242])
+    monkeypatch.setattr(_doctor, "_running_watcher_version", lambda agent: "1.2.2")
+    monkeypatch.setattr(_doctor, "_installed_version", lambda: "1.2.2")
+    assert _doctor._report_plugin_wake("alpha", []) == 0
+    out = capsys.readouterr().out
+    assert "[ok] active trigger: plugin MONITOR process is running (pid 4242)" in out
+    assert "stream held" not in out
+
+
+def test_a_missing_monitor_process_still_fails_the_report(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(_doctor, "_monitor_pids", lambda name: [])
+    monkeypatch.setattr(_doctor, "_running_watcher_version", lambda agent: "1.2.2")
+    monkeypatch.setattr(_doctor, "_installed_version", lambda: "1.2.2")
+    assert _doctor._report_plugin_wake("alpha", []) == 1
+    out = capsys.readouterr().out
+    assert "FAIL: the agentbus plugin is enabled but its monitor is NOT running." in out
+    assert "the plugin monitor process is running" not in out

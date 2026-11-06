@@ -93,7 +93,7 @@ def test_damaged_input_raises_a_normalised_error(damage: str) -> None:
 
 
 @pytest.mark.usefixtures("store")
-def test_a_message_for_someone_else_is_NOT_reported_as_damaged() -> None:
+def test_a_message_for_someone_else_is_not_reported_as_damaged() -> None:
     """The other direction, and the reason MalformedSealed is a separate type:
     'not for me' must not be dressed up as corruption, or the reader re-fetches
     a file that was never broken."""
@@ -140,8 +140,8 @@ def test_the_primitive_must_not_raise_the_normalised_error_itself() -> None:
     _private, public = sealing.generate_keypair()
     private, _other = sealing.generate_keypair()
     corrupt = sealing.seal_for("x", [public])[:120]
-    # Broad on purpose: the assertion below is about the TYPE, not the message.
-    with pytest.raises(Exception) as caught:
+    # Broad type on purpose: the assertion below is about the TYPE.
+    with pytest.raises(Exception, match="not an age v1 file") as caught:
         sealing.unseal_body(corrupt, private)
     assert not isinstance(caught.value, sealing.CannotDecrypt), (
         "the primitive now raises a CannotDecrypt subclass; _open_with_each's "

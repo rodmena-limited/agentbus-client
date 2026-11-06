@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -12,6 +12,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 from agentbus_client import _signing, sealing
 from agentbus_client._agefmt import bech32_decode, bech32_encode
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+VERIFY: Callable[[str, bytes, str], object] = _signing.verify
 
 RFC8032_SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
 RFC8032_PUBLIC = bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
@@ -154,13 +159,13 @@ def test_sign_matches_cryptography_directly() -> None:
 
 
 def test_verify_accepts_pinned_signature() -> None:
-    assert _signing.verify(PUBLIC, CANONICAL, CANONICAL_SIG) is None
-    assert _signing.verify(PUBLIC, b"", EMPTY_SIG) is None
+    assert VERIFY(PUBLIC, CANONICAL, CANONICAL_SIG) is None
+    assert VERIFY(PUBLIC, b"", EMPTY_SIG) is None
 
 
 def test_verify_accepts_signature_made_independently() -> None:
     raw = Ed25519PrivateKey.from_private_bytes(RFC8032_SEED).sign(CANONICAL)
-    assert _signing.verify(PUBLIC, CANONICAL, bech32_encode("absigv", raw)) is None
+    assert VERIFY(PUBLIC, CANONICAL, bech32_encode("absigv", raw)) is None
 
 
 @pytest.mark.parametrize(
@@ -191,7 +196,7 @@ def test_verify_rejects_signature_from_another_key() -> None:
     sig = _signing.sign(other_private, CANONICAL)
     with pytest.raises(_signing.BadSignatureError):
         _signing.verify(PUBLIC, CANONICAL, sig)
-    assert _signing.verify(other_public, CANONICAL, sig) is None
+    assert VERIFY(other_public, CANONICAL, sig) is None
 
 
 def test_verify_rejects_garbage_signature_as_bad_signature() -> None:
@@ -226,7 +231,7 @@ def test_generate_keypair_shape_and_consistency() -> None:
     assert len(bech32_decode(private.lower())) == 32
     assert len(bech32_decode(public)) == 32
     sig = _signing.sign(private, CANONICAL)
-    assert _signing.verify(public, CANONICAL, sig) is None
+    assert VERIFY(public, CANONICAL, sig) is None
 
 
 def test_generate_keypair_is_fresh_each_call() -> None:

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -17,6 +17,8 @@ from agentbus_client.cli._parser import build, parse_args, verbs
 
 if TYPE_CHECKING:
     import click
+
+    from agentbus_client.cli._app import Root
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
 ANSI = re.compile(r"\x1b\[")
@@ -33,6 +35,7 @@ def _cli(*argv: str, **env: str) -> subprocess.CompletedProcess[str]:
         text=True,
         env=environment,
         timeout=60,
+        check=False,
     )
 
 
@@ -81,7 +84,7 @@ def test_piped_output_carries_no_ansi() -> None:
 def test_a_terminal_does_get_colour(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_help, "styled", lambda stream: True)
     root, ctx = _context()
-    text = _help.overview(root, ctx)
+    text = _help.overview(cast("Root", root), ctx)
     assert ANSI.search(text)
     assert "send" in text
 

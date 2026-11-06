@@ -11,10 +11,14 @@ at session end. All from the exact source REG-8's threat model named.
 
 Sites fixed:
   hooks/claude_code.py:_wake_file            wake-{agent}.jsonl        WRITE (notify)
-  hooks/claude_code.py:_notify_error_file    notify-error-{agent}.json WRITE (record_notify_failure)
-  hooks/claude_code.py:_gate_degraded_file   gate-degraded-{agent}.json WRITE (record_gate_degraded) + READ (fast-fail circuit)
-  hooks/claude_code.py:_identity_claim_path  session-claim-{agent}.json WRITE (session-start) + DELETE (session-end)
-  rewake.py:_ledger_path                     rewake-seen-{agent}.txt    WRITE (touch + append) — passively reachable via the Stop-hook monitor on every turn
+  hooks/claude_code.py:_notify_error_file    notify-error-{agent}.json
+      WRITE (record_notify_failure)
+  hooks/claude_code.py:_gate_degraded_file   gate-degraded-{agent}.json
+      WRITE (record_gate_degraded) + READ (fast-fail circuit)
+  hooks/claude_code.py:_identity_claim_path  session-claim-{agent}.json
+      WRITE (session-start) + DELETE (session-end)
+  rewake.py:_ledger_path                     rewake-seen-{agent}.txt
+      WRITE (touch + append) — passively reachable via the Stop-hook monitor on every turn
 
 Also the session-end monitor state file (probable DELETE primitive per
 bikeroom) is now sanitized too.
@@ -111,7 +115,7 @@ def test_write_primitive_actually_lands_inside_config_dir(isolated_config: Any) 
     assert p.resolve().parent == isolated_config.resolve()
 
     # And nothing landed at /tmp/PWNED_state_traversal.jsonl.
-    assert not Path("/tmp/PWNED_state_traversal.jsonl").exists(), (
+    assert not Path("/tmp/PWNED_state_traversal.jsonl").exists(), (  # noqa: S108
         "state-file traversal payload wrote outside the config dir — REG-8c regression"
     )
 

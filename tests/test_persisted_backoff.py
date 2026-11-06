@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -34,6 +34,8 @@ from agentbus_client.watch import Watcher
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentbus_client.client import AgentBus
 
 
 class _FakeBus:
@@ -53,7 +55,9 @@ class _FakeBus:
 
 
 def _new_watcher(tmp_path: Path, cursor: int = 0) -> Watcher:
-    return Watcher(_FakeBus(), agent="test-agent", state_path=tmp_path / "state.json")
+    return Watcher(
+        cast("AgentBus", _FakeBus()), agent="test-agent", state_path=tmp_path / "state.json"
+    )
 
 
 # ------------------------------------------------------------- persist across restart
@@ -147,7 +151,7 @@ def test_sleep_delay_is_jittered_around_the_base_step(
     """+/-15% around the base step — deterministic when random.uniform is
     patched, so tests can pin the exact expected delay."""
     slept: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(time, "sleep", slept.append)
 
     # Force jitter to +15% for a predictable test — real prod uses uniform.
     monkeypatch.setattr(
@@ -180,7 +184,7 @@ def test_jitter_never_produces_a_negative_delay(
     """max(0.0, base + jitter) guards against a pathological jitter value
     that could underflow. Belt-and-braces."""
     slept: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(time, "sleep", slept.append)
     # Force absurd negative jitter — much larger than the base step could ever
     # trigger in real code, but the guard should hold.
     monkeypatch.setattr(watch_module.random, "uniform", lambda lo, hi: -1000.0)
@@ -199,7 +203,7 @@ def test_backoff_walks_persisted_ladder_across_restarts(
     reflects step 3 (the ladder is at index min(3, 5) = 3 → 10s), not
     step 0 (1s)."""
     slept: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(time, "sleep", slept.append)
     monkeypatch.setattr(time, "time", lambda: 1_700_000_000.0)
     # No jitter for a deterministic step check.
     monkeypatch.setattr(watch_module.random, "uniform", lambda lo, hi: 0.0)
@@ -233,7 +237,7 @@ def test_backoff_state_persisted_before_sleep_completes(
     saves = []
     real_save = Watcher._save_cursor
 
-    def tracking_save(self) -> None:
+    def tracking_save(self: Watcher) -> None:
         saves.append(self._failures)
         real_save(self)
 

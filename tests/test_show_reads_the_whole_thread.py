@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     import pytest
 
 
-def _thread(n_messages: int) -> dict:
+def _thread(n_messages: int) -> dict[str, Any]:
     """A thread whose thread_seq values are DELIBERATELY not positions.
 
     Two senders interleaved, exactly as a real exchange looks: 1, 2, 1.
@@ -54,21 +54,24 @@ def _thread(n_messages: int) -> dict:
 
 
 class FakeBus:
-    def __init__(self, delivery: dict, thread: dict) -> None:
+    def __init__(self, delivery: dict[str, Any], thread: dict[str, Any]) -> None:
         self._delivery = delivery
         self._thread = thread
         self.thread_calls: list[str] = []
 
-    def read(self, delivery_id: str, raw: bool = False) -> dict:
+    def read(self, delivery_id: str, *, raw: bool = False) -> dict[str, Any]:
         return self._delivery
 
-    def thread(self, thread_id: str) -> dict:
+    def thread(self, thread_id: str) -> dict[str, Any]:
         self.thread_calls.append(thread_id)
         return self._thread
 
 
 def _run_show(
-    monkeypatch: pytest.MonkeyPatch, delivery: dict, thread_data: dict, **flags: Any
+    monkeypatch: pytest.MonkeyPatch,
+    delivery: dict[str, Any],
+    thread_data: dict[str, Any],
+    **flags: Any,
 ) -> tuple[str, FakeBus]:
     bus = FakeBus(delivery, thread_data)
     monkeypatch.setattr(cli._common, "_bus", lambda _args: bus)
@@ -81,7 +84,7 @@ def _run_show(
     return buf.getvalue(), bus
 
 
-def _delivery(**over: Any) -> dict:
+def _delivery(**over: Any) -> dict[str, Any]:
     base = {
         "message_id": "msg_3",
         "thread_id": "th_1",

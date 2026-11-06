@@ -46,8 +46,9 @@ class _Spy:
 def _payload(**kwargs: Any) -> Any:
     bus = AgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
     spy = _Spy()
-    bus._request = spy
-    bus.register("a", **kwargs)
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(bus, "_request", spy)
+        bus.register("a", **kwargs)
     return spy.body
 
 
@@ -74,17 +75,17 @@ def test_none_and_empty_dict_are_not_the_same_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_async_twin_behaves_identically() -> None:
+async def test_the_async_twin_behaves_identically(monkeypatch: pytest.MonkeyPatch) -> None:
     """Parity, asserted rather than assumed — this pair has drifted before."""
     bus = AsyncAgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
-    captured = {}
+    captured: dict[str, Any] = {}
 
     async def spy(method: Any, path: Any, **kw: Any) -> dict[str, Any]:
         if "register" in path:
             captured["body"] = kw.get("json")
         return {"agent": {"name": "a", "labels": {}}, "address": "a@b", "rooms": []}
 
-    bus._request = spy
+    monkeypatch.setattr(bus, "_request", spy)
     await bus.register("a")
     assert "labels" not in captured["body"]
     await bus.register("a", labels={})

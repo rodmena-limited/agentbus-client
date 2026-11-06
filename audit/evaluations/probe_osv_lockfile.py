@@ -16,12 +16,12 @@ Exit 0 when the control is flagged and no lock entry has a known vulnerability.
 
 from __future__ import annotations
 
+import importlib
 import json
 import pathlib
 import urllib.request
 
-import tomllib
-
+tomllib = importlib.import_module("tomllib")
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OSV_BATCH = "https://api.osv.dev/v1/querybatch"
 CONTROL = ("jinja2", "2.10")
@@ -34,7 +34,7 @@ def _query(pins: list[tuple[str, str]]) -> list[list[str]]:
     req = urllib.request.Request(
         OSV_BATCH, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
         results = json.load(resp)["results"]
     if len(results) != len(pins):
         msg = f"OSV returned {len(results)} results for {len(pins)} queries"
@@ -57,11 +57,12 @@ def main() -> int:
     print(f"control {CONTROL[0]} {CONTROL[1]}: {len(control_hits)} known vulnerabilities")
     if not control_hits:
         print(
-            "SWEEP VOID: the known-vulnerable control came back clean, so a clean result below means nothing"
+            "SWEEP VOID: the known-vulnerable control came back clean, "
+            "so a clean result below means nothing"
         )
         return 2
 
-    dirty = [(n, v, ids) for (n, v), ids in zip(pins, lock_hits) if ids]
+    dirty = [(n, v, ids) for (n, v), ids in zip(pins, lock_hits, strict=True) if ids]
     print(f"lock entries checked: {len(pins)}")
     for n, v, ids in dirty:
         print(f"  VULNERABLE  {n} {v}: {', '.join(ids)}")

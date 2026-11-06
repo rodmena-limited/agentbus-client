@@ -4,13 +4,16 @@ import io
 import json
 import socket
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
 from agentbus_client.hooks import _gate
+
+if TYPE_CHECKING:
+    import argparse
 
 
 class _Conn:
@@ -160,7 +163,7 @@ def _run_real_probe(
         urls.append(request.full_url)
         return _Resp({"decision": "deny", "reason": "GUARD-DENY probe"})
 
-    monkeypatch.setattr(_gate.urllib.request, "urlopen", _urlopen)
+    monkeypatch.setattr("agentbus_client.hooks._gate.urllib.request.urlopen", _urlopen)
     monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_probe")
     monkeypatch.setenv("AGENTBUS_AGENT", "probe-agent")
     monkeypatch.setenv("AGENTBUS_BASE_URL", base)
@@ -170,7 +173,7 @@ def _run_real_probe(
     monkeypatch.setattr(
         sys, "stdin", io.StringIO('{"tool_name":"Bash","tool_input":{"command":"ls"}}')
     )
-    assert hk.pre_tool_use(None) == 0
+    assert hk.pre_tool_use(cast("argparse.Namespace", None)) == 0
     line = next(chunk for chunk in out if "hookSpecificOutput" in chunk)
     return dict(json.loads(line)["hookSpecificOutput"])
 

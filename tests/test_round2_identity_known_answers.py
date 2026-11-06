@@ -188,7 +188,7 @@ def test_git_remote_is_none_when_git_cannot_run(monkeypatch: pytest.MonkeyPatch)
         msg = "git"
         raise FileNotFoundError(msg)
 
-    monkeypatch.setattr(identity_mod.subprocess, "run", _boom)
+    monkeypatch.setattr("agentbus_client.identity.subprocess.run", _boom)
     assert identity_mod.git_remote("/w/proj") is None
 
 
@@ -200,7 +200,7 @@ def test_git_remote_is_bounded_by_a_timeout(monkeypatch: pytest.MonkeyPatch) -> 
         seen.update(kwargs)
         return subprocess.CompletedProcess(argv, 0, stdout="  u://x  \n", stderr="")
 
-    monkeypatch.setattr(identity_mod.subprocess, "run", _record)
+    monkeypatch.setattr("agentbus_client.identity.subprocess.run", _record)
     assert identity_mod.git_remote("/w/proj") == "u://x"
     assert seen["argv"] == ["git", "-C", "/w/proj", "remote", "get-url", "origin"]
     assert seen["timeout"] == 5

@@ -45,10 +45,10 @@ def test_lane_overwrite() -> None:
         cursor=None,
     )
 
-    captured_messages = []
+    captured_messages: list[dict[str, Any]] = []
 
     def fake_notify_command(cmd: Any) -> Any:
-        def handler(message: str) -> None:
+        def handler(message: dict[str, Any]) -> None:
             captured_messages.append(message)
 
         return handler
@@ -59,7 +59,7 @@ def test_lane_overwrite() -> None:
         ) -> None:
             self.handler = on_message
 
-        def run(self, once: bool = False) -> int:
+        def run(self, *, once: bool = False) -> int:
             # Simulate receiving a message from the server with the SENDER'S persona
             self.handler({"delivery_id": "123", "lane": "sender-persona"})
             return 0

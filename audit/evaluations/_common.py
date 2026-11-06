@@ -12,16 +12,16 @@ import socket
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
-SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or os.path.join(
-    os.path.dirname(__file__), "..", "..", "src"
-)
-sys.path.insert(0, os.path.abspath(SRC))
+SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or str(Path(__file__).parent / ".." / ".." / "src")
+sys.path.insert(0, str(Path(SRC).resolve()))
 
 
 def stalled_server() -> Any:
-    """Accepts TCP connections and NEVER answers (a blackholed/NAT-dropped bus). Keeps sockets alive."""
+    """Accepts TCP connections and NEVER answers (a blackholed/NAT-dropped bus).
+    Keeps sockets alive."""
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0))
     srv.listen(128)
@@ -51,9 +51,8 @@ def json_server(body: bytes) -> Any:
                 try:
                     c.recv(65536)
                     c.sendall(
-                        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n"
-                        % len(body)
-                        + body
+                        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        b"Content-Length: %d\r\nConnection: close\r\n\r\n" % len(body) + body
                     )
                     served.append(time.time())
                 finally:
@@ -65,6 +64,6 @@ def json_server(body: bytes) -> Any:
     return srv.getsockname()[1], served
 
 
-def verdict(ok: bool, fail_text: str) -> int:
+def verdict(ok: bool, fail_text: str) -> int:  # noqa: FBT001
     print("PASS" if ok else f"FAIL: {fail_text}")
     return 0 if ok else 1

@@ -52,7 +52,7 @@ def _is_integration(item: Any) -> bool:
     """
     try:
         return _HERE in Path(str(item.fspath)).resolve().parents
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 

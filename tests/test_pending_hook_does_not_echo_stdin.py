@@ -22,11 +22,14 @@ from __future__ import annotations
 import io
 import json
 from contextlib import redirect_stdout
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from agentbus_client.hooks import _turn
+from agentbus_client.hooks import _state, _turn
+
+if TYPE_CHECKING:
+    import argparse
 
 PAYLOAD = json.dumps(
     {
@@ -58,7 +61,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, payload: str) -> str:
     monkeypatch.setattr(_turn, "_resolve_agent", lambda: None)
     buf = io.StringIO()
     with redirect_stdout(buf):
-        _turn.pending(None)
+        _turn.pending(cast("argparse.Namespace", None))
     return buf.getvalue()
 
 
@@ -78,7 +81,7 @@ def test_a_harness_notification_exits_silently(monkeypatch: pytest.MonkeyPatch) 
     # test passed without ever entering the branch it named. A mutation
     # restoring the echo went GREEN against it.
     notif = "<task-notification>\n<task-id>abc</task-id>\n</task-notification>"
-    assert _turn._is_harness_notification(notif), "stimulus must reach the branch"
+    assert _state._is_harness_notification(notif), "stimulus must reach the branch"
     assert _run(monkeypatch, notif).strip() == ""
 
 
@@ -107,7 +110,7 @@ def test_the_hook_can_still_print_something(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr("agentbus_client.client.AgentBus", _Bus)
     buf = io.StringIO()
     with redirect_stdout(buf):
-        _turn.pending(None)
+        _turn.pending(cast("argparse.Namespace", None))
     printed = buf.getvalue()
     assert printed.strip(), "the notice channel must still be able to print"
     assert "transcript_path" not in printed

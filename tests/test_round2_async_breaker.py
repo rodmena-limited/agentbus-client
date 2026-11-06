@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
 from agentbus_client.client import resilience
+from agentbus_client.client._async_breaker import _AsyncCircuitBreaker
 from agentbus_client.client.async_client import AsyncAgentBus
 from agentbus_client.client.errors import TransportError
-from agentbus_client.client.resilience import _AsyncCircuitBreaker
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @pytest.fixture(autouse=True)
@@ -165,7 +168,7 @@ def test_release_probe_frees_the_slot() -> None:
     assert breaker.admit() is False
 
 
-def _bus_with(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> AsyncAgentBus:
+def _bus_with(monkeypatch: pytest.MonkeyPatch, request: Callable[..., Any]) -> AsyncAgentBus:
     bus = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
 
     class _Stub:
@@ -184,7 +187,7 @@ class _Ok:
     content = b'{"ok": true}'
     text = '{"ok": true}'
 
-    def json(self) -> dict:
+    def json(self) -> dict[str, Any]:
         return {"ok": True}
 
 

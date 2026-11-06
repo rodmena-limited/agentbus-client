@@ -5,13 +5,18 @@ import json
 import sys
 import time
 import urllib.error
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
 from agentbus_client.hooks import _gate
+
+if TYPE_CHECKING:
+    import argparse
+    from email.message import Message
+    from time import struct_time
 
 REAL_GMTIME = time.gmtime
 AGENT = "circuit-two"
@@ -25,7 +30,7 @@ class _Clock:
     def time(self) -> float:
         return self.now
 
-    def gmtime(self, secs: float | None = None) -> time.struct_time:
+    def gmtime(self, secs: float | None = None) -> struct_time:
         return REAL_GMTIME(self.now if secs is None else secs)
 
     def sleep(self, secs: float) -> None:
@@ -49,10 +54,12 @@ class _Resp:
 
 class HTTPError(urllib.error.HTTPError):
     def __init__(self, code: int, body: str) -> None:
-        super().__init__("https://bus.example/v1/guard/check", code, "x", None, None)
+        super().__init__(
+            "https://bus.example/v1/guard/check", code, "x", cast("Message[str, str]", None), None
+        )
         self._body = body
 
-    def read(self) -> bytes:
+    def read(self, n: int = -1) -> bytes:
         return self._body.encode()
 
 
@@ -75,7 +82,7 @@ def rig(monkeypatch: pytest.MonkeyPatch) -> tuple[_Clock, _Guard]:
     monkeypatch.setattr(time, "gmtime", clock.gmtime)
     monkeypatch.setattr(time, "sleep", clock.sleep)
     monkeypatch.setattr(_gate, "_bus_reachable", lambda *_a, **_k: (True, ""))
-    monkeypatch.setattr(_gate.urllib.request, "urlopen", guard.urlopen)
+    monkeypatch.setattr("agentbus_client.hooks._gate.urllib.request.urlopen", guard.urlopen)
     monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_circuit")
     monkeypatch.setenv("AGENTBUS_AGENT", AGENT)
     monkeypatch.setenv("AGENTBUS_BASE_URL", "https://bus.example")
@@ -104,7 +111,7 @@ def _call(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(
         sys, "stdin", io.StringIO('{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}')
     )
-    assert hk.pre_tool_use(None) == 0
+    assert hk.pre_tool_use(cast("argparse.Namespace", None)) == 0
     line = next(chunk for chunk in out if "hookSpecificOutput" in chunk)
     return dict(json.loads(line)["hookSpecificOutput"])
 
@@ -244,7 +251,7 @@ def test_cooldown_override_closes_the_circuit_sooner(
 
 @pytest.mark.parametrize(("elapsed", "probes"), [(29, False), (30, True)])
 def test_the_circuit_probes_once_exactly_the_cooldown_has_elapsed(
-    monkeypatch: pytest.MonkeyPatch, rig: tuple[_Clock, _Guard], elapsed: int, probes: bool
+    monkeypatch: pytest.MonkeyPatch, rig: tuple[_Clock, _Guard], elapsed: int, *, probes: bool
 ) -> None:
     clock, guard = rig
     _fail(monkeypatch, clock, 3)

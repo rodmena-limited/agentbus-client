@@ -28,13 +28,15 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentbus_client.client import AgentBus
 
 # ------------------------------------------------------- REG-8d traversal
 
@@ -120,7 +122,7 @@ def test_drain_lock_is_released_when_the_thread_cannot_start(tmp_path: Path) -> 
     process. Watcher alive, permanently deaf, watch-status says RUNNING."""
     from agentbus_client.watch import Watcher
 
-    w = Watcher(_Bus(), agent="a", state_path=tmp_path / "s.json")
+    w = Watcher(cast("AgentBus", _Bus()), agent="a", state_path=tmp_path / "s.json")
 
     with patch.object(threading, "Thread", side_effect=RuntimeError("can't start new thread")):
         w._drain_async()  # must not raise
@@ -136,7 +138,7 @@ def test_drain_lock_released_on_memory_error_too(tmp_path: Path) -> None:
     """Same guard, the other plausible failure under pressure."""
     from agentbus_client.watch import Watcher
 
-    w = Watcher(_Bus(), agent="a", state_path=tmp_path / "s.json")
+    w = Watcher(cast("AgentBus", _Bus()), agent="a", state_path=tmp_path / "s.json")
     with patch.object(threading, "Thread", side_effect=MemoryError()):
         w._drain_async()
     assert w._drain_lock.acquire(blocking=False)
@@ -157,10 +159,10 @@ def test_backoff_does_not_block_forever_on_an_in_flight_drain(
 
     monkeypatch.setattr(watch_module, "_DRAIN_LOCK_TIMEOUT_SECONDS", 0.1)
     slept: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(time, "sleep", slept.append)
     monkeypatch.setattr(watch_module.random, "uniform", lambda lo, hi: 0.0)
 
-    w = Watcher(_Bus(), agent="a", state_path=tmp_path / "s.json")
+    w = Watcher(cast("AgentBus", _Bus()), agent="a", state_path=tmp_path / "s.json")
     w._drain_lock.acquire()  # simulate a long in-flight background drain
     try:
         start = time.monotonic()

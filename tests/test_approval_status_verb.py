@@ -16,6 +16,8 @@ proceeds unauthorised.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agentbus_client.cli._forward import _print_reviewer_reasoning, _report_approval
@@ -28,7 +30,10 @@ from agentbus_client.cli._forward import _print_reviewer_reasoning, _report_appr
 LIVE_REJECTED_OUTCOME = {
     "status": "rejected",
     "feedback_for_agent": {
-        "message": "i rejected, but regardles, the goal is to see if you will wake up without user interaction.",
+        "message": (
+            "i rejected, but regardles, the goal is to see if you will wake up "
+            "without user interaction."
+        ),
         "reason_codes": ["OTHER"],
         "change_requests": [],
     },
@@ -37,7 +42,10 @@ LIVE_REJECTED_OUTCOME = {
         "reasons": [
             {
                 "code": "OTHER",
-                "text": "i rejected, but regardles, the goal is to see if you will wake up without user interaction.",
+                "text": (
+                    "i rejected, but regardles, the goal is to see if you will wake up "
+                    "without user interaction."
+                ),
                 "actor_id": "farshid@rodmena.co.uk",
             }
         ],
@@ -138,6 +146,7 @@ def test_absent_reasoning_says_so_rather_than_printing_nothing(
 
 
 def test_printer_tolerates_junk_without_raising(capsys: pytest.CaptureFixture[str]) -> None:
+    junk: Any
     for junk in (
         None,
         "a string",

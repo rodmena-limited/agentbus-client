@@ -19,7 +19,9 @@ from agentbus_client import cli
 from agentbus_client.client import AgentBusError, NotFoundError
 
 
-def _row(i: int, thread: str = "th_a", signed: bool = True, sealed: bool = True) -> dict:
+def _row(
+    i: int, thread: str = "th_a", *, signed: bool = True, sealed: bool = True
+) -> dict[str, Any]:
     return {
         "message_id": f"msg_{i}",
         "thread_id": thread,
@@ -36,16 +38,18 @@ class FakeBus:
     """Pages of /v1/sent, newest first, `page_size` rows per page."""
 
     def __init__(
-        self, rows: list[dict], page_size: int = 2, fail: AgentBusError | None = None
+        self, rows: list[dict[str, Any]], page_size: int = 2, fail: AgentBusError | None = None
     ) -> None:
         self.rows = rows
         self.page_size = page_size
         self.fail = fail
         self.agent = "me"
-        self.calls: list[dict] = []
+        self.calls: list[dict[str, Any]] = []
         self.unsealed: list[str] = []
 
-    def sent(self, *, limit: int, cursor: str | None = None, agent: str | None = None) -> dict:
+    def sent(
+        self, *, limit: int, cursor: str | None = None, agent: str | None = None
+    ) -> dict[str, Any]:
         self.calls.append({"limit": limit, "cursor": cursor})
         if self.fail:
             raise self.fail
@@ -58,7 +62,7 @@ class FakeBus:
             "cursor": str(nxt) if nxt < len(self.rows) else None,
         }
 
-    def unseal_message(self, message: dict) -> dict:
+    def unseal_message(self, message: dict[str, Any]) -> dict[str, Any]:
         self.unsealed.append(message["message_id"])
         message["text_body"] = "OPENED"
         return message
@@ -137,7 +141,7 @@ def test_since_as_duration_and_as_instant(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_since_rejects_garbage_locally() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="--since takes a duration such as 2h or 3d"):
         cli._sent._since_instant("last tuesday")
 
 

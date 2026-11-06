@@ -95,11 +95,10 @@ def test_real_verbs_are_not_intercepted(verb: Any) -> None:
     parser had stopped accepting real commands entirely.
     """
     parser = build_parser()
-    try:
+    with pytest.raises(SystemExit) as caught:
         parser.parse_args([verb, "--help"])
-    except SystemExit as exc:
-        # --help exits 0; an invalid-choice interception would exit 2
-        assert exc.code == 0, f"{verb} was intercepted as unknown"
+    # --help exits 0; an invalid-choice interception would exit 2
+    assert caught.value.code == 0, f"{verb} was intercepted as unknown"
 
 
 # --- #52: the fuzzy fallback must not invent a confident wrong answer --------

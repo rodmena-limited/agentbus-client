@@ -5,10 +5,11 @@ inside a 0700 directory, and read only by this process. Nothing in this module
 transmits it, and there is no server endpoint that would accept it — if either
 of those changes, the product has stopped being what it claims.
 
-The sealing itself is age v1, implemented in `agentbus.agefmt` on the server
-side and duplicated here so the client has no dependency on the server package.
-Both are checked against the real age(1) and against committed vectors it
-produced; see tests/test_age_format.py.
+The sealing is age v1, implemented in the server's `agentbus.agefmt` and copied
+to _agefmt.py so the client has no dependency on the server package. In this
+repo the copy is driven against the real age(1) by
+tests/test_round2_sealing_armor.py, which skips when age is not installed. The
+server's own age tests import only the server's module.
 
 WHY THE CLIENT SEALS RATHER THAN THE SERVER: if the server sealed, the server
 would have held the plaintext, and the whole claim collapses to "we promise we
@@ -31,9 +32,8 @@ from typing import TYPE_CHECKING
 # That made the implementation in use depend on whether the server happened to
 # be importable — so a developer checkout and a pip install could run different
 # code, and only one of them is what customers get. The SDK ships alone; it
-# uses its own copy always. tests/test_age_format.py fails the build if the two
-# files drift, which is the guard that makes one copy safe rather than two
-# implementations that agree by luck.
+# uses its own copy always. No test compares the two files, so a change to one
+# does not reach the other.
 from ._agefmt import (
     CannotDecrypt,
     fingerprint,

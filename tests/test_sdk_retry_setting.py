@@ -6,7 +6,7 @@ RuntimeError, and neither called the bus. A value that is not a whole number
 raised ValueError out of every call.
 
 Item 16: `_run_with_resilience` added the cancel flag to _INFLIGHT before it
-built the policies, so a setting that made them raise left the flag there.
+built the policies, so a failure while building them left the flag there.
 
 The twins are driven through their real `_request` with a stub HTTP transport.
 """
@@ -14,12 +14,13 @@ The twins are driven through their real `_request` with a stub HTTP transport.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 import pytest
 import resilient_circuit as rc
 
+from agentbus_client import _env_numbers
 from agentbus_client.client import (
     AgentBus,
     AsyncAgentBus,
@@ -40,7 +41,7 @@ def _fresh_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         resilience, "_ASYNC_CIRCUIT_BREAKER", _AsyncCircuitBreaker(failure_limit=99)
     )
-    monkeypatch.setattr(_repeat, "_REPORTED_RETRY_VALUES", set(), raising=False)
+    monkeypatch.setattr(_env_numbers, "_REPORTED", set())
     monkeypatch.delenv("AGENTBUS_SDK_RESILIENCE", raising=False)
     for name in (
         "AGENTBUS_SDK_MAX_CONCURRENT",
@@ -190,16 +191,18 @@ def test_a_good_value_says_nothing(
     assert capsys.readouterr().err == ""
 
 
-@pytest.mark.parametrize(
-    "name",
-    ["AGENTBUS_SDK_CB_FAILURE_LIMIT", "AGENTBUS_SDK_CB_COOLDOWN", "AGENTBUS_SDK_MAX_CONCURRENT"],
-)
-def test_a_setting_that_breaks_the_stack_leaves_nothing_in_flight(
-    name: str, monkeypatch: pytest.MonkeyPatch
+def _broken() -> NoReturn:
+    msg = "the stack could not be built"
+    raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize("builder", ["_sdk_safety_net", "_sdk_bulkhead"])
+def test_a_stack_that_cannot_be_built_leaves_nothing_in_flight(
+    builder: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(name, "abc")
+    monkeypatch.setattr(resilience, builder, _broken)
     for _ in range(3):
-        with pytest.raises(ValueError, match="invalid literal"):
+        with pytest.raises(RuntimeError, match="could not be built"):
             resilience._run_with_resilience(lambda: "never")
     assert len(resilience._INFLIGHT) == 0
 

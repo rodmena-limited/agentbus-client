@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import os
-import sys
+import httpx
+
+from agentbus_client._env_numbers import env_int, env_seconds
 
 from .errors import AgentBusError
 
 _SERVER_ERROR_FIRST = 500
 _SERVER_ERROR_LAST = 599
 _DEFAULT_MAX_RETRIES = 3
-_REPORTED_RETRY_VALUES: set[str] = set()
 
 
 def _is_server_error(exc: BaseException) -> bool:
@@ -25,28 +25,17 @@ def _unsafe_to_repeat(exc: BaseException, *, idempotent: bool) -> bool:
     return not idempotent and _is_server_error(exc)
 
 
-def _report_retry_value(raw: str, used: int) -> None:
-    if raw in _REPORTED_RETRY_VALUES:
-        return
-    _REPORTED_RETRY_VALUES.add(raw)
-    print(  # noqa: T201
-        f"agentbus: AGENTBUS_SDK_MAX_RETRIES={raw!r} is not a whole number of 0 or more. "
-        f"The client is using {used}. Set it to 0 or higher, or unset it for the default "
-        f"of {_DEFAULT_MAX_RETRIES}.",
-        file=sys.stderr,
-    )
-
-
 def _sdk_max_retries() -> int:
-    raw = os.environ.get("AGENTBUS_SDK_MAX_RETRIES")
-    if raw is None:
-        return _DEFAULT_MAX_RETRIES
-    try:
-        value = int(raw)
-    except ValueError:
-        _report_retry_value(raw, _DEFAULT_MAX_RETRIES)
-        return _DEFAULT_MAX_RETRIES
-    if value < 0:
-        _report_retry_value(raw, 0)
-        return 0
-    return value
+    return env_int("AGENTBUS_SDK_MAX_RETRIES", _DEFAULT_MAX_RETRIES, minimum=0, below=0)
+
+
+def _sdk_max_concurrent() -> int:
+    return env_int("AGENTBUS_SDK_MAX_CONCURRENT", 8)
+
+
+def _connection_limits() -> httpx.Limits:
+    return httpx.Limits(
+        max_connections=env_int("AGENTBUS_MAX_CONNECTIONS", 20),
+        max_keepalive_connections=env_int("AGENTBUS_MAX_KEEPALIVE_CONNECTIONS", 10, minimum=0),
+        keepalive_expiry=env_seconds("AGENTBUS_KEEPALIVE_EXPIRY", 30.0),
+    )

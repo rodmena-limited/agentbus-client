@@ -158,20 +158,28 @@ def _print_unread(unread: list[str], count: int) -> bool:
     return True
 
 
+def _stale_arrival(line: bytes) -> str | None:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        entry = json.loads(line)
+        text = (
+            f"  {entry.get('sender')}: {entry.get('subject')}"
+            f"  (agentbus show {entry.get('delivery_id')})"
+        )
+        return text.encode(encoding, "backslashreplace").decode(encoding)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _print_stale_wakes(wake: Path) -> bool:
     # Server unreachable: the capture file is the only signal there is.
     # Say what it is — possibly stale — and PRESERVE it, so the claim can
     # be reconciled against the server on the next successful run instead
     # of being destroyed by this one.
-    stale: list[str] = []
+    lines: list[bytes] = []
     with contextlib.suppress(Exception):
-        for line in wake.read_text().splitlines():
-            if line.strip():
-                entry = json.loads(line)
-                stale.append(
-                    f"  {entry.get('sender')}: {entry.get('subject')}"
-                    f"  (agentbus show {entry.get('delivery_id')})"
-                )
+        lines = wake.read_bytes().splitlines()
+    stale = [text for text in map(_stale_arrival, filter(bytes.strip, lines)) if text]
     if not stale:
         return False
     print(

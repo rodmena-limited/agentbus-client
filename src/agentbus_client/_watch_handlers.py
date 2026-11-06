@@ -21,6 +21,7 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING, Any
 
+from ._env_numbers import env_seconds
 from ._watch_exec import expand
 
 if TYPE_CHECKING:
@@ -135,7 +136,7 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
         # full minute PER message — 30 stacked messages = 30 minutes of no
         # arrival being announced. 5s is a snappy budget for "was this notified";
         # override with AGENTBUS_EXEC_TIMEOUT for genuinely slow commands.
-        _timeout = float(os.environ.get("AGENTBUS_EXEC_TIMEOUT", "5"))
+        _timeout = env_seconds("AGENTBUS_EXEC_TIMEOUT", 5.0, zero_allowed=False)
         try:
             subprocess.run(  # noqa: S602
                 command,

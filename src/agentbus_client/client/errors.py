@@ -88,9 +88,10 @@ def _raise_for(response: httpx.Response) -> None:
     if response.status_code < _HTTP_BAD_REQUEST:
         return
     try:
-        body = response.json()
+        parsed = response.json()
     except ValueError:
-        body = {}
+        parsed = None
+    body = parsed if isinstance(parsed, dict) else {}
     code = body.get("code", "error")
     detail = body.get("detail") or body.get("title") or response.text[:300]
     if response.status_code == _HTTP_TOO_MANY_REQUESTS:

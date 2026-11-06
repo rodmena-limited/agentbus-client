@@ -40,6 +40,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agentbus_client._env_numbers import LONGEST_SECONDS, env_int
+
 from ._identity import (
     _adopt_credential_for,
     _read_declared_agent,
@@ -231,8 +233,10 @@ def agy_stop(_args: object = None) -> int:
 
     from agentbus_client.onboarding._paths import AGY_WAKE_WINDOW_SEC
 
-    window = int(os.environ.get("AGENTBUS_REWAKE_WINDOW", str(AGY_WAKE_WINDOW_SEC)))
-    interval = max(1, int(os.environ.get("AGENTBUS_REWAKE_INTERVAL", "5")))
+    window = env_int(
+        "AGENTBUS_REWAKE_WINDOW", AGY_WAKE_WINDOW_SEC, minimum=0, maximum=LONGEST_SECONDS
+    )
+    interval = env_int("AGENTBUS_REWAKE_INTERVAL", 5, maximum=LONGEST_SECONDS, below=1)
     try:
         from agentbus_client.rewake import poll_for_fresh_mail
 

@@ -1,4 +1,4 @@
-"""#93 item 17: the opencode skill lives at opencode's path and is compared with its own flavour.
+"""#93 item 17, #94 item 10: the opencode skill has its own path, flavour and help text.
 
 The two harnesses used to share `~/.claude/skills/agentbus/SKILL.md`. `setup opencode` wrote
 the opencode flavour there and `skill_state` compared it with the Claude flavour, so a fresh
@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -217,3 +219,36 @@ def test_setup_claude_installs_the_claude_flavour_in_an_opencode_only_checkout(
     _claude_setup._setup_claude(argparse.Namespace(base_url="https://x"))
     assert host["claude"].read_bytes() == CLAUDE_BYTES
     assert not host["opencode"].exists()
+
+
+def _refresh_skill_help(home: Path) -> str:
+    source = Path(onboarding.__file__).parents[2]
+    done = subprocess.run(
+        [sys.executable, "-m", "agentbus_client.cli", "refresh-skill", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+        env={"HOME": str(home), "PATH": "/usr/bin:/bin", "PYTHONPATH": str(source)},
+    )
+    return " ".join(done.stdout.split())
+
+
+def test_the_refresh_skill_help_names_the_home_of_each_flavour(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each path in the rendered help is the directory that flavour is written to."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    text = _refresh_skill_help(tmp_path)
+    for harness in ("claude", "opencode"):
+        home = _skill._flavour(harness).path.parent
+        assert f"~/{home.relative_to(tmp_path)}/ for {harness}" in text
+
+
+def test_the_refresh_skill_help_does_not_send_every_harness_to_setup_claude(
+    tmp_path: Path,
+) -> None:
+    text = _refresh_skill_help(tmp_path)
+    assert "`agentbus setup claude`" not in text
+    assert "`agentbus setup` refuses" in text

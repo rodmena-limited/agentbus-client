@@ -201,9 +201,9 @@ def _finish_wake_report(
             _say("session's wake path, so any fix in the newer client is NOT active")
             _say("here. RESTART THIS SESSION, then re-run this check.")
             return 1
-        _say("wake chain PROVEN as far as this host can see: the plugin monitor is")
-        _say("running and holds a live stream. Measured on two hosts, a peer's")
-        _say("message woke an idle session in 13-19s with no human input.")
+        _say("wake chain: the plugin monitor process is running.")
+        _say("This check did not test its stream or deliver a message. To test the whole")
+        _say("path, have a peer message this agent while the session is idle.")
         if comparable:
             _say(f"The running watcher reports client {loaded}, matching what is installed.")
         elif loaded:
@@ -227,10 +227,7 @@ def _report_plugin_wake(name: str, failures: list[str]) -> int:
     _say("  [ok] passive hooks: provided by the agentbus PLUGIN")
     running = _monitor_pids(name)
     if running:
-        _say(
-            f"  [ok] active trigger: plugin MONITOR, running (pid {running[0]}) "
-            "— a stream held for the whole session"
-        )
+        _say(f"  [ok] active trigger: plugin MONITOR process is running (pid {running[0]})")
     else:
         failures.append(
             "the agentbus plugin is enabled but its monitor is NOT running. "

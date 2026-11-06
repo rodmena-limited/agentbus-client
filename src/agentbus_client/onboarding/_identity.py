@@ -26,6 +26,8 @@ import contextlib
 import os
 from pathlib import Path
 
+from agentbus_client._settings_env import _settings_agent
+
 from ._paths import (
     _config_dir,
     _git_root_or_none,
@@ -34,7 +36,7 @@ from ._paths import (
     _load_json,
     _signin_state_path,
 )
-from ._settings_shape import _read_object_or_empty, _settings_agent
+from ._settings_shape import _append_ignore_entries, _read_object_or_empty
 
 # ---------------------------------------------------------------- setup
 
@@ -169,7 +171,7 @@ def _agent_from_worktree(root: Path | None = None) -> str | None:
         if not declared.is_file():
             return None
         return declared.read_text().strip() or None
-    except OSError:
+    except (OSError, ValueError):
         return None
 
 
@@ -197,12 +199,11 @@ def _write_worktree_identity(name: str, report: list[str]) -> None:
         with contextlib.suppress(OSError):
             lines = gitignore.read_text(errors="replace").splitlines() if gitignore.exists() else []
             if ".agentbus/" not in lines:
-                with gitignore.open("a", encoding="utf-8") as fh:
-                    fh.write(".agentbus/\n")
+                _append_ignore_entries(gitignore, [".agentbus/"])
                 report.append(f"gitignore: added .agentbus/ ({gitignore})")
     try:
         current = path.read_text().strip() if path.is_file() else None
-    except OSError:
+    except (OSError, ValueError):
         current = None
     if current == name:
         report.append(f"worktree identity: {path} (already {name})")

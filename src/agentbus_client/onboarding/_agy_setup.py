@@ -32,6 +32,7 @@ WHAT MAKES THIS HARNESS DIFFERENT, and why each difference changed a decision:
 
 from __future__ import annotations
 
+import shlex
 import shutil
 from http import HTTPStatus
 from pathlib import Path
@@ -103,20 +104,19 @@ def _skill_note(base_url: str) -> str:
         index = resp.json()
         harnesses = set(index.get("harnesses") or [])
         aliases = index.get("aliases") or {}
-        served = aliases.get(_SKILL_HARNESS, _SKILL_HARNESS) in harnesses or (
-            _SKILL_HARNESS in harnesses
-        )
+        names = (_SKILL_HARNESS, aliases.get(_SKILL_HARNESS, _SKILL_HARNESS))
+        flavour = next((name for name in names if name in harnesses), None)
     except Exception as exc:  # noqa: BLE001
         return f"skill: NOT checked ({type(exc).__name__}) — not installing rather than guessing."
 
-    if not served:
+    existing = Path.home() / ".gemini" / "config" / "skills" / "agentbus" / "SKILL.md"
+    if flavour is None:
         # LEAD WITH WHAT THE OPERATOR HAS, NOT WITH WHAT WE DID NOT DO.
         # An earlier wording opened "skill: NOT installed", which reads as "you
         # have no skill" — and the operator who read it went looking for a
         # breakage that did not exist. Their global copy is present and agy
         # discovers it (verified: `agy -p "/skills"` lists agentbus first). The
         # only thing absent is an Antigravity-FLAVOURED variant on the server.
-        existing = Path.home() / ".gemini" / "config" / "skills" / "agentbus" / "SKILL.md"
         if existing.is_file():
             return (
                 f"skill: OK — agy already discovers your skill at {existing}, and nothing "
@@ -132,11 +132,13 @@ def _skill_note(base_url: str) -> str:
             "without it; the bus still works. This line re-checks the index on every "
             "run, so it will change by itself once it serves."
         )
+    url = f"{base_url}/skills/{flavour}.md"
+    command = f"curl -fsS --create-dirs -o {shlex.quote(str(existing))} {shlex.quote(url)}"
     return (
-        f"skill: SERVED — the server now carries a '{_SKILL_HARNESS}' flavour. Install it "
-        f"with `agentbus refresh-skill`; it belongs at "
-        f"~/.gemini/config/skills/agentbus/SKILL.md (back up your hand-maintained copy "
-        f"first — it is the Claude flavour)."
+        f"skill: SERVED — the server now carries a '{flavour}' flavour. Setup does not "
+        f"install it and `agentbus refresh-skill` does not write that path, so run "
+        f"`{command}`. Back up any copy already at {existing} first, because it is the "
+        f"Claude flavour."
     )
 
 

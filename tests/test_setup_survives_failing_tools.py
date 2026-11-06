@@ -1,4 +1,4 @@
-"""#93 items 9, 10: a tool or key file that fails mid-setup is reported, never a traceback."""
+"""#93 items 9, 10, #94 items 7, 12: a tool or key that fails mid-setup is reported plainly."""
 
 from __future__ import annotations
 
@@ -113,6 +113,7 @@ class _Bus:
     def __init__(self, *, encrypted: bool = True, agent: str = "alpha") -> None:
         self.agent = agent
         self.encrypted = encrypted
+        self.refuse_publish = False
         self.posted: list[str] = []
 
     def whoami(self) -> dict[str, Any]:
@@ -125,6 +126,9 @@ class _Bus:
         if method == "GET":
             return {"encrypted": self.encrypted}
         self.posted.append(path)
+        if self.refuse_publish:
+            msg = "publish refused"
+            raise RuntimeError(msg)
         return {"fingerprint": "fp"}
 
 
@@ -181,3 +185,109 @@ def test_an_unencrypted_workspace_needs_no_sealing_key(signin_box: dict[str, Any
     assert _signin.cmd_signin(_signin_args()) == 0
     assert signin_box["key_file"].exists()
     assert not sealing.key_path("alpha").exists()
+
+
+def _remove_then_add_fake(tmp_path: Path, *, remove_rc: int, add_rc: int) -> Path:
+    return _write_claude(
+        tmp_path,
+        "#!/bin/sh\n"
+        'echo "$@" >> "$FAKE_CLAUDE_LOG"\n'
+        'case "$1 $2" in\n'
+        '  "mcp get") echo "Local config"; exit 0;;\n'
+        f'  "mcp remove") exit {remove_rc};;\n'
+        f'  "mcp add") exit {add_rc};;\n'
+        "esac\n"
+        "exit 0\n",
+    )
+
+
+REMOVED_NOT_ADDED = (
+    "mcp: the old entry was removed and the new one could not be added, "
+    "so this project has no agentbus MCP entry right now"
+)
+
+
+def test_refresh_that_removed_the_entry_and_failed_to_add_says_the_entry_is_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _remove_then_add_fake(tmp_path, remove_rc=0, add_rc=1)
+    monkeypatch.setenv("FAKE_CLAUDE_LOG", str(tmp_path / "calls.log"))
+    report: list[str] = []
+    refreshed = _claude_setup._refresh_mcp_entry(str(fake), "https://x/mcp", "k", report)
+    assert refreshed is False
+    assert report == [REMOVED_NOT_ADDED]
+
+
+def test_wiring_writes_the_helper_when_refresh_lost_the_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _remove_then_add_fake(tmp_path, remove_rc=0, add_rc=1)
+    log = tmp_path / "calls.log"
+    monkeypatch.setenv("FAKE_CLAUDE_LOG", str(log))
+    monkeypatch.setattr("shutil.which", lambda name: str(fake))
+    monkeypatch.setattr(_claude_setup, "_agent_key", lambda name: "ab_sk_alpha")
+    monkeypatch.setattr(_claude_setup, "_keys_dir", lambda: tmp_path / "keys")
+    report: list[str] = []
+    _claude_setup._wire_mcp("alpha", "https://example.invalid", report)
+    helper = tmp_path / "keys" / "alpha-mcp-add.sh"
+    calls = log.read_text().splitlines()
+    assert [call.split()[:2] for call in calls] == [
+        ["mcp", "get"],
+        ["mcp", "remove"],
+        ["mcp", "add"],
+    ]
+    assert report == [REMOVED_NOT_ADDED, f"mcp: run once in the project, then restart: sh {helper}"]
+    assert stat.S_IMODE(helper.stat().st_mode) == 0o700
+    assert "Authorization: Bearer ab_sk_alpha" in helper.read_text()
+
+
+def test_wiring_writes_no_helper_when_the_refresh_succeeded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _remove_then_add_fake(tmp_path, remove_rc=0, add_rc=0)
+    monkeypatch.setenv("FAKE_CLAUDE_LOG", str(tmp_path / "calls.log"))
+    monkeypatch.setattr("shutil.which", lambda name: str(fake))
+    monkeypatch.setattr(_claude_setup, "_agent_key", lambda name: "ab_sk_alpha")
+    monkeypatch.setattr(_claude_setup, "_keys_dir", lambda: tmp_path / "keys")
+    report: list[str] = []
+    _claude_setup._wire_mcp("alpha", "https://example.invalid", report)
+    assert report == ["mcp: refreshed with the current key — restart the session to apply"]
+    assert not (tmp_path / "keys" / "alpha-mcp-add.sh").exists()
+
+
+def test_wiring_writes_no_helper_when_the_entry_is_still_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _remove_then_add_fake(tmp_path, remove_rc=1, add_rc=1)
+    monkeypatch.setenv("FAKE_CLAUDE_LOG", str(tmp_path / "calls.log"))
+    monkeypatch.setattr("shutil.which", lambda name: str(fake))
+    monkeypatch.setattr(_claude_setup, "_agent_key", lambda name: "ab_sk_alpha")
+    monkeypatch.setattr(_claude_setup, "_keys_dir", lambda: tmp_path / "keys")
+    report: list[str] = []
+    _claude_setup._wire_mcp("alpha", "https://example.invalid", report)
+    assert report == ["mcp: entry exists but could not be refreshed — restart and re-run setup"]
+    assert not (tmp_path / "keys" / "alpha-mcp-add.sh").exists()
+
+
+def test_a_public_key_the_server_refuses_fails_the_signin_and_keeps_the_credential(
+    signin_box: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    signin_box["bus"].refuse_publish = True
+    assert _signin.cmd_signin(_signin_args()) == 1
+    out = capsys.readouterr().out
+    assert "export AGENTBUS_API_KEY=ab_sk_alpha" in signin_box["key_file"].read_text()
+    assert signin_box["bus"].posted == ["/v1/agents/alpha/pubkey"]
+    assert "the public key could not be registered: publish refused" in out
+    assert "Run `agentbus signin <key>` again" in out
+    assert "sealing key ready" not in out
+
+
+def test_a_second_signin_after_the_server_recovers_exits_zero(
+    signin_box: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    signin_box["bus"].refuse_publish = True
+    assert _signin.cmd_signin(_signin_args()) == 1
+    signin_box["bus"].refuse_publish = False
+    assert _signin.cmd_signin(_signin_args()) == 0
+    assert signin_box["bus"].posted == ["/v1/agents/alpha/pubkey"] * 2
+    assert "sealing key ready" in capsys.readouterr().out

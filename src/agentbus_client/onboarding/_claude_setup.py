@@ -51,7 +51,7 @@ from ._paths import (
 )
 from ._plugin import INSTALL_COMMANDS, PLUGIN_ID, claude_settings_path, install_wake_plugin
 from ._provision import _provision_project_agent
-from ._settings_shape import _object_field
+from ._settings_shape import _append_ignore_entries, _object_field
 from ._signin import _sealing_publish_with_retry
 from ._skill import refresh_skill
 
@@ -77,9 +77,7 @@ def _ignore_identity_files(report: list[str]) -> None:
             entry for entry in (".claude/settings.local.json", ".agentbus/") if entry not in lines
         ]
         if added:
-            with gitignore.open("a", encoding="utf-8") as fh:
-                for entry in added:
-                    fh.write(f"{entry}\n")
+            _append_ignore_entries(gitignore, added)
             report.append(f"gitignore: added {', '.join(added)}")
     except OSError as exc:
         report.append(
@@ -265,7 +263,7 @@ def _has_project_mcp_entry(claude_bin: str) -> bool:
     return project_entry
 
 
-def _refresh_mcp_entry(claude_bin: str, mcp_url: str, key_for_mcp: str, report: list[str]) -> None:
+def _refresh_mcp_entry(claude_bin: str, mcp_url: str, key_for_mcp: str, report: list[str]) -> bool:
     # AN EXISTING ENTRY IS ONLY CORRECT IF ITS KEY IS CURRENT (#123).
     # After the workspace reset, a project's MCP entry still carried the
     # RETIRED agent's key; setup said "already configured" and every
@@ -274,12 +272,19 @@ def _refresh_mcp_entry(claude_bin: str, mcp_url: str, key_for_mcp: str, report: 
     # get` does not print headers, so the key cannot be compared in
     # place: remove and re-add with the CURRENT bound key. Idempotent,
     # cheap, and converges the entry on every setup run.
-    _run_claude([claude_bin, "mcp", "remove", "-s", "local", "agentbus"], timeout=60)
+    removed = _run_claude([claude_bin, "mcp", "remove", "-s", "local", "agentbus"], timeout=60)
     readd = _run_claude(_mcp_add_argv(claude_bin, mcp_url, key_for_mcp), timeout=120)
     if readd is not None and readd.returncode == 0:
         report.append("mcp: refreshed with the current key — restart the session to apply")
-    else:
-        report.append("mcp: entry exists but could not be refreshed — restart and re-run setup")
+        return True
+    if removed is not None and removed.returncode == 0:
+        report.append(
+            "mcp: the old entry was removed and the new one could not be added, "
+            "so this project has no agentbus MCP entry right now"
+        )
+        return False
+    report.append("mcp: entry exists but could not be refreshed — restart and re-run setup")
+    return True
 
 
 def _add_mcp_entry(claude_bin: str, mcp_url: str, key_for_mcp: str, report: list[str]) -> bool:
@@ -309,8 +314,7 @@ def _wire_mcp(name: str, base_url: str | None, report: list[str]) -> None:
     wired = False
     if claude_bin and key_for_mcp:
         if _has_project_mcp_entry(claude_bin):
-            _refresh_mcp_entry(claude_bin, mcp_url, key_for_mcp, report)
-            wired = True
+            wired = _refresh_mcp_entry(claude_bin, mcp_url, key_for_mcp, report)
         else:
             wired = _add_mcp_entry(claude_bin, mcp_url, key_for_mcp, report)
     if not wired and key_for_mcp:

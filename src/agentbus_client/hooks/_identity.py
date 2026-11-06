@@ -53,6 +53,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from agentbus_client._settings_env import _settings_agent
+
 
 def _resolve_agent() -> str | None:
     """The acting agent, or None — NEVER an invented one.
@@ -196,7 +198,7 @@ def _read_declared_agent(root: Path) -> str:
     with contextlib.suppress(OSError, ValueError):
         s = root / ".claude" / "settings.local.json"
         if s.exists():
-            return str((json.loads(s.read_text()).get("env") or {}).get("AGENTBUS_AGENT") or "")
+            return _settings_agent(json.loads(s.read_text())) or ""
     return ""
 
 

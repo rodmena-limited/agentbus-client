@@ -6,14 +6,17 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import click
 import pytest
 
 from agentbus_client import __version__
 from agentbus_client.cli import _help
 from agentbus_client.cli._app import BusArgument
 from agentbus_client.cli._parser import build, parse_args, verbs
+
+if TYPE_CHECKING:
+    import click
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
 ANSI = re.compile(r"\x1b\[")
@@ -42,7 +45,7 @@ def _context(verb: str | None = None) -> tuple[click.Command, click.Context]:
     return command, command.make_context(verb, [], parent=parent, resilient_parsing=True)
 
 
-def test_bare_agentbus_prints_the_overview_and_exits_0():
+def test_bare_agentbus_prints_the_overview_and_exits_0() -> None:
     result = _cli()
     assert result.returncode == 0, result.stderr
     assert "Send mail:" in result.stdout
@@ -50,7 +53,7 @@ def test_bare_agentbus_prints_the_overview_and_exits_0():
     assert result.stderr == ""
 
 
-def test_every_verb_is_in_the_overview_exactly_once():
+def test_every_verb_is_in_the_overview_exactly_once() -> None:
     out = _cli().stdout
     rows = Counter(m.group(1) for line in out.splitlines() if (m := ROW.match(line)))
     assert set(rows) == set(verbs()) - set(_help.DEPRECATED)
@@ -59,14 +62,14 @@ def test_every_verb_is_in_the_overview_exactly_once():
     assert all(name in footer for name in _help.DEPRECATED)
 
 
-def test_the_overview_fits_its_budget():
+def test_the_overview_fits_its_budget() -> None:
     out = _cli().stdout
     assert len(out.splitlines()) <= 85
     assert len(_help.SECTIONS) <= 9
     assert [(v, s) for _, rows in _help.SECTIONS for v, s in rows if len(s) > 60] == []
 
 
-def test_piped_output_carries_no_ansi():
+def test_piped_output_carries_no_ansi() -> None:
     result = _cli()
     assert result.stdout
     assert not ANSI.search(result.stdout)
@@ -75,7 +78,7 @@ def test_piped_output_carries_no_ansi():
     assert not ANSI.search(error.stderr)
 
 
-def test_a_terminal_does_get_colour(monkeypatch):
+def test_a_terminal_does_get_colour(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_help, "styled", lambda stream: True)
     root, ctx = _context()
     text = _help.overview(root, ctx)
@@ -83,7 +86,7 @@ def test_a_terminal_does_get_colour(monkeypatch):
     assert "send" in text
 
 
-def test_no_color_turns_styling_off_even_on_a_terminal(monkeypatch):
+def test_no_color_turns_styling_off_even_on_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     class Tty:
         def isatty(self) -> bool:
             return True
@@ -94,7 +97,7 @@ def test_no_color_turns_styling_off_even_on_a_terminal(monkeypatch):
     assert _help.styled(Tty()) is False
 
 
-def test_a_missing_argument_is_a_short_error_not_a_wall():
+def test_a_missing_argument_is_a_short_error_not_a_wall() -> None:
     result = _cli("send")
     lines = result.stderr.strip().splitlines()
     assert result.returncode == 2
@@ -104,24 +107,24 @@ def test_a_missing_argument_is_a_short_error_not_a_wall():
     assert result.stdout == ""
 
 
-def test_an_unknown_option_is_named_in_a_short_error():
+def test_an_unknown_option_is_named_in_a_short_error() -> None:
     result = _cli("inbox", "--bogus")
     assert result.returncode == 2
     assert "--bogus" in result.stderr
     assert len(result.stderr.strip().splitlines()) <= 6
 
 
-def test_a_bad_value_exits_2_and_names_the_option():
+def test_a_bad_value_exits_2_and_names_the_option() -> None:
     result = _cli("inbox", "--limit", "notanumber")
     assert result.returncode == 2
     assert "--limit" in result.stderr
 
 
-def test_keys_without_a_subcommand_is_a_usage_error():
+def test_keys_without_a_subcommand_is_a_usage_error() -> None:
     assert _cli("keys").returncode == 2
 
 
-def test_verb_help_shows_argument_help_and_options():
+def test_verb_help_shows_argument_help_and_options() -> None:
     found = None
     for name, command in sorted(build().commands.items()):
         for param in command.params:
@@ -138,13 +141,13 @@ def test_verb_help_shows_argument_help_and_options():
     assert "Options" in result.stdout
 
 
-def test_version_prints_the_client_version():
+def test_version_prints_the_client_version() -> None:
     result = _cli("--version")
     assert result.returncode == 0
     assert result.stdout.strip() == f"agentbus {__version__}"
 
 
-def test_a_terminal_render_has_no_trailing_padding(monkeypatch):
+def test_a_terminal_render_has_no_trailing_padding(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_help, "styled", lambda stream: True)
     command, ctx = _context("send")
     text = _help.verb_help(command, ctx)
@@ -153,7 +156,7 @@ def test_a_terminal_render_has_no_trailing_padding(monkeypatch):
     assert padded == []
 
 
-def test_rendering_help_in_process_leaves_h_working():
+def test_rendering_help_in_process_leaves_h_working() -> None:
     command, ctx = _context("send")
     _help.verb_help(command, ctx)
     with pytest.raises(SystemExit) as exit_info:

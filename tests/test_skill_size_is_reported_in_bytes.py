@@ -18,9 +18,14 @@ of verifying it teaches the reader to distrust the check.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import pytest
 
 from agentbus_client.onboarding import _skill
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Deliberately multi-byte: this is what the served skill is made of.
 BODY = "# AgentBus — the skill\n" + ("an em-dash — and an arrow →\n" * 60)
@@ -34,13 +39,13 @@ class _Resp:
 
 
 @pytest.fixture
-def home(tmp_path, monkeypatch):
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(_skill.Path, "home", staticmethod(lambda: tmp_path))
     return tmp_path
 
 
-def _install(monkeypatch, body: str):
+def _install(monkeypatch: pytest.MonkeyPatch, body: str) -> Any:
     # `httpx` is imported INSIDE refresh_skill, so patch the library itself
     # rather than a module attribute that does not exist until call time.
     import httpx
@@ -49,7 +54,9 @@ def _install(monkeypatch, body: str):
     return _skill.refresh_skill()
 
 
-def test_the_reported_size_matches_the_bytes_on_disk(home, monkeypatch):
+def test_the_reported_size_matches_the_bytes_on_disk(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE REGRESSION: the number must equal what `wc -c` would say."""
     _state, detail = _install(monkeypatch, BODY)
     on_disk = (home / ".claude" / "skills" / "agentbus" / "SKILL.md").stat().st_size
@@ -57,7 +64,9 @@ def test_the_reported_size_matches_the_bytes_on_disk(home, monkeypatch):
     assert reported == on_disk, f"reported {reported}, file is {on_disk}"
 
 
-def test_the_number_differs_from_the_character_count(home, monkeypatch):
+def test_the_number_differs_from_the_character_count(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """KNOWN-POSITIVE for the fixture itself.
 
     If the body were pure ASCII, characters and bytes would agree and the test
@@ -70,13 +79,17 @@ def test_the_number_differs_from_the_character_count(home, monkeypatch):
     assert reported == len(BODY.encode("utf-8"))
 
 
-def test_a_suspiciously_small_body_is_still_refused(home, monkeypatch):
+def test_a_suspiciously_small_body_is_still_refused(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-negative: the guard must survive the unit change."""
     state, _detail = _install(monkeypatch, "tiny")
     assert state == "unreachable"
 
 
-def test_an_unchanged_skill_reports_the_same_unit(home, monkeypatch):
+def test_an_unchanged_skill_reports_the_same_unit(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _install(monkeypatch, BODY)
     state, detail = _install(monkeypatch, BODY)
     assert state == "current"

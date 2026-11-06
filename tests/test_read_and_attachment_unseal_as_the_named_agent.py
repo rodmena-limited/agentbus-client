@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 import pytest
 
@@ -10,7 +12,7 @@ BASE = "https://bus.unseal.test"
 TARGET = "target-agent-1"
 
 
-def _bus(handler, agent: str | None) -> AgentBus:  # type: ignore[no-untyped-def]
+def _bus(handler: Any, agent: str | None) -> AgentBus:  # type: ignore[no-untyped-def]
     bus = AgentBus(api_key="ab_sk_unseal", base_url=BASE, agent=agent)
     bus._client.close()
     bus._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=BASE)

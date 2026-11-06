@@ -185,7 +185,8 @@ def test_git_remote_is_none_without_origin_or_outside_a_repo(
 
 def test_git_remote_is_none_when_git_cannot_run(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*args: object, **kwargs: object) -> None:
-        raise FileNotFoundError("git")
+        msg = "git"
+        raise FileNotFoundError(msg)
 
     monkeypatch.setattr(identity_mod.subprocess, "run", _boom)
     assert identity_mod.git_remote("/w/proj") is None

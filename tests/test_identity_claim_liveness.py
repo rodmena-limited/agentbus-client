@@ -27,11 +27,14 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
+
+from typing import NoReturn
 
 from agentbus_client.hooks import claude_code
 
@@ -41,7 +44,7 @@ GONE = "37fce55e-0000-0000-0000-000000000000"
 
 
 @pytest.fixture
-def claim(tmp_path, monkeypatch):
+def claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Redirect the claim file into a tmp dir and pin our session id."""
     monkeypatch.setenv("AGENTBUS_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", OURS)
@@ -55,7 +58,9 @@ def _write_claim(path: Path, session: str, age_seconds: float = 5.0) -> None:
     path.write_text(json.dumps({"session": session, "at": time.time() - age_seconds}))
 
 
-def test_exited_session_does_not_raise_a_collision_alarm(claim, capsys, monkeypatch):
+def test_exited_session_does_not_raise_a_collision_alarm(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The #126 fix: a fresh claim from a DEAD session must stay silent.
 
     Stubs `_monitor_pids` — which exists on BOTH sides of this change — rather
@@ -79,7 +84,9 @@ def test_exited_session_does_not_raise_a_collision_alarm(claim, capsys, monkeypa
     )
 
 
-def test_live_holder_still_alarms(claim, capsys, monkeypatch):
+def test_live_holder_still_alarms(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE KNOWN-POSITIVE. Without this, the test above passes on a build that
     never warns at all — which would delete the guard rather than fix it."""
     _write_claim(claim, GONE, age_seconds=5.0)
@@ -93,7 +100,7 @@ def test_live_holder_still_alarms(claim, capsys, monkeypatch):
     assert "read/ack state is shared" in out
 
 
-def test_liveness_is_actually_consulted(claim, monkeypatch):
+def test_liveness_is_actually_consulted(claim: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Assert the check is CALLED with the right pair, not merely defined.
 
     A guard that computes liveness and ignores it would pass both tests above if
@@ -114,12 +121,15 @@ def test_liveness_is_actually_consulted(claim, monkeypatch):
     )
 
 
-def test_our_own_prior_claim_is_never_a_collision(claim, capsys, monkeypatch):
+def test_our_own_prior_claim_is_never_a_collision(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Re-running in the same session is a no-op, and must not consult liveness."""
     _write_claim(claim, OURS, age_seconds=5.0)
 
     def _boom(_agent: str, _session: str) -> bool:
-        raise AssertionError("liveness checked for our own session id")
+        msg = "liveness checked for our own session id"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(claude_code._session, "_identity_held_live", _boom)
     claude_code._warn_if_identity_shared(AGENT)
@@ -127,7 +137,7 @@ def test_our_own_prior_claim_is_never_a_collision(claim, capsys, monkeypatch):
     assert capsys.readouterr().out == ""
 
 
-def test_claim_is_taken_over_after_a_stale_one(claim, monkeypatch):
+def test_claim_is_taken_over_after_a_stale_one(claim: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Silence is not enough — the stale record must be replaced by ours."""
     _write_claim(claim, GONE, age_seconds=5.0)
     monkeypatch.setattr(claude_code._session, "_identity_held_live", lambda _a, _s: False)
@@ -137,19 +147,24 @@ def test_claim_is_taken_over_after_a_stale_one(claim, monkeypatch):
     assert json.loads(claim.read_text())["session"] == OURS
 
 
-def test_liveness_helper_fails_closed_on_a_broken_process_table(monkeypatch):
+def test_liveness_helper_fails_closed_on_a_broken_process_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An unreadable `ps` must not manufacture an alarm about a session we could
     not look for. Absence of evidence is reported as 'not held', deliberately."""
 
-    def _explode(*_a, **_k):
-        raise OSError("ps unavailable")
+    def _explode(*_a: Any, **_k: Any) -> NoReturn:
+        msg = "ps unavailable"
+        raise OSError(msg)
 
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", _explode)
 
     assert claude_code._identity_held_live(AGENT, GONE) is False
 
 
-def test_liveness_helper_reports_true_when_a_watcher_exists(monkeypatch):
+def test_liveness_helper_reports_true_when_a_watcher_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Known-positive for the helper itself, so its False is meaningful."""
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", lambda _a, **_k: ["4242"])
 
@@ -173,7 +188,9 @@ def test_liveness_helper_reports_true_when_a_watcher_exists(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_unverified_claim_says_so_instead_of_going_silent(claim, capsys, monkeypatch):
+def test_unverified_claim_says_so_instead_of_going_silent(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """No monitor found must NOT be reported as no collision."""
     _write_claim(claim, GONE, age_seconds=5.0)
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", lambda _a, **_k: [])
@@ -191,7 +208,9 @@ def test_unverified_claim_says_so_instead_of_going_silent(claim, capsys, monkeyp
     assert "watch-status" in out
 
 
-def test_verified_holder_says_the_liveness_was_verified(claim, capsys, monkeypatch):
+def test_verified_holder_says_the_liveness_was_verified(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The loud tier must distinguish itself as MEASURED, not inferred."""
     _write_claim(claim, GONE, age_seconds=5.0)
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", lambda _a, **_k: ["67474"])
@@ -200,11 +219,14 @@ def test_verified_holder_says_the_liveness_was_verified(claim, capsys, monkeypat
 
     out = capsys.readouterr().out
     assert "ANOTHER SESSION IS ALREADY" in out
-    assert "FOUND" in out and "verified, not inferred" in out
+    assert "FOUND" in out
+    assert "verified, not inferred" in out
     assert "LIVENESS NOT VERIFIED" not in out
 
 
-def test_the_two_tiers_are_never_both_emitted(claim, capsys, monkeypatch):
+def test_the_two_tiers_are_never_both_emitted(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """One arrival at this code, one voice."""
     _write_claim(claim, GONE, age_seconds=5.0)
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", lambda _a, **_k: ["67474"])
@@ -216,7 +238,9 @@ def test_the_two_tiers_are_never_both_emitted(claim, capsys, monkeypatch):
 
 
 @pytest.mark.usefixtures("claim")  # needed for its tmp-dir/session setup, value unused
-def test_still_silent_when_there_is_no_claim_at_all(capsys, monkeypatch):
+def test_still_silent_when_there_is_no_claim_at_all(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The soft tier must not become a startup banner. No claim, no line."""
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", lambda _a, **_k: [])
 
@@ -225,7 +249,9 @@ def test_still_silent_when_there_is_no_claim_at_all(capsys, monkeypatch):
     assert capsys.readouterr().out == ""
 
 
-def test_still_silent_for_our_own_claim_without_a_monitor(claim, capsys, monkeypatch):
+def test_still_silent_for_our_own_claim_without_a_monitor(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Re-running in the same session must not report itself as a maybe-collision."""
     _write_claim(claim, OURS, age_seconds=5.0)
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", lambda _a, **_k: [])
@@ -235,7 +261,9 @@ def test_still_silent_for_our_own_claim_without_a_monitor(claim, capsys, monkeyp
     assert capsys.readouterr().out == ""
 
 
-def test_a_stale_claim_beyond_the_window_stays_silent(claim, capsys, monkeypatch):
+def test_a_stale_claim_beyond_the_window_stays_silent(
+    claim: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Yesterday's residue is not news; the 12h window still bounds the notice."""
     _write_claim(claim, GONE, age_seconds=43200 + 60)
     monkeypatch.setattr("agentbus_client.onboarding._monitor_pids", lambda _a, **_k: [])

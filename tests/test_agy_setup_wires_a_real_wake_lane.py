@@ -28,15 +28,19 @@ import argparse
 import io
 import json
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
 from agentbus_client import onboarding
 from agentbus_client.onboarding import _agy_plugin, _agy_setup, _paths, _provision
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 @pytest.fixture
-def wired(tmp_path, monkeypatch):
+def wired(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """A git repo, a provisioned agent, and an isolated global config root."""
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
@@ -60,7 +64,7 @@ def wired(tmp_path, monkeypatch):
     return repo
 
 
-def _run_setup(monkeypatch) -> str:
+def _run_setup(monkeypatch: pytest.MonkeyPatch) -> str:
     args = argparse.Namespace(harness="agy", base_url=None, role=None, persona=None)
     buf = io.StringIO()
     with redirect_stdout(buf):
@@ -69,7 +73,7 @@ def _run_setup(monkeypatch) -> str:
     return buf.getvalue()
 
 
-def test_setup_writes_a_plugin_with_both_lanes(wired, monkeypatch):
+def test_setup_writes_a_plugin_with_both_lanes(wired: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     out = _run_setup(monkeypatch)
     plugin = _paths.agy_plugin_dir()
 
@@ -81,7 +85,9 @@ def test_setup_writes_a_plugin_with_both_lanes(wired, monkeypatch):
     assert "setup agy" in out
 
 
-def test_the_gate_is_absent_and_the_report_says_why(wired, monkeypatch):
+def test_the_gate_is_absent_and_the_report_says_why(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Not `enabled: false` — absent. A disabled block pointing at an
     unimplemented subcommand is a trap for whoever flips it."""
     out = _run_setup(monkeypatch)
@@ -91,7 +97,9 @@ def test_the_gate_is_absent_and_the_report_says_why(wired, monkeypatch):
     assert "fail CLOSED" in out
 
 
-def test_the_report_does_not_promise_a_claude_shaped_wake(wired, monkeypatch):
+def test_the_report_does_not_promise_a_claude_shaped_wake(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """agy hooks BLOCK the loop. An operator told they have Claude's 540s idle
     hold has been promised something this host cannot do."""
     out = _run_setup(monkeypatch)
@@ -99,7 +107,9 @@ def test_the_report_does_not_promise_a_claude_shaped_wake(wired, monkeypatch):
     assert "agentbus service" in out, "must name what DOES give always-on reachability"
 
 
-def test_the_report_says_the_plugin_is_machine_wide(wired, monkeypatch):
+def test_the_report_says_the_plugin_is_machine_wide(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """It is installed outside the repo and fires for every agy session, so an
     operator who thinks it is project-scoped has the wrong mental model."""
     out = _run_setup(monkeypatch)
@@ -107,7 +117,7 @@ def test_the_report_says_the_plugin_is_machine_wide(wired, monkeypatch):
     assert "workspacePaths" in out, "must explain how it stays per-project anyway"
 
 
-def test_setup_writes_no_credential_anywhere(wired, monkeypatch):
+def test_setup_writes_no_credential_anywhere(wired: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A machine-wide plugin holds exactly ONE bearer key, so writing one would
     make every checkout on this box act as this project's agent — the
     global-only identity asymmetry that gets `codex` refused."""
@@ -121,14 +131,16 @@ def test_setup_writes_no_credential_anywhere(wired, monkeypatch):
     assert "agy mcp add" in out, "must still tell the operator how to opt in"
 
 
-def test_setup_puts_nothing_of_ours_in_the_repo(wired, monkeypatch):
+def test_setup_puts_nothing_of_ours_in_the_repo(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The plugin lives outside the checkout, so there is no in-repo secret and
     nothing new to gitignore beyond the identity file the shared step handles."""
     _run_setup(monkeypatch)
     assert not (wired / ".agents").exists()
 
 
-def test_the_mcp_shape_matches_what_agy_itself_writes():
+def test_the_mcp_shape_matches_what_agy_itself_writes() -> None:
     """Derived by running `agy mcp add --header` into a throwaway HOME, not read
     from the docs — the embedded MCP schema omits `headers` entirely, so a
     docs-derived file would be wrong-shaped and fail silently as 'no tools'.
@@ -142,7 +154,7 @@ def test_the_mcp_shape_matches_what_agy_itself_writes():
     assert server["serverUrl"] == "https://x.test/mcp/"
 
 
-def test_setup_is_idempotent(wired, monkeypatch):
+def test_setup_is_idempotent(wired: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     _run_setup(monkeypatch)
     plugin = _paths.agy_plugin_dir()
     before = {p.name: p.read_bytes() for p in plugin.iterdir() if p.is_file()}
@@ -152,7 +164,9 @@ def test_setup_is_idempotent(wired, monkeypatch):
     assert "(current" in out or "already" in out
 
 
-def test_a_per_checkout_teardown_leaves_the_machine_plugin_alone(wired, monkeypatch):
+def test_a_per_checkout_teardown_leaves_the_machine_plugin_alone(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Removing it because ONE checkout opted out would silently unwire every
     other project on the machine — the same rule the Claude lane follows for its
     machine-wide entries in ~/.claude/settings.json."""
@@ -166,7 +180,7 @@ def test_a_per_checkout_teardown_leaves_the_machine_plugin_alone(wired, monkeypa
     assert plugin.is_dir(), "a per-checkout teardown must not remove machine-wide wiring"
 
 
-def test_teardown_machine_does_remove_it(wired, monkeypatch):
+def test_teardown_machine_does_remove_it(wired: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE TWIN: without it, the test above passes just as well
     against a teardown that can never remove the plugin at all."""
     _run_setup(monkeypatch)
@@ -184,7 +198,7 @@ def _foreign() -> dict:
     return {"team-linter": {"PostToolUse": [{"matcher": "*", "hooks": [{"command": "./lint.sh"}]}]}}
 
 
-def test_a_foreign_hook_survives_byte_for_byte():
+def test_a_foreign_hook_survives_byte_for_byte() -> None:
     existing = _foreign()
     original = json.dumps(existing, sort_keys=True)
     merged, state = _agy_plugin.ensure_hooks(existing, _agy_plugin.hooks_config("/bin/hook"))
@@ -193,7 +207,7 @@ def test_a_foreign_hook_survives_byte_for_byte():
     assert "agentbus-wake" in merged
 
 
-def test_re_running_the_merge_is_a_no_op():
+def test_re_running_the_merge_is_a_no_op() -> None:
     desired = _agy_plugin.hooks_config("/bin/hook")
     merged, _ = _agy_plugin.ensure_hooks(_foreign(), desired)
     again, state = _agy_plugin.ensure_hooks(merged, desired)
@@ -201,16 +215,17 @@ def test_re_running_the_merge_is_a_no_op():
     assert again == merged
 
 
-def test_removal_takes_only_ours():
+def test_removal_takes_only_ours() -> None:
     """Recognition must survive the binary being installed under another name —
     the command embeds an absolute path, so the SUBCOMMAND is the durable half
     of the marker."""
     merged, _ = _agy_plugin.ensure_hooks(_foreign(), _agy_plugin.hooks_config("/opt/x/renamed"))
     remaining, changed = _agy_plugin.remove_hooks(merged)
-    assert changed and set(remaining) == {"team-linter"}
+    assert changed
+    assert set(remaining) == {"team-linter"}
 
 
-def test_an_empty_hooks_file_is_not_malformed(tmp_path):
+def test_an_empty_hooks_file_is_not_malformed(tmp_path: Path) -> None:
     """Empty means 'nothing configured' for a file we merge into. This machine
     has a zero-byte ~/.gemini/config/mcp_config.json, so the case is real."""
     p = tmp_path / "hooks.json"
@@ -218,7 +233,7 @@ def test_an_empty_hooks_file_is_not_malformed(tmp_path):
     assert _agy_plugin.load_hooks(p) == {}
 
 
-def test_a_corrupt_hooks_file_refuses_rather_than_clobbering(tmp_path):
+def test_a_corrupt_hooks_file_refuses_rather_than_clobbering(tmp_path: Path) -> None:
     p = tmp_path / "hooks.json"
     p.write_text("{ this is not json")
     with pytest.raises(SystemExit):
@@ -228,7 +243,9 @@ def test_a_corrupt_hooks_file_refuses_rather_than_clobbering(tmp_path):
 # ------------------------------------------------------------- the dispatch
 
 
-def test_the_agy_refusal_is_gone_but_codex_still_refuses(monkeypatch, tmp_path):
+def test_the_agy_refusal_is_gone_but_codex_still_refuses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """We corrected ONE stale claim. codex's blockers were never re-checked, so
     assuming they expired too would be exactly the same mistake in reverse."""
     monkeypatch.chdir(tmp_path)
@@ -241,7 +258,7 @@ def test_the_agy_refusal_is_gone_but_codex_still_refuses(monkeypatch, tmp_path):
     assert "refused" in buf.getvalue()
 
 
-def test_antigravity_is_accepted_as_an_alias():
+def test_antigravity_is_accepted_as_an_alias() -> None:
     from agentbus_client.onboarding import canonical_harness
 
     assert canonical_harness("antigravity") == "agy"
@@ -250,7 +267,7 @@ def test_antigravity_is_accepted_as_an_alias():
     assert "antigravity" not in onboarding.HARNESSES, "an alias, never a second entry"
 
 
-def test_the_window_stays_under_the_hook_timeout():
+def test_the_window_stays_under_the_hook_timeout() -> None:
     """The one-number invariant, mirroring REWAKE_WINDOW_SEC/HOOK_TIMEOUT. A
     window at or above the timeout means the harness kills the poll before it
     finishes — a monitor that cannot monitor."""
@@ -262,28 +279,30 @@ def test_the_window_stays_under_the_hook_timeout():
 
 
 class _Resp:
-    def __init__(self, status, payload=None):
+    def __init__(self, status: int, payload: Any = None) -> None:
         self.status_code = status
         self._payload = payload or {}
 
-    def json(self):
+    def json(self) -> Any:
         return self._payload
 
 
-def _index(monkeypatch, resp):
+def _index(monkeypatch: pytest.MonkeyPatch, resp: Any) -> None:
     import httpx
 
     monkeypatch.setattr(httpx, "get", lambda *a, **k: resp)
 
 
-def test_the_skill_note_reports_served_when_the_index_lists_it(monkeypatch):
+def test_the_skill_note_reports_served_when_the_index_lists_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """THE REGRESSION THIS REPLACES: the note used to assert '/skills/antigravity.md
     is 404'. True when written, and it would have kept saying so forever."""
     _index(monkeypatch, _Resp(200, {"harnesses": ["claude-code", "antigravity"], "aliases": {}}))
     assert "SERVED" in _agy_setup._skill_note("https://x.test")
 
 
-def _index_without_antigravity(monkeypatch):
+def _index_without_antigravity(monkeypatch: pytest.MonkeyPatch) -> None:
     """The index exactly as the server really serves it today."""
     _index(
         monkeypatch,
@@ -293,7 +312,9 @@ def _index_without_antigravity(monkeypatch):
     )
 
 
-def test_an_existing_skill_is_reported_as_OK_not_as_missing(monkeypatch, tmp_path):
+def test_an_existing_skill_is_reported_as_OK_not_as_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """THE WORDING REGRESSION, and it alarmed a real operator.
 
     The line used to open "skill: NOT installed", which reads as "you have no
@@ -313,7 +334,9 @@ def test_an_existing_skill_is_reported_as_OK_not_as_missing(monkeypatch, tmp_pat
     assert "NOT installed" not in note
 
 
-def test_with_no_skill_at_all_it_says_so_without_alarm(monkeypatch, tmp_path):
+def test_with_no_skill_at_all_it_says_so_without_alarm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """KNOWN-POSITIVE TWIN: the OK branch must not fire when there is genuinely
     nothing there, or the message becomes a lie in the other direction."""
     _index_without_antigravity(monkeypatch)
@@ -322,7 +345,7 @@ def test_with_no_skill_at_all_it_says_so_without_alarm(monkeypatch, tmp_path):
     assert "the bus still works" in note, "absence of a skill is not a breakage"
 
 
-def test_an_alias_in_the_index_counts_as_served(monkeypatch):
+def test_an_alias_in_the_index_counts_as_served(monkeypatch: pytest.MonkeyPatch) -> None:
     """Their canonical name is `antigravity`; `agy` is an alias they publish."""
     _index(
         monkeypatch,
@@ -331,12 +354,13 @@ def test_an_alias_in_the_index_counts_as_served(monkeypatch):
     assert "SERVED" in _agy_setup._skill_note("https://x.test")
 
 
-def test_an_unreachable_index_installs_nothing_and_says_so(monkeypatch):
+def test_an_unreachable_index_installs_nothing_and_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
     """Absence of an answer is not an answer. Never guess in either direction."""
     import httpx
 
-    def boom(*a, **k):
-        raise httpx.ConnectError("down")
+    def boom(*a: Any, **k: Any) -> NoReturn:
+        msg = "down"
+        raise httpx.ConnectError(msg)
 
     monkeypatch.setattr(httpx, "get", boom)
     assert "NOT checked" in _agy_setup._skill_note("https://x.test")
@@ -347,7 +371,9 @@ def test_an_unreachable_index_installs_nothing_and_says_so(monkeypatch):
 # ------------------------------------------- the shared-identity warning
 
 
-def test_a_checkout_already_wired_for_claude_gets_the_shared_identity_warning(wired, monkeypatch):
+def test_a_checkout_already_wired_for_claude_gets_the_shared_identity_warning(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Reported by the server team with field evidence the same day: read/ack
     state belongs to the AGENT, not the connection, so two live hosts on one
     identity hide messages from each other."""
@@ -358,7 +384,9 @@ def test_a_checkout_already_wired_for_claude_gets_the_shared_identity_warning(wi
     assert "worktree" in out, "must name the fix, not just the hazard"
 
 
-def test_a_single_harness_checkout_gets_no_such_warning(wired, monkeypatch):
+def test_a_single_harness_checkout_gets_no_such_warning(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """KNOWN-POSITIVE TWIN: a warning printed unconditionally teaches nothing."""
     out = _run_setup(monkeypatch)
     assert "SAME agent" not in out
@@ -367,7 +395,9 @@ def test_a_single_harness_checkout_gets_no_such_warning(wired, monkeypatch):
 # ------------------------------------------- the sealing key (#189)
 
 
-def test_setup_publishes_the_sealing_key_on_an_encrypted_workspace(wired, monkeypatch):
+def test_setup_publishes_the_sealing_key_on_an_encrypted_workspace(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE FIELD BUG. The first version of this module omitted the publish step.
     An agent with no published pubkey cannot be WRITTEN TO on an encrypted
     workspace — senders get "cannot seal: these recipients have published no
@@ -376,10 +406,10 @@ def test_setup_publishes_the_sealing_key_on_an_encrypted_workspace(wired, monkey
     published: list[tuple] = []
 
     class _Bus:
-        def __init__(self, **kw):
+        def __init__(self, **kw: Any) -> None:
             pass
 
-        def _request(self, *a, **k):
+        def _request(self, *a: Any, **k: Any) -> dict[str, Any]:
             return {"encrypted": True}
 
     monkeypatch.setattr(_agy_setup, "AgentBus", _Bus)
@@ -389,37 +419,41 @@ def test_setup_publishes_the_sealing_key_on_an_encrypted_workspace(wired, monkey
         lambda bus, agent, pub: published.append((agent, pub)) or {"fingerprint": "fp123"},
     )
     out = _run_setup(monkeypatch)
-    assert published and published[0][0] == "alpha"
+    assert published
+    assert published[0][0] == "alpha"
     assert "registered as fp123" in out
 
 
-def test_a_failed_publish_is_loud_not_a_soft_line(wired, monkeypatch):
+def test_a_failed_publish_is_loud_not_a_soft_line(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An operator who does not read the whole report must still catch this:
     the agent is registered and unreachable."""
 
     class _Bus:
-        def __init__(self, **kw):
+        def __init__(self, **kw: Any) -> None:
             pass
 
-        def _request(self, *a, **k):
+        def _request(self, *a: Any, **k: Any) -> dict[str, Any]:
             return {"encrypted": True}
 
     monkeypatch.setattr(_agy_setup, "AgentBus", _Bus)
     monkeypatch.setattr(_agy_setup, "_sealing_publish_with_retry", lambda *a: None)
     out = _run_setup(monkeypatch)
-    assert "!!!" in out and "CANNOT seal" in out
+    assert "!!!" in out
+    assert "CANNOT seal" in out
     assert "agentbus keys rotate" in out, "must name the recovery command"
 
 
-def test_an_unencrypted_workspace_needs_no_key(wired, monkeypatch):
+def test_an_unencrypted_workspace_needs_no_key(wired: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE TWIN: without it, the tests above pass against a setup
     that publishes unconditionally and wastes a round trip everywhere."""
 
     class _Bus:
-        def __init__(self, **kw):
+        def __init__(self, **kw: Any) -> None:
             pass
 
-        def _request(self, *a, **k):
+        def _request(self, *a: Any, **k: Any) -> dict[str, Any]:
             return {"encrypted": False}
 
     monkeypatch.setattr(_agy_setup, "AgentBus", _Bus)

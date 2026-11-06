@@ -26,9 +26,8 @@ VERBATIM = _Verbatim()
 
 def _check_agent_name(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
     if value is not None and not AGENT_NAME.match(value):
-        raise click.BadParameter(
-            "agent names use only letters, digits, '.', '_' and '-'", ctx=ctx, param=param
-        )
+        msg = "agent names use only letters, digits, '.', '_' and '-'"
+        raise click.BadParameter(msg, ctx=ctx, param=param)
     return value
 
 
@@ -97,7 +96,8 @@ class Verb(click.Command):
             given = [n for n in group if ctx.params.get(n)]
             if len(given) > 1:
                 flags = " and ".join("--" + n.replace("_", "-") for n in given)
-                raise click.UsageError(f"{flags} cannot be used together.", ctx)
+                msg = f"{flags} cannot be used together."
+                raise click.UsageError(msg, ctx)
         return rest
 
     def invoke(self, ctx: click.Context) -> argparse.Namespace:

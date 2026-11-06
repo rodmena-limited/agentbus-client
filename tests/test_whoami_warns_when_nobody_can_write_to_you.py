@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from typing import Any
 
 import pytest
 
@@ -30,20 +31,20 @@ from agentbus_client import cli
 
 
 class _Bus:
-    def __init__(self, payload, agent="alpha"):
+    def __init__(self, payload: Any, agent: str = "alpha") -> None:
         self.payload = payload
         self.agent = agent
 
-    def whoami(self):
+    def whoami(self) -> dict[str, Any]:
         return {"workspace": {"slug": "w"}, "agent": {"name": self.agent}}
 
-    def _request(self, method, path, **kw):
+    def _request(self, method: Any, path: Any, **kw: Any) -> Any:
         if isinstance(self.payload, Exception):
             raise self.payload
         return self.payload
 
 
-def _run(monkeypatch, bus) -> str:
+def _run(monkeypatch: pytest.MonkeyPatch, bus: Any) -> str:
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     args = argparse.Namespace(json=False, agent=None, api_key=None, base_url=None, qr=False)
     buf = io.StringIO()
@@ -52,31 +53,33 @@ def _run(monkeypatch, bus) -> str:
     return buf.getvalue()
 
 
-def _keys(*rows):
+def _keys(*rows: Any) -> dict[str, Any]:
     return {"encrypted": True, "keys": list(rows)}
 
 
-def test_an_agent_with_no_sealing_key_is_told_it_is_unreachable(monkeypatch):
+def test_an_agent_with_no_sealing_key_is_told_it_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     out = _run(monkeypatch, _Bus(_keys({"agent": "someone-else", "algorithm": "age-x25519"})))
     assert "UNREACHABLE" in out
     assert "NO peer can send you" in out
     assert "agentbus signin" in out, "must name the remedy, not just the problem"
 
 
-def test_an_agent_with_a_sealing_key_gets_no_warning(monkeypatch):
+def test_an_agent_with_a_sealing_key_gets_no_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE TWIN. A warning on every whoami teaches nothing."""
     out = _run(monkeypatch, _Bus(_keys({"agent": "alpha", "algorithm": "age-x25519"})))
     assert "UNREACHABLE" not in out
 
 
-def test_a_signing_key_does_not_count_as_a_sealing_key(monkeypatch):
+def test_a_signing_key_does_not_count_as_a_sealing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE DISCRIMINATOR. 15 of the 83 keys on the real workspace are ed25519;
     counting 'has a published key' would call the broken agent clean."""
     out = _run(monkeypatch, _Bus(_keys({"agent": "alpha", "algorithm": "ed25519"})))
     assert "UNREACHABLE" in out, "an ed25519 signing key cannot open a sealed body"
 
 
-def test_a_revoked_sealing_key_does_not_count(monkeypatch):
+def test_a_revoked_sealing_key_does_not_count(monkeypatch: pytest.MonkeyPatch) -> None:
     out = _run(
         monkeypatch,
         _Bus(
@@ -92,13 +95,13 @@ def test_a_revoked_sealing_key_does_not_count(monkeypatch):
     assert "UNREACHABLE" in out
 
 
-def test_an_unencrypted_workspace_is_never_warned(monkeypatch):
+def test_an_unencrypted_workspace_is_never_warned(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sealing is not required there, so the warning would be a lie."""
     out = _run(monkeypatch, _Bus({"encrypted": False, "keys": []}))
     assert "UNREACHABLE" not in out
 
 
-def test_a_failed_lookup_claims_nothing_either_way(monkeypatch):
+def test_a_failed_lookup_claims_nothing_either_way(monkeypatch: pytest.MonkeyPatch) -> None:
     """Absence of an answer is not an answer: whoami must still work, and must
     not assert reachability it did not verify."""
     out = _run(monkeypatch, _Bus(RuntimeError("bus down")))
@@ -107,12 +110,12 @@ def test_a_failed_lookup_claims_nothing_either_way(monkeypatch):
 
 
 @pytest.mark.parametrize("name", ["", "(no acting agent)"])
-def test_no_acting_agent_is_not_warned(monkeypatch, name):
+def test_no_acting_agent_is_not_warned(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     out = _run(monkeypatch, _Bus(_keys(), agent=name))
     assert "UNREACHABLE" not in out
 
 
-def test_a_future_age_algorithm_is_not_assumed_to_seal(monkeypatch):
+def test_a_future_age_algorithm_is_not_assumed_to_seal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Raised by the server team: the client used a PREFIX match
     (startswith("age")) while the server matches SEAL_ALGORITHM exactly.
 
@@ -131,7 +134,7 @@ def test_a_future_age_algorithm_is_not_assumed_to_seal(monkeypatch):
     )
 
 
-def test_the_real_seal_algorithm_still_counts(monkeypatch):
+def test_the_real_seal_algorithm_still_counts(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE TWIN: tightening to an exact match must not break the
     algorithm that actually seals."""
     from agentbus_client.cli._directory import SEAL_ALGORITHM

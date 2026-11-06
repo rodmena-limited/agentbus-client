@@ -21,20 +21,26 @@ Two invariants this file pins:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from agentbus_client import onboarding
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class _BusRecording:
     """Records every _request call so tests can assert on retry count + ordering."""
 
-    def __init__(self, responses):
+    def __init__(self, responses: Any) -> None:
         self._responses = list(responses)
         self.calls: list[tuple] = []
 
-    def _request(self, method, path, json=None, **kw):
+    def _request(self, method: Any, path: Any, json: Any = None, **kw: Any) -> Any:
         self.calls.append((method, path, json))
         if not self._responses:
-            raise RuntimeError("_request called more times than test scripted")
+            msg = "_request called more times than test scripted"
+            raise RuntimeError(msg)
         next_resp = self._responses.pop(0)
         if isinstance(next_resp, Exception):
             raise next_resp
@@ -44,7 +50,7 @@ class _BusRecording:
 # ------------------------------------------------------------- retry helper
 
 
-def test_first_attempt_succeeds_no_sleep(monkeypatch):
+def test_first_attempt_succeeds_no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     """Common case: the pubkey publish works first time. No backoff on the
     hot path is the whole point of `delays = (0.0, ...)` in the helper."""
     slept: list[float] = []
@@ -62,7 +68,9 @@ def test_first_attempt_succeeds_no_sleep(monkeypatch):
     assert slept == [0.0] or slept == []
 
 
-def test_raise_once_then_succeed_retries_and_returns_result(monkeypatch):
+def test_raise_once_then_succeed_retries_and_returns_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The exact backend #243 propagation-lag shape: attempt 0 fails, attempt
     1 succeeds."""
     monkeypatch.setattr("time.sleep", lambda s: None)  # skip real waits
@@ -79,7 +87,7 @@ def test_raise_once_then_succeed_retries_and_returns_result(monkeypatch):
     assert len(bus.calls) == 2  # one retry
 
 
-def test_three_failures_return_none_never_raise(monkeypatch):
+def test_three_failures_return_none_never_raise(monkeypatch: pytest.MonkeyPatch) -> None:
     """The whole point of the helper is that setup keeps running with a
     visible warning instead of crashing. None is the signal to the caller."""
     monkeypatch.setattr("time.sleep", lambda s: None)
@@ -96,7 +104,7 @@ def test_three_failures_return_none_never_raise(monkeypatch):
     assert len(bus.calls) == 3
 
 
-def test_backoff_delays_grow(monkeypatch):
+def test_backoff_delays_grow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sanity: retry 1 waits longer than retry 0. Prevents someone
     setting all delays to 0.0 in a refactor and turning the retry into a
     tight loop that hammers a struggling server."""
@@ -113,7 +121,9 @@ def test_backoff_delays_grow(monkeypatch):
     assert non_zero[1] > non_zero[0]
 
 
-def test_helper_survives_final_failure_being_a_different_exception_shape(monkeypatch):
+def test_helper_survives_final_failure_being_a_different_exception_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A ConnectionError, an AgentBusError with .status=502, an OSError —
     every transient shape must be retried, and every terminal shape must
     result in None rather than a raise up the stack."""
@@ -130,7 +140,7 @@ def test_helper_survives_final_failure_being_a_different_exception_shape(monkeyp
 # ------------------------------------------------------------- loud message
 
 
-def test_report_line_on_publish_failure_is_loud_enough_to_notice():
+def test_report_line_on_publish_failure_is_loud_enough_to_notice() -> None:
     """Golden-string check: the report line the setup path writes when the
     publish helper returns None must contain a visible marker (something
     stronger than a soft 'NOT REGISTERED') and name an actionable recovery

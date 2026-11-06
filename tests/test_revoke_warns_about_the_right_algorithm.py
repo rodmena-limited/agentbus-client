@@ -29,11 +29,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
-from typing import Any
-
-import pytest
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class _Bus:
@@ -129,7 +130,8 @@ def test_an_unknown_fingerprint_claims_nothing_about_either_algorithm(
 
     out = _revoke(_Bus(), "cccccccccccccccc")
 
-    assert "not in" in out and "published sealing or signing keys" in out
+    assert "not in" in out
+    assert "published sealing or signing keys" in out
     for claim in ("sealing NEW mail", "ALREADY unreadable", "stop being able"):
         assert claim not in out, f"unknown-algorithm revoke still claims {claim!r}"
 

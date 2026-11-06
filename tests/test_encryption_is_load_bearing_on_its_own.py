@@ -27,12 +27,15 @@ would still mean something on the day the access control does not.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from agentbus_client import sealing
 from agentbus_client.sealing import CannotDecrypt
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 MARKER = "ISOLATION-MARKER-7Q4X"
 

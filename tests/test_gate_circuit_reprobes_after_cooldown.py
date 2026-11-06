@@ -8,6 +8,7 @@ import urllib.error
 from typing import Any
 
 import pytest
+from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
 
@@ -33,10 +34,10 @@ class _Resp:
     def read(self) -> bytes:
         return json.dumps(self._payload).encode()
 
-    def __enter__(self) -> _Resp:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *a: Any) -> None:
+    def __exit__(self, *a: object) -> None:
         pass
 
 

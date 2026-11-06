@@ -3,13 +3,16 @@ from __future__ import annotations
 import io
 import json
 import sys
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
 from agentbus_client.hooks import _gate
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _Resp:
@@ -20,10 +23,10 @@ class _Resp:
     def read(self) -> bytes:
         return self._raw
 
-    def __enter__(self) -> _Resp:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *a: Any) -> None:
+    def __exit__(self, *a: object) -> None:
         pass
 
 

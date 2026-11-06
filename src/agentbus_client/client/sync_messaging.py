@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from .. import sealing
+from agentbus_client import sealing
+
 from ._body_guard import _refuse_empty_body
 from ._reply_guard import _refuse_self_reply
 from .attachments import _encode_attachments
@@ -15,6 +15,8 @@ from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from collections.abc import Iterator, Sequence
+
     from ._mixin_base import SyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
     _MixinBase = object
@@ -256,9 +258,8 @@ class SyncMessagingMixin(_MixinBase):
                 yield delivery
             if batch and cursor <= before:
                 # Progress guard (issuedb #29): never re-fetch the same page forever.
-                raise AgentBusError(
-                    f"inbox page of {len(batch)} did not advance the cursor past {before}"
-                )
+                msg = f"inbox page of {len(batch)} did not advance the cursor past {before}"
+                raise AgentBusError(msg)
 
     def read(self, delivery_id: str, agent: str | None = None, raw: bool = False) -> dict[str, Any]:
         """Read one delivery, unsealing it when this machine holds the key.
@@ -348,7 +349,8 @@ class SyncMessagingMixin(_MixinBase):
         """
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         if state is None:
             result: dict[str, Any] = self._request(
                 "GET", f"/v1/agents/{target}/availability", agent=target
@@ -380,7 +382,8 @@ class SyncMessagingMixin(_MixinBase):
         """
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         result: dict[str, Any] = self._request(
             "POST",
             f"/v1/agents/{target}/busy",
@@ -467,11 +470,12 @@ class SyncMessagingMixin(_MixinBase):
         # escape an SDK caller that catches AgentBusError.
         acting = agent or self.agent
         if not acting:
-            raise AgentBusError(
+            msg = (
                 "cannot seal: this workspace is encrypted but no acting agent "
                 "is set. A sealing key belongs to ONE agent, so the client "
                 "needs agent=... or AGENTBUS_AGENT to know whose key to seal to."
             )
+            raise AgentBusError(msg)
         _private, own_public = sealing.ensure_keypair(acting)
         sealed = dict(payload)
         sealed["text"] = sealing.seal_for(payload["text"], [own_public])

@@ -34,12 +34,13 @@ import argparse
 import contextlib
 import inspect
 import io
-from typing import Any
-
-import pytest
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
 from agentbus_client.client import AgentBusError
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class _Bus:
@@ -65,7 +66,8 @@ class _Bus:
     def attachment(self, _delivery_id: str, index: int = 0) -> bytes:
         self.fetched.append(index)
         if index == self.failing_index:
-            raise AgentBusError("sealed to keys this machine does not hold")
+            msg = "sealed to keys this machine does not hold"
+            raise AgentBusError(msg)
         return f"CONTENT-{index}".encode()
 
     def send(self, **kw: Any) -> dict[str, Any]:

@@ -22,11 +22,11 @@ hosts, in one night:
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import os
 import stat
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ._agy_setup import _setup_agy, teardown_agy_machine
 from ._claude_setup import _setup_claude
@@ -43,6 +43,9 @@ from ._paths import (
     canonical_harness,
 )
 from ._provision import _provision_project_agent
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _setup_opencode(args: argparse.Namespace) -> int:

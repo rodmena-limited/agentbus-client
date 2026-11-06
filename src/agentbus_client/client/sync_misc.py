@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
+from agentbus_client._timefmt import _as_instant, _duration_seconds, _expiry_instant
+
 from .errors import AgentBusError
 from .sync_verify import SyncVerifyMixin
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from collections.abc import Sequence
+
     from ._mixin_base import SyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
     _MixinBase = object
@@ -53,7 +55,8 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         """
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         params: dict[str, Any] = {}
         if limit is not None:
             params["limit"] = limit
@@ -94,7 +97,8 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         """
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         result: dict[str, Any] = self._request(
             "PUT", f"/v1/rooms/{room}/schema", json={"schema": schema}, agent=target
         )
@@ -104,7 +108,8 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         """Join a room, so its broadcasts reach this agent."""
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         result: dict[str, Any] = self._request("POST", f"/v1/rooms/{room}/join", agent=target)
         return result
 
@@ -194,13 +199,15 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         # the whole create. Refused here with the reason rather than passed
         # through to become a confusing server error.
         if repeat_until is not None:
-            raise ValueError(
+            msg = (
                 "repeat_until is not accepted by the server yet — a recurring "
                 "reminder currently has no end date. Track it and cancel with "
                 "cancel_remind(), or omit it."
             )
+            raise ValueError(msg)
         if delay is not None and at is not None:
-            raise ValueError("pass delay OR at, not both — they say the same thing two ways")
+            msg = "pass delay OR at, not both — they say the same thing two ways"
+            raise ValueError(msg)
         body: dict[str, Any] = {"subject": subject, "text": text}
         if target:
             body["target"] = target
@@ -352,11 +359,12 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         # a body that does not carry an age header.
         opened = self.unseal_message({"text_body": draft.get("text_body") or draft.get("text")})
         if opened.get("sealed_unreadable"):
-            raise AgentBusError(
+            msg = (
                 "cannot send this draft: its stored body is sealed to a key this "
                 f"machine does not hold ({opened['sealed_unreadable']}). Send it "
                 "from the machine that wrote it."
             )
+            raise AgentBusError(msg)
 
         payload: dict[str, Any] = {
             "text": opened.get("text_body"),

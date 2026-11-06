@@ -24,38 +24,46 @@ peer suspected) lands here first.
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 
 class _CapturingBus:
     """Records the labels dict that got POST'd to the server."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tag_called_with: dict[str, str] | None = None
         self.register_called_with: dict[str, str] | None = None
         self.agent = "test-agent"
 
-    def tag(self, set_labels, remove, agent=None):
+    def tag(self, set_labels: Any, remove: Any, agent: Any = None) -> dict[str, Any]:
         self.tag_called_with = set_labels
         return {"labels": set_labels, "count": len(set_labels), "limit": 50}
 
-    def register(self, name, **kw):
+    def register(self, name: str, **kw: Any) -> dict[str, Any]:
         self.register_called_with = kw.get("labels") or {}
         return {"agent": {"name": name or "test-agent"}}
 
     # required by cmd_register post-register wiring; make it a no-op
-    def whoami(self, agent=None):
+    def whoami(self, agent: Any = None) -> dict[str, Any]:
         return {"agent": {"name": "test-agent", "labels": {}}}
 
 
-def _tag_args(*positional, remove=None, agent=None, json=False):
+def _tag_args(
+    *positional: Any, remove: Any = None, agent: Any = None, json: bool = False
+) -> argparse.Namespace:
     return argparse.Namespace(
         set=list(positional), remove=list(remove or []), agent=agent, json=json
     )
 
 
-def _register_args(**over):
+def _register_args(**over: Any) -> argparse.Namespace:
     base = {
         "name": "test-agent",
         "role": None,
@@ -75,21 +83,23 @@ def _register_args(**over):
 # ------------------------------------------------------------- cmd_tag parse
 
 
-def test_namespaced_key_no_value_stores_as_key_only(monkeypatch):
+def test_namespaced_key_no_value_stores_as_key_only(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _CapturingBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     cli.cmd_tag(_tag_args("skill:playwright"))
     assert bus.tag_called_with == {"skill:playwright": ""}
 
 
-def test_key_equals_value_stores_as_key_value(monkeypatch):
+def test_key_equals_value_stores_as_key_value(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _CapturingBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     cli.cmd_tag(_tag_args("skill=playwright"))
     assert bus.tag_called_with == {"skill": "playwright"}
 
 
-def test_namespaced_key_with_value_stores_as_compound_key_and_value(monkeypatch):
+def test_namespaced_key_with_value_stores_as_compound_key_and_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The important one: `skill:playwright=takes shots` is NOT
     `{skill: playwright}` with the extra bit lost — the colon is part of
     the key. This is the shape the peer's bikeroom agent had, and it is
@@ -100,7 +110,7 @@ def test_namespaced_key_with_value_stores_as_compound_key_and_value(monkeypatch)
     assert bus.tag_called_with == {"skill:playwright": "takes shots"}
 
 
-def test_multiple_equals_signs_only_split_on_the_first(monkeypatch):
+def test_multiple_equals_signs_only_split_on_the_first(monkeypatch: pytest.MonkeyPatch) -> None:
     """Backend spec says everything after the FIRST `=` is the value.
     A URL as a value must survive: `link=https://x=y` is a value with
     `=` in it, NOT a triple-key key=key=value."""
@@ -110,7 +120,7 @@ def test_multiple_equals_signs_only_split_on_the_first(monkeypatch):
     assert bus.tag_called_with == {"link": "https://x?a=b"}
 
 
-def test_the_two_grammars_produce_different_shapes(monkeypatch):
+def test_the_two_grammars_produce_different_shapes(monkeypatch: pytest.MonkeyPatch) -> None:
     """This is the CENTRAL invariant: `skill:playwright` and
     `skill=playwright` mean DIFFERENT things — a matching-filter that
     treats one as the other will silently miss the agent."""
@@ -131,7 +141,9 @@ def test_the_two_grammars_produce_different_shapes(monkeypatch):
 # ------------------------------------------------------------- both write sites agree
 
 
-def test_cmd_tag_and_cmd_register_produce_identical_shape(monkeypatch, tmp_path):
+def test_cmd_tag_and_cmd_register_produce_identical_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """The peer's hypothesis was that two write paths might parse
     differently. This test proves they don't: cmd_tag(--set X=Y) and
     cmd_register(--label X=Y) MUST produce the same labels dict for the
@@ -162,7 +174,9 @@ def test_cmd_tag_and_cmd_register_produce_identical_shape(monkeypatch, tmp_path)
 # ------------------------------------------------------------- forbidden shapes
 
 
-def test_colon_alone_is_NOT_treated_as_a_key_value_separator(monkeypatch):
+def test_colon_alone_is_NOT_treated_as_a_key_value_separator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The peer's suspicion was that ONE path might partition on `:`
     instead of `=`. That would collapse `skill:playwright` to
     `{skill: playwright}` — a different meaning. This test is the

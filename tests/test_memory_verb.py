@@ -25,7 +25,7 @@ into permanent loss.
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 
@@ -46,7 +46,7 @@ def _entry(seq: int, text: str, sealed: bool = True, **extra: Any) -> dict[str, 
     }
 
 
-def test_an_unsealed_entry_passes_through_marked_opened():
+def test_an_unsealed_entry_passes_through_marked_opened() -> None:
     """KNOWN-POSITIVE. Every 'could not open' assertion below is only evidence
     because this one passes: a helper that marked everything unopened would
     satisfy them all."""
@@ -56,7 +56,9 @@ def test_an_unsealed_entry_passes_through_marked_opened():
     assert "unopened_seqs" not in result
 
 
-def test_a_sealed_entry_this_machine_cannot_open_is_flagged_not_rendered(monkeypatch):
+def test_a_sealed_entry_this_machine_cannot_open_is_flagged_not_rendered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The ciphertext stays in `text` and `opened` is False.
 
     It is NOT replaced with a friendly string: a caller that wants the raw bytes
@@ -65,8 +67,9 @@ def test_a_sealed_entry_this_machine_cannot_open_is_flagged_not_rendered(monkeyp
     """
     from agentbus_client import sealing
 
-    def _boom(_body, _agent=None):
-        raise sealing.CannotDecrypt("no key on this machine opens this")
+    def _boom(_body: Any, _agent: Any = None) -> NoReturn:
+        msg = "no key on this machine opens this"
+        raise sealing.CannotDecrypt(msg)
 
     monkeypatch.setattr(sealing, "unseal_with_any", _boom)
     armor = "-----BEGIN AGE ENCRYPTED FILE-----\nxxxx\n-----END AGE ENCRYPTED FILE-----"
@@ -79,7 +82,9 @@ def test_a_sealed_entry_this_machine_cannot_open_is_flagged_not_rendered(monkeyp
     assert result["unopened_seqs"] == [7], "the caller must be able to see it in one field"
 
 
-def test_a_sealed_entry_that_opens_is_replaced_by_its_plaintext(monkeypatch):
+def test_a_sealed_entry_that_opens_is_replaced_by_its_plaintext(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from agentbus_client import sealing
 
     monkeypatch.setattr(sealing, "unseal_with_any", lambda body, agent=None: "the real note")
@@ -88,7 +93,7 @@ def test_a_sealed_entry_that_opens_is_replaced_by_its_plaintext(monkeypatch):
     assert result["memory"][0]["opened"] is True
 
 
-def test_an_empty_notebook_is_not_an_error():
+def test_an_empty_notebook_is_not_an_error() -> None:
     result = _open_entries({"memory": [], "entries": 0}, "a")
     assert result["memory"] == []
     assert "unopened_seqs" not in result
@@ -97,7 +102,7 @@ def test_an_empty_notebook_is_not_an_error():
 # ------------------------------------------------------------------- reseal
 
 
-def test_reseal_never_rewrites_an_entry_it_could_not_open():
+def test_reseal_never_rewrites_an_entry_it_could_not_open() -> None:
     """THE DATA-LOSS CASE. Re-sealing ciphertext produces a doubly-wrapped body
     that no key will ever open, turning a recoverable problem into a permanent
     one."""
@@ -112,7 +117,7 @@ def test_reseal_never_rewrites_an_entry_it_could_not_open():
     assert unrecoverable == [2]
 
 
-def test_reseal_skips_entries_that_were_never_sealed():
+def test_reseal_skips_entries_that_were_never_sealed() -> None:
     """A plaintext workspace has nothing to re-seal, and sealing there would be
     refused by the server anyway ('one workspace, one answer')."""
     opened = {"memory": [_entry(1, "plain", sealed=False, opened=True)]}
@@ -139,7 +144,7 @@ def _args(**kw: Any) -> argparse.Namespace:
     return argparse.Namespace(**base)
 
 
-def test_rm_takes_a_seq_not_a_position(monkeypatch):
+def test_rm_takes_a_seq_not_a_position(monkeypatch: pytest.MonkeyPatch) -> None:
     """`rm 7` must delete SEQ 7, never 'the 7th row'.
 
     After any delete the two differ, so this is the difference between removing
@@ -149,7 +154,7 @@ def test_rm_takes_a_seq_not_a_position(monkeypatch):
     seen: dict[str, Any] = {}
 
     class _Bus:
-        def memory_delete(self, seq, agent=None):
+        def memory_delete(self, seq: Any, agent: Any = None) -> dict[str, Any]:
             seen["seq"] = seq
             return {"bytes_used": 0, "bytes_limit": 1, "entries": 0}
 
@@ -159,12 +164,14 @@ def test_rm_takes_a_seq_not_a_position(monkeypatch):
     assert isinstance(seen["seq"], int), "the seq must reach the client as an int"
 
 
-def test_a_bare_phrase_is_remembered_rather_than_treated_as_an_action(monkeypatch):
+def test_a_bare_phrase_is_remembered_rather_than_treated_as_an_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`agentbus memory "always check X"` is the common case and must WRITE."""
     seen: dict[str, Any] = {}
 
     class _Bus:
-        def memory_add(self, text, agent=None):
+        def memory_add(self, text: str, agent: Any = None) -> dict[str, Any]:
             seen["text"] = text
             return {
                 "seq": 1,
@@ -180,7 +187,9 @@ def test_a_bare_phrase_is_remembered_rather_than_treated_as_an_action(monkeypatc
     assert seen["text"] == "always check X"
 
 
-def test_an_unquoted_multi_word_phrase_is_refused_rather_than_half_stored(monkeypatch):
+def test_an_unquoted_multi_word_phrase_is_refused_rather_than_half_stored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`agentbus memory always check X` — two positionals, rest dropped.
 
     argparse would hand us action="always", text="check", and the third word is
@@ -192,22 +201,22 @@ def test_an_unquoted_multi_word_phrase_is_refused_rather_than_half_stored(monkey
     assert _memory._dispatch(_args(action="always", text="check")) == 2
 
 
-def test_rm_without_a_number_is_refused(monkeypatch):
+def test_rm_without_a_number_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_memory, "_bus", lambda args: pytest.fail("must not reach the bus"))
     assert _memory._dispatch(_args(action="rm")) == 2
     assert _memory._dispatch(_args(action="rm", text="seven")) == 2
 
 
-def test_truncate_requires_a_count(monkeypatch):
+def test_truncate_requires_a_count(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_memory, "_bus", lambda args: pytest.fail("must not reach the bus"))
     assert _memory._dispatch(_args(action="truncate")) == 2
 
 
-def test_truncate_accepts_the_count_positionally(monkeypatch):
+def test_truncate_accepts_the_count_positionally(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, Any] = {}
 
     class _Bus:
-        def memory_truncate(self, first=None, agent=None):
+        def memory_truncate(self, first: Any = None, agent: Any = None) -> dict[str, Any]:
             seen["first"] = first
             return {"removed": [1], "bytes_used": 0, "bytes_limit": 1, "entries": 0}
 
@@ -219,7 +228,7 @@ def test_truncate_accepts_the_count_positionally(monkeypatch):
 # ------------------------------------------------------------------ output
 
 
-def test_the_renderer_never_prints_ciphertext_as_a_note(capsys):
+def test_the_renderer_never_prints_ciphertext_as_a_note(capsys: pytest.CaptureFixture[str]) -> None:
     armor = "-----BEGIN AGE ENCRYPTED FILE-----\nQUJD\n-----END AGE ENCRYPTED FILE-----"
     _memory._render(
         {
@@ -246,7 +255,9 @@ def test_the_renderer_never_prints_ciphertext_as_a_note(capsys):
     assert "seq 9" in out
 
 
-def test_the_renderer_shows_seq_beside_position_so_they_cannot_be_confused(capsys):
+def test_the_renderer_shows_seq_beside_position_so_they_cannot_be_confused(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """After a delete these differ, and the reader must be able to see which is
     which — `rm` takes the seq."""
     _memory._render(
@@ -261,10 +272,13 @@ def test_the_renderer_shows_seq_beside_position_so_they_cannot_be_confused(capsy
         }
     )
     out = capsys.readouterr().out
-    assert "1." in out and "seq 4" in out
+    assert "1." in out
+    assert "seq 4" in out
 
 
-def test_a_nearly_full_notebook_says_short_entries_are_the_expensive_part(capsys):
+def test_a_nearly_full_notebook_says_short_entries_are_the_expensive_part(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """The advice has to appear where it can change behaviour. Deleting a few
     one-liners reclaims ~400 bytes each; consolidating them reclaims the
     ~355-byte seal header on every one."""
@@ -281,7 +295,9 @@ def test_a_nearly_full_notebook_says_short_entries_are_the_expensive_part(capsys
     assert "Short entries are expensive" in out
 
 
-def test_an_empty_notebook_renders_as_empty_not_as_nothing(capsys):
+def test_an_empty_notebook_renders_as_empty_not_as_nothing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     _memory._render(
         {"memory": [], "bytes_used": 0, "bytes_limit": 131072, "entries": 0, "entries_limit": 256}
     )

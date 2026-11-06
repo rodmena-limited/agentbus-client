@@ -48,13 +48,16 @@ the bus is unreachable is worse than one that says nothing.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from ._session import _is_self_send
 from ._state import _hook_warn
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def inject(args: argparse.Namespace) -> int:
@@ -198,7 +201,7 @@ def inject(args: argparse.Namespace) -> int:
             "normally if it asks something."
         )
     elif origin == "bus":
-        from ..cli._sigline import notice_fragment
+        from agentbus_client.cli._sigline import notice_fragment
 
         provenance = (
             f"From a colleague agent in your own workspace; "

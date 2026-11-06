@@ -29,18 +29,18 @@ def _guard() -> str:
     return src[start:end]
 
 
-def test_a_deleted_workspace_marks_the_stored_key_dead():
+def test_a_deleted_workspace_marks_the_stored_key_dead() -> None:
     g = _guard()
     assert "workspace_deleted" in g, "a key from a deleted workspace is still reused"
 
 
-def test_an_auth_rejection_still_marks_it_dead():
+def test_an_auth_rejection_still_marks_it_dead() -> None:
     """The original case must not have been lost while widening the guard."""
     g = _guard()
     assert "AuthError" in g
 
 
-def test_a_transport_failure_does_NOT_mark_it_dead():
+def test_a_transport_failure_does_NOT_mark_it_dead() -> None:
     """THE CONTROL. Widening this too far destroys a good credential every time
     the bus blips — the guard must act on an explicit verdict from the server,
     never on a failure to reach it."""
@@ -50,13 +50,13 @@ def test_a_transport_failure_does_NOT_mark_it_dead():
     assert 'getattr(exc, "code", "")' in g
 
 
-def test_the_dead_key_is_renamed_not_deleted():
+def test_the_dead_key_is_renamed_not_deleted() -> None:
     """An operator must be able to see what was set aside, and undo it."""
     g = _guard()
     assert ".env.dead" in g
 
 
-def test_a_stored_key_for_ANOTHER_LIVE_workspace_is_not_reused():
+def test_a_stored_key_for_ANOTHER_LIVE_workspace_is_not_reused() -> None:
     """THE WORSE CASE, and the one the operator's question exposed.
 
     "Is the key alive" was the only question asked. A stored key for a
@@ -75,7 +75,7 @@ def test_a_stored_key_for_ANOTHER_LIVE_workspace_is_not_reused():
     )
 
 
-def test_the_mismatched_key_is_set_aside_under_a_distinct_name():
+def test_the_mismatched_key_is_set_aside_under_a_distinct_name() -> None:
     """`.env.other` rather than `.env.dead`: the key is not dead, it belongs
     somewhere else. An operator returning to that workspace should be able to
     tell the two cases apart."""

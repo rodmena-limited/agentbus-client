@@ -19,18 +19,21 @@ never escape keys/ into <config>/operator.env.
 
 from __future__ import annotations
 
-import pathlib
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentbus_client import cli as cli_module
-from agentbus_client import sealing
+from agentbus_client import cli as cli_module, sealing
 from agentbus_client.hooks import claude_code as hook_module
+
+if TYPE_CHECKING:
+    import pathlib
+    from pathlib import Path
 
 # ---------------------------------------------------------------------- helper
 
 
-def test_bound_env_filename_collapses_traversal(tmp_path):
+def test_bound_env_filename_collapses_traversal(tmp_path: Path) -> None:
     """The single sanitizer every site now shares MUST return a filename that
     cannot escape its parent directory. Test via ACTUAL path resolution rather
     than substring — a filename like '..env' is legal (no traversal) even
@@ -49,7 +52,7 @@ def test_bound_env_filename_collapses_traversal(tmp_path):
         )
 
 
-def test_bound_env_filename_preserves_legitimate_names():
+def test_bound_env_filename_preserves_legitimate_names() -> None:
     """Real agent names (matching the server's ^[A-Za-z0-9_-]+$-ish policy)
     survive unchanged. A sanitizer that mangles legitimate names silently
     changes which key an existing agent authenticates with."""
@@ -62,7 +65,7 @@ def test_bound_env_filename_preserves_legitimate_names():
 
 
 @pytest.fixture
-def home(tmp_path, monkeypatch):
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("AGENTBUS_API_KEY", raising=False)
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
@@ -76,7 +79,7 @@ def _write(p: pathlib.Path, key: str) -> None:
     p.write_text(f"export AGENTBUS_API_KEY={key}\n")
 
 
-def test_cli_key_for_agent_traversal_refused(home):
+def test_cli_key_for_agent_traversal_refused(home: Path) -> None:
     """Macbook's finding #1: cli.py:_key_for_agent used to return the
     operator credential for agent name '../operator'. The fix must return None
     for the traversal payload (sanitized filename does not exist)."""
@@ -86,7 +89,7 @@ def test_cli_key_for_agent_traversal_refused(home):
     assert cli_module._key_for_agent("..\\operator") is None
 
 
-def test_cli_key_for_agent_still_reads_legitimate_bound_key(home):
+def test_cli_key_for_agent_still_reads_legitimate_bound_key(home: Path) -> None:
     """The sanitizer MUST NOT change legitimate names."""
     _write(home / "keys" / "agentbus-abc123.env", "ab_sk_BOUND")
     assert cli_module._key_for_agent("agentbus-abc123") == "ab_sk_BOUND"
@@ -95,7 +98,9 @@ def test_cli_key_for_agent_still_reads_legitimate_bound_key(home):
 # ---------------------------------------------------------------------- hooks._adopt_credential_for
 
 
-def test_adopt_credential_for_traversal_refused(home, monkeypatch):
+def test_adopt_credential_for_traversal_refused(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The MOST DANGEROUS of the round-3.5 sites — silent mutation of
     os.environ["AGENTBUS_API_KEY"] mid-hook, reachable from a hostile
     .agentbus/agent. A traversal payload used to swap the hook session
@@ -116,7 +121,9 @@ def test_adopt_credential_for_traversal_refused(home, monkeypatch):
     )
 
 
-def test_adopt_credential_for_still_loads_a_legitimate_bound_key(home, monkeypatch):
+def test_adopt_credential_for_still_loads_a_legitimate_bound_key(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The hook MUST still adopt a real bound key — otherwise legitimate
     worktree-bleed correction stops working."""
     _write(home / "keys" / "peer.env", "ab_sk_PEER_LEGITIMATE")
@@ -132,7 +139,9 @@ def test_adopt_credential_for_still_loads_a_legitimate_bound_key(home, monkeypat
 # ---------------------------------------------------------------------- write paths
 
 
-def test_join_write_path_lands_inside_keys_dir(tmp_path, monkeypatch):
+def test_join_write_path_lands_inside_keys_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`agentbus join --name "../operator"` used to WRITE the returned
     secret into <config>/operator.env, CLOBBERING the operator credential.
     After the fix, the sanitized filename lands inside keys/ regardless.
@@ -159,7 +168,9 @@ def test_join_write_path_lands_inside_keys_dir(tmp_path, monkeypatch):
     assert key_path.name != "operator.env"
 
 
-def test_service_read_path_lands_inside_keys_dir(tmp_path, monkeypatch):
+def test_service_read_path_lands_inside_keys_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`agentbus service ... --agent "../operator"` used to READ
     <config>/operator.env and bake that path into a systemd unit's
     EnvironmentFile, so the service would auto-source the operator

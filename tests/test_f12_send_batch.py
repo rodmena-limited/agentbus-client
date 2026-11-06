@@ -14,6 +14,7 @@ import io
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
@@ -21,15 +22,18 @@ sys.path.insert(0, str(REPO / "src"))
 from agentbus_client import cli
 from agentbus_client.client import AgentBusError
 
+if TYPE_CHECKING:
+    import pytest
+
 
 class _BatchBus:
-    def __init__(self, responses=None, errors=None):
+    def __init__(self, responses: Any = None, errors: Any = None) -> None:
         self._responses = list(responses or [])
         self._errors = list(errors or [])
         self.calls: list[dict] = []
         self.agent = "test-agent"
 
-    def send(self, to, **kw):
+    def send(self, to: Any, **kw: Any) -> Any:
         self.calls.append({"to": to, **kw})
         if self._errors and self._errors[0] is not None:
             err = self._errors.pop(0)
@@ -46,13 +50,13 @@ class _BatchBus:
         }
 
 
-def _args(**over):
+def _args(**over: Any) -> argparse.Namespace:
     base = {"agent": None, "json": False, "stop_on_error": False}
     base.update(over)
     return argparse.Namespace(**base)
 
 
-def _pipe_stdin(monkeypatch, text: str) -> None:
+def _pipe_stdin(monkeypatch: pytest.MonkeyPatch, text: str) -> None:
     monkeypatch.setattr(sys, "stdin", io.StringIO(text))
     # Force isatty to False since StringIO doesn't implement it in a way that
     # `stream.isatty()` returns False consistently — patch explicitly.
@@ -62,7 +66,9 @@ def _pipe_stdin(monkeypatch, text: str) -> None:
 # --------------------------------------------------------------- happy path
 
 
-def test_batch_of_three_sends_all_and_returns_zero(monkeypatch, capsys):
+def test_batch_of_three_sends_all_and_returns_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _BatchBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
@@ -84,12 +90,14 @@ def test_batch_of_three_sends_all_and_returns_zero(monkeypatch, capsys):
     assert all(line["ok"] for line in lines)
 
 
-def test_bus_is_instantiated_ONCE_across_the_whole_batch(monkeypatch, capsys):
+def test_bus_is_instantiated_ONCE_across_the_whole_batch(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The point of the whole feature: startup pays once."""
     bus = _BatchBus()
     instantiations = 0
 
-    def counting_bus(_args):
+    def counting_bus(_args: Any) -> Any:
         nonlocal instantiations
         instantiations += 1
         return bus
@@ -106,7 +114,9 @@ def test_bus_is_instantiated_ONCE_across_the_whole_batch(monkeypatch, capsys):
 # --------------------------------------------------------------- failures
 
 
-def test_a_failed_send_does_not_stop_the_batch(monkeypatch, capsys):
+def test_a_failed_send_does_not_stop_the_batch(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _BatchBus(errors=[None, AgentBusError("server said nope"), None])
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
@@ -128,7 +138,9 @@ def test_a_failed_send_does_not_stop_the_batch(monkeypatch, capsys):
     assert "server said nope" in lines[1]["error"]["message"]
 
 
-def test_stop_on_error_stops_immediately(monkeypatch, capsys):
+def test_stop_on_error_stops_immediately(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _BatchBus(errors=[None, AgentBusError("fail"), None])
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
@@ -146,7 +158,9 @@ def test_stop_on_error_stops_immediately(monkeypatch, capsys):
     assert len(bus.calls) == 2
 
 
-def test_malformed_json_line_is_reported_not_crashed(monkeypatch, capsys):
+def test_malformed_json_line_is_reported_not_crashed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _BatchBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
@@ -165,7 +179,9 @@ def test_malformed_json_line_is_reported_not_crashed(monkeypatch, capsys):
     assert lines[1]["error"]["type"] == "input_parse_error"
 
 
-def test_missing_to_field_is_reported(monkeypatch, capsys):
+def test_missing_to_field_is_reported(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _BatchBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(monkeypatch, json.dumps({"subject": "no-to", "text": "hi"}))
@@ -174,7 +190,9 @@ def test_missing_to_field_is_reported(monkeypatch, capsys):
     assert lines[0]["error"]["type"] == "missing_to"
 
 
-def test_blank_lines_are_tolerated(monkeypatch, capsys):
+def test_blank_lines_are_tolerated(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _BatchBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(
@@ -188,7 +206,9 @@ def test_blank_lines_are_tolerated(monkeypatch, capsys):
     assert len(lines) == 2
 
 
-def test_empty_stdin_prints_usage_hint_and_exits_two(monkeypatch, capsys):
+def test_empty_stdin_prints_usage_hint_and_exits_two(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _BatchBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _pipe_stdin(monkeypatch, "")
@@ -199,7 +219,9 @@ def test_empty_stdin_prints_usage_hint_and_exits_two(monkeypatch, capsys):
 # --------------------------------------------------------------- shape
 
 
-def test_fire_and_forget_response_is_normalised_per_line(monkeypatch, capsys):
+def test_fire_and_forget_response_is_normalised_per_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Same F13 rule as cmd_send — fire_and_forget must never emit {}."""
     bus = _BatchBus(responses=[{}, {"reached": 2}])
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from collections.abc import Sequence
+
     from ._mixin_base import SyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
     _MixinBase = object
@@ -45,7 +46,7 @@ class SyncDirectoryMixin(_MixinBase):
         refuses unknown values. A server that does not yet have the persona
         column silently ignores this field (forward-compatible).
         """
-        from .. import identity
+        from agentbus_client import identity
 
         payload: dict[str, Any] = {
             "name": name,
@@ -201,7 +202,8 @@ class SyncDirectoryMixin(_MixinBase):
         """
         target = agent or self.agent
         if not target:
-            raise ValueError("tag() needs an acting agent: pass agent= or construct with one")
+            msg = "tag() needs an acting agent: pass agent= or construct with one"
+            raise ValueError(msg)
         result: dict[str, Any] = self._request(
             "PATCH",
             f"/v1/agents/{target}/labels",

@@ -111,14 +111,17 @@ def bech32_decode(text: str) -> bytes:
     lowered = text.lower()
     position = lowered.rfind("1")
     if position < 1:
-        raise ValueError("not a bech32 string")
+        msg = "not a bech32 string"
+        raise ValueError(msg)
     hrp, payload = lowered[:position], lowered[position + 1 :]
     try:
         values = [_CHARSET.index(c) for c in payload]
     except ValueError as exc:
-        raise ValueError("bech32 string has a character outside the charset") from exc
+        msg = "bech32 string has a character outside the charset"
+        raise ValueError(msg) from exc
     if _polymod(_hrp_expand(hrp) + values) != 1:
-        raise ValueError("bech32 checksum failed")
+        msg = "bech32 checksum failed"
+        raise ValueError(msg)
     return bytes(_convertbits(values[:-6], 5, 8, pad=False))
 
 
@@ -233,7 +236,8 @@ def seal(plaintext: bytes, recipients: list[str]) -> bytes:
     rejected for exactly this reason.
     """
     if not recipients:
-        raise ValueError("at least one recipient is required to seal a message")
+        msg = "at least one recipient is required to seal a message"
+        raise ValueError(msg)
     file_key = os.urandom(16)
     header = _V1 + b"\n"
     for recipient in recipients:
@@ -260,7 +264,8 @@ def unseal(sealed: bytes, private_key: str) -> bytes:
 
     split = sealed.find(b"\n---")
     if not sealed.startswith(_V1) or split < 0:
-        raise ValueError("not an age v1 file")
+        msg = "not an age v1 file"
+        raise ValueError(msg)
     body_start = sealed.find(b"\n", split + 1) + 1
     header = sealed[:split] + b"\n---"
     mac_line = sealed[split + 4 : body_start].strip()
@@ -282,10 +287,12 @@ def unseal(sealed: bytes, private_key: str) -> bytes:
         except Exception:
             continue
     if file_key is None:
-        raise CannotDecrypt("no stanza in this message unwraps with this identity")
+        msg = "no stanza in this message unwraps with this identity"
+        raise CannotDecrypt(msg)
 
     if _header_mac(header, file_key) != _unb64(mac_line.decode()):
-        raise ValueError("header MAC does not verify — the header was altered")
+        msg = "header MAC does not verify — the header was altered"
+        raise ValueError(msg)
 
     payload = sealed[body_start:]
     return _stream(file_key, payload[:16], payload[16:], encrypt=False)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import time
+from typing import Any
 
 import pytest
 
@@ -27,7 +28,9 @@ def _bus(operator_key: str) -> AgentBus:
     return AgentBus(api_key=operator_key)
 
 
-def test_an_explicit_name_is_honoured_over_a_derived_one(operator_key, workspace, role):
+def test_an_explicit_name_is_honoured_over_a_derived_one(
+    operator_key: Any, workspace: Any, role: str
+) -> None:
     """The reported defect: `--role` silently overrode an explicit name, which
     is how a caller reclaiming an identity got a different one."""
     bus = _bus(operator_key)
@@ -47,7 +50,9 @@ def test_an_explicit_name_is_honoured_over_a_derived_one(operator_key, workspace
                 bus._request("POST", f"/v1/agents/{name}/retire", agent=name)
 
 
-def test_a_nameless_register_still_reclaims_the_session_identity(operator_key, workspace, role):
+def test_a_nameless_register_still_reclaims_the_session_identity(
+    operator_key: Any, workspace: Any, role: str
+) -> None:
     """THE CONTROL, and the one that matters more.
 
     A fix making the name path win unconditionally would break the reclaim for
@@ -70,7 +75,9 @@ def test_a_nameless_register_still_reclaims_the_session_identity(operator_key, w
                 bus._request("POST", f"/v1/agents/{name}/retire", agent=name)
 
 
-def test_re_registering_an_explicitly_named_agent_does_not_500(operator_key, workspace, role):
+def test_re_registering_an_explicitly_named_agent_does_not_500(
+    operator_key: Any, workspace: Any, role: str
+) -> None:
     """A named agent registers once and then must be able to COME BACK.
 
     `--role` is what setup and every session start pass, so a 500 here bricks the

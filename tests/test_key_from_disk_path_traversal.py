@@ -13,15 +13,19 @@ path-traversal side door into the SAME credential.
 
 from __future__ import annotations
 
-import pathlib
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client import client as client_module
 
+if TYPE_CHECKING:
+    import pathlib
+    from pathlib import Path
+
 
 @pytest.fixture
-def home(tmp_path, monkeypatch):
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """An isolated HOME so the developer's real credentials cannot mask a bug."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("AGENTBUS_API_KEY", raising=False)
@@ -35,7 +39,7 @@ def _write(path: pathlib.Path, key: str) -> None:
     path.write_text(f"export AGENTBUS_API_KEY={key}\n")
 
 
-def test_dotdot_traversal_cannot_reach_operator_env(home):
+def test_dotdot_traversal_cannot_reach_operator_env(home: Path) -> None:
     """A hostile .agentbus/agent containing '../operator' MUST NOT pivot onto
     the workspace-wide operator credential. Slug-sanitizing collapses `..` to
     `_`, so the resolved path is <config>/keys/__operator.env — which does not
@@ -46,7 +50,7 @@ def test_dotdot_traversal_cannot_reach_operator_env(home):
     assert client_module._key_from_disk("../operator") == ""
 
 
-def test_absolute_path_traversal_also_refused(home):
+def test_absolute_path_traversal_also_refused(home: Path) -> None:
     """`/etc/passwd`-style names must not reach through either. The slug
     replaces every non-[A-Za-z0-9._-] character with underscore, so path
     separators cannot survive."""
@@ -55,19 +59,19 @@ def test_absolute_path_traversal_also_refused(home):
     assert client_module._key_from_disk("../../etc/passwd") == ""
 
 
-def test_backslash_traversal_refused(home):
+def test_backslash_traversal_refused(home: Path) -> None:
     """Windows-style separators too — on any OS `os.path.join` may honour them."""
     _write(home / "operator.env", "ab_sk_OPERATOR")
     assert client_module._key_from_disk("..\\operator") == ""
 
 
-def test_slash_in_middle_of_name_refused(home):
+def test_slash_in_middle_of_name_refused(home: Path) -> None:
     """`keys/../../foo` — separators anywhere in the name become underscores."""
     _write(home / "operator.env", "ab_sk_OPERATOR")
     assert client_module._key_from_disk("evil/../operator") == ""
 
 
-def test_a_legitimate_agent_name_still_loads_its_bound_key(home):
+def test_a_legitimate_agent_name_still_loads_its_bound_key(home: Path) -> None:
     """The sanitizer MUST NOT change legitimate names. Agent names are
     already validated on the server (^[A-Za-z0-9_-]+$-ish), and the slug
     preserves that character set. If it stripped anything real, agents that
@@ -77,7 +81,9 @@ def test_a_legitimate_agent_name_still_loads_its_bound_key(home):
     assert client_module._key_from_disk("agentbus-abc123") == "ab_sk_BOUND"
 
 
-def test_traversal_via_agentbus_agent_env_also_blocked(home, monkeypatch):
+def test_traversal_via_agentbus_agent_env_also_blocked(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Belt-and-braces: even if $AGENTBUS_AGENT is somehow set to a traversal
     payload (an env-var injection in a shared shell), the same sanitizer
     applies because _key_from_disk is called with the env-var value."""

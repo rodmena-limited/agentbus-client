@@ -4,28 +4,33 @@ import os
 import stat
 import threading
 import time
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client import _signing, sealing
 from agentbus_client.identity import config_dir
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
 
 @pytest.fixture
-def umask_022():
+def umask_022() -> Iterator[Any]:
     previous = os.umask(0o022)
     yield
     os.umask(previous)
 
 
 @pytest.fixture
-def umask_000():
+def umask_000() -> Iterator[Any]:
     previous = os.umask(0)
     yield
     os.umask(previous)
 
 
-def _mode(path) -> int:
+def _mode(path: Any) -> int:
     return stat.S_IMODE(os.stat(path).st_mode)
 
 
@@ -43,12 +48,12 @@ def _mode(path) -> int:
         ("a b\\c", "a_b_c"),
     ],
 )
-def test_agent_slug_known_answers(name, slug):
+def test_agent_slug_known_answers(name: str, slug: Any) -> None:
     assert sealing._agent_slug(name) == slug
     assert sealing.agent_slug(name) == slug
 
 
-def test_uppercase_agents_get_distinct_key_files():
+def test_uppercase_agents_get_distinct_key_files() -> None:
     assert sealing.key_path("Ops") != sealing.key_path("Xps")
     assert sealing.signing_key_path("Ops") != sealing.signing_key_path("Xps")
     ops = sealing.ensure_keypair("Ops")
@@ -59,18 +64,18 @@ def test_uppercase_agents_get_distinct_key_files():
     assert ops_sig[0] != xps_sig[0]
 
 
-def test_agent_slug_falls_back_to_env(monkeypatch):
+def test_agent_slug_falls_back_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTBUS_AGENT", "Env-Agent")
     assert sealing._agent_slug(None) == "Env-Agent"
     assert sealing._agent_slug("Explicit") == "Explicit"
 
 
-def test_agent_slug_without_any_agent_raises():
+def test_agent_slug_without_any_agent_raises() -> None:
     with pytest.raises(ValueError, match="AGENTBUS_AGENT"):
         sealing._agent_slug(None)
 
 
-def test_key_paths_are_exact():
+def test_key_paths_are_exact() -> None:
     keys = config_dir() / "keys"
     assert sealing.key_path("Ops-1") == keys / "sealing-Ops-1.key"
     assert sealing.signing_key_path("Ops-1") == keys / "signing-Ops-1.key"
@@ -78,28 +83,28 @@ def test_key_paths_are_exact():
     assert sealing.bound_env_filename("a/b") == "a_b.env"
 
 
-def test_signing_key_lands_in_keys_dir():
+def test_signing_key_lands_in_keys_dir() -> None:
     private, _public = sealing.ensure_signing_keypair("ops-1")
     path = config_dir() / "keys" / "signing-ops-1.key"
     assert path.read_text() == private + "\n"
     assert sealing.load_signing_key("ops-1") == private
 
 
-def test_create_secret_exclusive_born_0600_under_open_umask(tmp_path, umask_000):
+def test_create_secret_exclusive_born_0600_under_open_umask(tmp_path: Path, umask_000: Any) -> None:
     path = tmp_path / "d" / "secret.key"
     assert sealing.create_secret_exclusive(path, "S1\n") is True
     assert _mode(path) == 0o600
     assert path.read_text() == "S1\n"
 
 
-def test_create_secret_exclusive_refuses_existing(tmp_path):
+def test_create_secret_exclusive_refuses_existing(tmp_path: Path) -> None:
     path = tmp_path / "secret.key"
     assert sealing.create_secret_exclusive(path, "first\n") is True
     assert sealing.create_secret_exclusive(path, "second\n") is False
     assert path.read_text() == "first\n"
 
 
-def test_ensure_keypair_hardens_file_and_directory(umask_022):
+def test_ensure_keypair_hardens_file_and_directory(umask_022: Any) -> None:
     private, _public = sealing.ensure_keypair("ops-1")
     path = sealing.key_path("ops-1")
     assert _mode(path) == 0o600
@@ -107,7 +112,7 @@ def test_ensure_keypair_hardens_file_and_directory(umask_022):
     assert path.read_text() == private + "\n"
 
 
-def test_ensure_signing_keypair_hardens_file_and_directory(umask_022):
+def test_ensure_signing_keypair_hardens_file_and_directory(umask_022: Any) -> None:
     private, _public = sealing.ensure_signing_keypair("ops-1")
     path = sealing.signing_key_path("ops-1")
     assert _mode(path) == 0o600
@@ -115,7 +120,7 @@ def test_ensure_signing_keypair_hardens_file_and_directory(umask_022):
     assert path.read_text() == private + "\n"
 
 
-def test_ensure_keypair_stores_an_age_secret_key():
+def test_ensure_keypair_stores_an_age_secret_key() -> None:
     private, public = sealing.ensure_keypair("ops-1")
     stored = sealing.key_path("ops-1").read_text().strip()
     assert stored == private
@@ -124,7 +129,7 @@ def test_ensure_keypair_stores_an_age_secret_key():
     assert sealing.public_from_private(stored) == public
 
 
-def test_ensure_signing_keypair_stores_uppercase_absigsec():
+def test_ensure_signing_keypair_stores_uppercase_absigsec() -> None:
     private, public = sealing.ensure_signing_keypair("ops-1")
     stored = sealing.signing_key_path("ops-1").read_text().strip()
     assert stored == private
@@ -133,17 +138,17 @@ def test_ensure_signing_keypair_stores_uppercase_absigsec():
     assert _signing.public_from_private(stored) == public
 
 
-def test_ensure_keypair_is_stable_across_calls():
+def test_ensure_keypair_is_stable_across_calls() -> None:
     assert sealing.ensure_keypair("ops-1") == sealing.ensure_keypair("ops-1")
     assert sealing.ensure_signing_keypair("ops-1") == sealing.ensure_signing_keypair("ops-1")
 
 
-def test_race_loser_returns_the_key_on_disk(monkeypatch):
+def test_race_loser_returns_the_key_on_disk(monkeypatch: pytest.MonkeyPatch) -> None:
     winner_private = sealing.generate_keypair()[0]
     path = sealing.key_path("ops-1")
     real_generate = sealing.generate_keypair
 
-    def loser_generate():
+    def loser_generate() -> Any:
         candidate = real_generate()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(winner_private + "\n")
@@ -156,12 +161,12 @@ def test_race_loser_returns_the_key_on_disk(monkeypatch):
     assert public == sealing.public_from_private(winner_private)
 
 
-def test_concurrent_first_users_all_hold_the_disk_key():
+def test_concurrent_first_users_all_hold_the_disk_key() -> None:
     barrier = threading.Barrier(8)
     results: list[str] = []
     lock = threading.Lock()
 
-    def worker():
+    def worker() -> None:
         barrier.wait()
         private, _public = sealing.ensure_keypair("ops-1")
         with lock:
@@ -176,13 +181,13 @@ def test_concurrent_first_users_all_hold_the_disk_key():
     assert results == [on_disk] * 8
 
 
-def test_race_loser_waits_for_a_winner_mid_write():
+def test_race_loser_waits_for_a_winner_mid_write() -> None:
     path = sealing.key_path("ops-1")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("")
     winner_private = sealing.generate_keypair()[0]
 
-    def finish_write():
+    def finish_write() -> None:
         time.sleep(0.05)
         path.write_text(winner_private + "\n")
 
@@ -196,7 +201,7 @@ def test_race_loser_waits_for_a_winner_mid_write():
     assert elapsed < 0.9
 
 
-def test_never_finished_writer_raises_oserror_within_bound():
+def test_never_finished_writer_raises_oserror_within_bound() -> None:
     path = sealing.key_path("ops-1")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("")
@@ -208,7 +213,7 @@ def test_never_finished_writer_raises_oserror_within_bound():
     assert path.read_text() == ""
 
 
-def test_load_private_keys_explicit_agent_without_env_includes_superseded():
+def test_load_private_keys_explicit_agent_without_env_includes_superseded() -> None:
     current, _ = sealing.ensure_keypair("ops-1")
     old = sealing.generate_keypair()[0]
     keys_dir = sealing.key_path("ops-1").parent
@@ -217,7 +222,7 @@ def test_load_private_keys_explicit_agent_without_env_includes_superseded():
     assert sealing.load_private_keys("ops-1") == [current, old]
 
 
-def test_load_private_keys_skips_unreadable_and_keeps_later_ones():
+def test_load_private_keys_skips_unreadable_and_keeps_later_ones() -> None:
     current, _ = sealing.ensure_keypair("ops-1")
     later = sealing.generate_keypair()[0]
     keys_dir = sealing.key_path("ops-1").parent
@@ -226,7 +231,7 @@ def test_load_private_keys_skips_unreadable_and_keeps_later_ones():
     assert sealing.load_private_keys("ops-1") == [current, later]
 
 
-def test_load_private_keys_drops_empty_and_duplicate_superseded():
+def test_load_private_keys_drops_empty_and_duplicate_superseded() -> None:
     current, _ = sealing.ensure_keypair("ops-1")
     old = sealing.generate_keypair()[0]
     keys_dir = sealing.key_path("ops-1").parent
@@ -237,7 +242,7 @@ def test_load_private_keys_drops_empty_and_duplicate_superseded():
     assert sealing.load_private_keys("ops-1") == [current, old]
 
 
-def test_load_private_keys_ignores_other_agents_superseded():
+def test_load_private_keys_ignores_other_agents_superseded() -> None:
     current, _ = sealing.ensure_keypair("ops-1")
     keys_dir = sealing.key_path("ops-1").parent
     (keys_dir / "sealing-intruder-x.key.superseded").write_text(
@@ -246,7 +251,7 @@ def test_load_private_keys_ignores_other_agents_superseded():
     assert sealing.load_private_keys("ops-1") == [current]
 
 
-def test_load_signing_key_none_without_agent_or_file():
+def test_load_signing_key_none_without_agent_or_file() -> None:
     assert sealing.load_signing_key(None) is None
     assert sealing.load_signing_key("nobody") is None
     assert sealing.load_private_key(None) is None

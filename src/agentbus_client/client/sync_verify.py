@@ -33,7 +33,7 @@ class SyncVerifyMixin(_MixinBase):
         concluded, beside what the platform said, so a disagreement is visible
         rather than averaged away.
         """
-        from .. import _signing  # package root, NOT client/ — see below
+        from agentbus_client import _signing  # package root, NOT client/ — see below
 
         message = self.read(delivery_id, agent=agent)
         provenance = message.get("provenance") or {}
@@ -207,7 +207,7 @@ class SyncVerifyMixin(_MixinBase):
         boundary cap here reduces the peak by 1/2 today (ciphertext-only
         during read) and covers the hostile-server case in full.
         """
-        from .. import sealing
+        from agentbus_client import sealing
 
         # REG-9: cap the maximum ciphertext we will buffer. The armor and age
         # framing add ~15% overhead vs the raw plaintext, so allow a small
@@ -228,13 +228,14 @@ class SyncVerifyMixin(_MixinBase):
                     if total > cap:
                         # Refuse before we finish reading. httpx closes the
                         # stream when we leave the `with` block.
-                        raise AgentBusError(
+                        msg = (
                             f"attachment is over the {cap:,} byte cap "
                             f"({total:,} bytes received so far and still coming). "
                             "Raise AGENTBUS_MAX_ATTACHMENT_BYTES if this machine "
                             "has the RAM budget; the client holds the ciphertext "
                             "and the plaintext at the same time during unseal."
                         )
+                        raise AgentBusError(msg)
                     chunks.append(chunk)
                 content = b"".join(chunks)
         except httpx.HTTPError as exc:
@@ -256,11 +257,12 @@ class SyncVerifyMixin(_MixinBase):
             # yesterday's mail stays readable, and only trying the current one
             # would make that promise empty.
             if not sealing.load_private_keys(agent or self.agent):
-                raise AgentBusError(
+                msg = (
                     "this attachment is sealed and this machine holds no sealing "
                     "key — run `agentbus signin` to publish one, though anything "
                     "sealed before that remains unreadable here"
                 )
+                raise AgentBusError(msg)
             try:
                 return sealing.unseal_bytes_with_any(content, agent or self.agent)
             except sealing.MalformedSealed as exc:
@@ -268,10 +270,12 @@ class SyncVerifyMixin(_MixinBase):
                 # opposites: re-fetch the file, versus find the key. Now that
                 # the sealing layer distinguishes them, saying "it is not
                 # corrupt" on a corrupt file would be actively misleading.
-                raise AgentBusError(f"this attachment is damaged: {exc}") from exc
+                msg = f"this attachment is damaged: {exc}"
+                raise AgentBusError(msg) from exc
             except sealing.CannotDecrypt as exc:
-                raise AgentBusError(
+                msg = (
                     "this attachment was sealed to keys this machine does not "
                     "hold; it is not corrupt"
-                ) from exc
+                )
+                raise AgentBusError(msg) from exc
         return content

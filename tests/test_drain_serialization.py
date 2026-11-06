@@ -30,7 +30,7 @@ class _StubBus:
         self.base_url = "https://stub"
         self.calls = 0
 
-    def inbox(self, cursor: int, limit: int = 100, agent: str | None = None):
+    def inbox(self, cursor: int, limit: int = 100, agent: str | None = None) -> list[Any]:
         self.calls += 1
         # First call: hand back one message with seq=1 so the cursor advances.
         if self.calls == 1:
@@ -44,7 +44,7 @@ class _Msg:
         self.raw = {"delivery_id": f"d{seq}", "agent_seq": seq}
 
 
-def _make_watcher(bus, on_message, slow_drain: bool = False) -> watch.Watcher:
+def _make_watcher(bus: Any, on_message: Any, slow_drain: bool = False) -> watch.Watcher:
     """Build a Watcher on a real Watcher class but with a stub bus.
 
     We poke internals directly (agent, state_path=None, workspace) rather than
@@ -62,7 +62,7 @@ def _make_watcher(bus, on_message, slow_drain: bool = False) -> watch.Watcher:
         # would deterministically overlap without the lock.
         real_drain = w._drain
 
-        def slow():
+        def slow() -> Any:
             time.sleep(0.05)
             return real_drain()
 

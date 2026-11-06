@@ -35,8 +35,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client import identity as identity_mod
-from agentbus_client import onboarding as ob
+from agentbus_client import identity as identity_mod, onboarding as ob
 
 MONITOR = REPO / "marketplace" / "plugins" / "agentbus" / "scripts" / "agentbus-monitor.sh"
 

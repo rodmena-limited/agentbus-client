@@ -56,7 +56,7 @@ class _AsyncRecorder(AsyncAgentBus):
 # ------------------------------------------------------- the parameter name
 
 
-def test_the_default_asks_the_server_for_live_reminders_only():
+def test_the_default_asks_the_server_for_live_reminders_only() -> None:
     bus = _Recorder()
     bus.reminds()
     params = bus.seen["params"]
@@ -66,13 +66,13 @@ def test_the_default_asks_the_server_for_live_reminders_only():
     )
 
 
-def test_all_asks_the_server_for_every_state():
+def test_all_asks_the_server_for_every_state() -> None:
     bus = _Recorder()
     bus.reminds(all=True)
     assert bus.seen["params"].get("state") == "all"
 
 
-def test_the_dead_parameter_is_never_sent_again():
+def test_the_dead_parameter_is_never_sent_again() -> None:
     """`all` is not a parameter this API has. Sending it is not an error — which
     is exactly why it survived: the request succeeded and the filter silently
     did not happen."""
@@ -85,7 +85,7 @@ def test_the_dead_parameter_is_never_sent_again():
         )
 
 
-def test_it_asks_for_the_maximum_page_the_api_will_give():
+def test_it_asks_for_the_maximum_page_the_api_will_give() -> None:
     """There is no cursor on this endpoint, so whatever this client asks for is
     the ceiling on what any user can see. The default of 50 is what let 27 of a
     customer's reminders hide behind newer ones."""
@@ -98,7 +98,7 @@ def test_it_asks_for_the_maximum_page_the_api_will_give():
 
 
 @pytest.mark.anyio
-async def test_the_async_twin_sends_the_same_parameters():
+async def test_the_async_twin_sends_the_same_parameters() -> None:
     """`every_send_path_not_one`: this package has paid three times for a rule
     implemented on only some of its surfaces."""
     bus = _AsyncRecorder()
@@ -115,7 +115,7 @@ async def test_the_async_twin_sends_the_same_parameters():
 # ------------------------------------------------------------- known-negative
 
 
-def test_the_recorder_would_notice_a_wrong_parameter():
+def test_the_recorder_would_notice_a_wrong_parameter() -> None:
     """KNOWN-POSITIVE for the recorder itself. If `_request` were not being
     intercepted, `seen` would stay empty and every assertion above would fail on
     a KeyError rather than passing vacuously — but prove it captures, so a future
@@ -124,4 +124,5 @@ def test_the_recorder_would_notice_a_wrong_parameter():
     bus.reminds()
     assert bus.seen["method"] == "GET"
     assert bus.seen["path"] == "/v1/reminders"
-    assert isinstance(bus.seen["params"], dict) and bus.seen["params"]
+    assert isinstance(bus.seen["params"], dict)
+    assert bus.seen["params"]

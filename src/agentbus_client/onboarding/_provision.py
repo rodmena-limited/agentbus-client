@@ -22,13 +22,14 @@ hosts, in one night:
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import os
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ..client import AgentBus, AgentBusError
+from agentbus_client.client import AgentBus, AgentBusError
+
 from ._identity import (
     _agent_key,
     _derived_name,
@@ -37,6 +38,9 @@ from ._identity import (
     _signed_in_bound_agent,
 )
 from ._paths import _config_dir, _device_hash, _git_remote_or_none, _keys_dir, _say, _write_private
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _provision_project_agent(
@@ -98,7 +102,7 @@ def _provision_project_agent(
     # to the operator credential — that is what it is for.
     stored_key = _agent_key(name) if name else None
     if stored_key and operator and stored_key != operator:
-        from ..client import AuthError
+        from agentbus_client.client import AuthError
 
         try:
             mine = AgentBus(api_key=stored_key, base_url=base_url).whoami()
@@ -188,7 +192,7 @@ def _provision_project_agent(
     # this role and repo already exists under a DIFFERENT device-id, stop and
     # make the choice explicit instead of guessing.
     if name is None and role and not getattr(args, "force_new", False):
-        from .. import identity
+        from agentbus_client import identity
 
         remote = _git_remote_or_none()
         fingerprint = identity.repo_fingerprint(remote) if remote else None
@@ -225,7 +229,7 @@ def _provision_project_agent(
     try:
         result = bus.register(
             name,
-            role=role or (name if name else None),
+            role=role or (name or None),
             workdir=str(Path.cwd()),
             repo_remote=_git_remote_or_none(),
             ephemeral=True if ephemeral else None,
@@ -320,7 +324,7 @@ def _provision_project_agent(
         with contextlib.suppress(Exception):
             import hashlib
 
-            from ..identity import device_id as _device_id
+            from agentbus_client.identity import device_id as _device_id
 
             local_device = _device_id()
             recognized = bool(

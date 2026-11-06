@@ -22,12 +22,15 @@ hosts, in one night:
 
 from __future__ import annotations
 
-import argparse
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBus, AgentBusError
+from agentbus_client.client import AgentBus, AgentBusError
+
 from ._paths import _config_dir, _keys_dir, _say, _signin_state_path, _write_private
+
+if TYPE_CHECKING:
+    import argparse
 
 # ---------------------------------------------------------------- signin
 
@@ -44,7 +47,7 @@ def _ensure_sealing_key(bus: Any, ui: Any) -> None:
     would leave an unexplained secret on disk, and an operator auditing the box
     later would rightly ask what it was for.
     """
-    from .. import sealing
+    from agentbus_client import sealing
 
     try:
         state = bus._request("GET", "/v1/workspace/pubkeys")
@@ -79,7 +82,7 @@ def _ensure_sealing_key(bus: Any, ui: Any) -> None:
 
 def cmd_signin(args: argparse.Namespace) -> int:
     """Validate the key against the live service BEFORE storing anything."""
-    from .. import ui
+    from agentbus_client import ui
 
     key = args.key.strip()
     if not key.startswith("ab_sk_"):

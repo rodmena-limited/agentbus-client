@@ -35,22 +35,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _pyproject_version() -> str:
     text = (ROOT / "pyproject.toml").read_text()
-    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
     assert m, "no version in pyproject.toml"
     return m.group(1)
 
 
-def test_pyproject_declares_a_version():
+def test_pyproject_declares_a_version() -> None:
     """KNOWN-POSITIVE: if the parse silently returned nothing, the comparison
     below would be vacuous rather than false."""
     v = _pyproject_version()
     assert re.fullmatch(r"\d+\.\d+\.\d+", v), v
 
 
-def test_the_reported_version_matches_the_declared_one():
+def test_the_reported_version_matches_the_declared_one() -> None:
     """THE DRIFT. A mismatch means this environment reports a version it is not."""
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as pkg_version
+    from importlib.metadata import PackageNotFoundError, version as pkg_version
 
     try:
         installed = pkg_version("rodmena-agentbus")
@@ -66,10 +65,9 @@ def test_the_reported_version_matches_the_declared_one():
     )
 
 
-def test_dunder_version_agrees_with_the_metadata():
+def test_dunder_version_agrees_with_the_metadata() -> None:
     """__version__ must not acquire a second source of truth."""
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as pkg_version
+    from importlib.metadata import PackageNotFoundError, version as pkg_version
 
     import agentbus_client
 

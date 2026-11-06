@@ -25,7 +25,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from ._identity import _agent_key, _operator_key, _project_claude_dir, _session_identity
 from ._paths import _config_dir, _keys_dir, _load_json
 
@@ -83,7 +84,7 @@ def resolve_credentials(preferred_agent: str | None = None) -> tuple[str | None,
     # bound credential. Fall through to the operator key, or to nothing.
     op = _operator_key()
     if op:
-        return op, agent if agent else None
+        return op, agent or None
     return None, None
 
 
@@ -265,7 +266,7 @@ def _scope_of_bearer(bearer: str, base_url: str | None = None) -> str:
     if not m:
         return "unknown"
     try:
-        from ..client import AgentBus
+        from agentbus_client.client import AgentBus
 
         who = AgentBus(api_key=m.group(0), base_url=base_url).whoami()
         scope = (who.get("key") or {}).get("scope")

@@ -10,6 +10,11 @@ they can't cancel the old ones)".
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pytest
+
 # ------------------------------------------------- listing, live-by-default
 #
 # Farshid: "the client must have the ability to list reminders/crons (otherwise
@@ -20,7 +25,9 @@ from __future__ import annotations
 # dead rows that read almost identically.
 
 
-def _reminds_output(rows, show_all=False, monkeypatch=None):
+def _reminds_output(
+    rows: Any, show_all: bool = False, monkeypatch: pytest.MonkeyPatch = None
+) -> Any:
     """Render the listing with a stubbed bus.
 
     MONKEYPATCH, NOT A BARE ASSIGNMENT. An earlier version assigned
@@ -47,7 +54,7 @@ def _reminds_output(rows, show_all=False, monkeypatch=None):
     # regression to local-only filtering pass unnoticed here.
     live = [r for r in rows if r.get("state") == "scheduled"]
 
-    def _page(self, all=False):
+    def _page(self, all: bool = False) -> dict[str, Any]:
         chosen = rows if all else live
         return {
             "reminders": chosen,
@@ -66,7 +73,9 @@ def _reminds_output(rows, show_all=False, monkeypatch=None):
     return _remind.cmd_reminds(_A())
 
 
-def test_finished_reminders_are_hidden_by_default(capsys, monkeypatch):
+def test_finished_reminders_are_hidden_by_default(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     rows = [
         {"id": "A", "state": "cancelled", "due_at": "2026-08-21T03:00:00Z"},
         {"id": "B", "state": "scheduled", "due_at": "2026-08-21T09:00:00Z"},
@@ -77,7 +86,9 @@ def test_finished_reminders_are_hidden_by_default(capsys, monkeypatch):
     assert "A" not in out, "a cancelled reminder crowds out the ones you can act on"
 
 
-def test_hidden_rows_are_counted_never_silently_dropped(capsys, monkeypatch):
+def test_hidden_rows_are_counted_never_silently_dropped(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Filtering the display must announce itself. A list that quietly omits
     rows is how someone concludes a reminder is gone when it is merely fired."""
     rows = [
@@ -88,7 +99,9 @@ def test_hidden_rows_are_counted_never_silently_dropped(capsys, monkeypatch):
     assert "1 finished reminder(s) hidden" in capsys.readouterr().out
 
 
-def test_recurring_reminders_sort_first(capsys, monkeypatch):
+def test_recurring_reminders_sort_first(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """They fire forever until cancelled, so they are what a reader is here
     to find."""
     rows = [
@@ -105,7 +118,9 @@ def test_recurring_reminders_sort_first(capsys, monkeypatch):
     assert out.index("CRON") < out.index("ONESHOT")
 
 
-def test_an_empty_live_list_says_where_the_others_went(capsys, monkeypatch):
+def test_an_empty_live_list_says_where_the_others_went(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """'no reminders' when ten exist but all are finished would be a lie."""
     _reminds_output(
         [{"id": "A", "state": "fired", "due_at": "2026-08-21T03:00:00Z"}], monkeypatch=monkeypatch
@@ -113,7 +128,7 @@ def test_an_empty_live_list_says_where_the_others_went(capsys, monkeypatch):
     assert "see them with --all" in capsys.readouterr().out
 
 
-def test_repeat_with_a_delay_is_refused_locally():
+def test_repeat_with_a_delay_is_refused_locally() -> None:
     """A cron already specifies its own first fire, so `--repeat` plus `--delay`
     asks twice and the two can disagree. The server refuses the pair (422); the
     CLI catches it first so the message names the FLAG the user typed rather
@@ -131,17 +146,19 @@ def test_repeat_with_a_delay_is_refused_locally():
     assert cmd_remind(args) == 2
 
 
-def test_a_pure_recurrence_is_allowed():
+def test_a_pure_recurrence_is_allowed() -> None:
     """`--repeat daily` with no delay must NOT be blocked by the client's
     when-check — the cron IS the when. This was a real 422 until the backend
     fixed it, and the client must not reintroduce the refusal locally."""
     from agentbus_client.cli._parser import build_parser
 
     args = build_parser().parse_args(["remind", "-m", "x", "--repeat", "daily"])
-    assert args.repeat == "daily" and not args.delay and not args.at
+    assert args.repeat == "daily"
+    assert not args.delay
+    assert not args.at
 
 
-def test_the_feature_is_discoverable_from_quickref():
+def test_the_feature_is_discoverable_from_quickref() -> None:
     """DISCOVERY GAP: `agentbus quickref` had ZERO mentions of remind.
 
     Found by macbook-admin-bd8e86, who checked the served skill doc too — also
@@ -161,7 +178,7 @@ def test_the_feature_is_discoverable_from_quickref():
     assert "reminders" in QUICKREF, "the ack-chasing collision must be disambiguated"
 
 
-def test_repeat_until_is_a_usage_error_not_a_traceback():
+def test_repeat_until_is_a_usage_error_not_a_traceback() -> None:
     """REGRESSION: `--repeat-until` printed a raw Python stack trace.
 
     The SDK raises ValueError for the unsupported flag — correct there, since a
@@ -182,7 +199,9 @@ def test_repeat_until_is_a_usage_error_not_a_traceback():
     assert cmd_remind(args) == 2, "must be a clean usage error, never an exception"
 
 
-def test_the_refusal_points_at_the_flag_that_actually_works(capsys):
+def test_the_refusal_points_at_the_flag_that_actually_works(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """`--repeat-until` does not exist and will not — `--expire` IS the end date.
 
     An earlier draft of this refusal said "a recurring reminder has no end date

@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -38,13 +39,15 @@ def _seed(tmp_path: Path, agents: list[str]) -> Path:
     return keys
 
 
-def _args(**over):
+def _args(**over: Any) -> argparse.Namespace:
     base = {"json": False, "remote": False, "agent": None}
     base.update(over)
     return argparse.Namespace(**base)
 
 
-def test_never_prints_key_material(tmp_path, monkeypatch, capsys):
+def test_never_prints_key_material(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """THE SECURITY-RELEVANT ASSERTION. An inventory that leaked the secret
     would be strictly worse than no inventory — it would put the
     credential into terminal scrollback and any transcript."""
@@ -66,7 +69,9 @@ def test_never_prints_key_material(tmp_path, monkeypatch, capsys):
     assert "ab_sk_0c3ad1f9ebb614ac" in out
 
 
-def test_lists_every_local_identity(tmp_path, monkeypatch, capsys):
+def test_lists_every_local_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _seed(tmp_path, ["alpha-111111", "beta-222222", "gamma-333333"])
 
@@ -76,7 +81,9 @@ def test_lists_every_local_identity(tmp_path, monkeypatch, capsys):
         assert a in out
 
 
-def test_warns_when_more_than_one_identity_is_present(tmp_path, monkeypatch, capsys):
+def test_warns_when_more_than_one_identity_is_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The whole point: make a multi-identity box legible. One identity is
     the ordinary case and must NOT nag."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -92,7 +99,9 @@ def test_warns_when_more_than_one_identity_is_present(tmp_path, monkeypatch, cap
     assert "bearer-credential model, not a defect" in multi
 
 
-def test_reports_which_identity_this_directory_acts_as(tmp_path, monkeypatch, capsys):
+def test_reports_which_identity_this_directory_acts_as(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The question an operator staring at N key files actually has, and the
     one the directory listing cannot answer."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -108,25 +117,32 @@ def test_reports_which_identity_this_directory_acts_as(tmp_path, monkeypatch, ca
     assert "this directory acts as: peer-b" in capsys.readouterr().out
 
 
-def test_no_credentials_is_not_an_error(tmp_path, monkeypatch, capsys):
+def test_no_credentials_is_not_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     (tmp_path / ".config" / "agentbus" / "keys").mkdir(parents=True)
     assert cli_module.cmd_identities(_args()) == 0
     assert "no agent credentials" in capsys.readouterr().out
 
 
-def test_json_output_shape(tmp_path, monkeypatch, capsys):
+def test_json_output_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _seed(tmp_path, ["peer-a"])
     assert cli_module.cmd_identities(_args(json=True)) == 0
     data = json.loads(capsys.readouterr().out)
-    assert "identities" in data and "acting_as" in data
+    assert "identities" in data
+    assert "acting_as" in data
     assert data["identities"][0]["agent"] == "peer-a"
     # Machine consumers must not receive the secret either.
     assert SECRET not in json.dumps(data)
 
 
-def test_remote_flag_surfaces_live_elsewhere(tmp_path, monkeypatch, capsys):
+def test_remote_flag_surfaces_live_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`this identity is active somewhere and it is not me` — macbook's
     point (d), the missing evidence-of-use trail."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -135,7 +151,7 @@ def test_remote_flag_surfaces_live_elsewhere(tmp_path, monkeypatch, capsys):
     class _Bus:
         agent = "peer-a"
 
-        def health(self, target):
+        def health(self, target: Any) -> dict[str, Any]:
             return {
                 "wake_channel_state": "live" if target == "peer-b" else "none",
                 "watcher_alive": target == "peer-b",
@@ -145,11 +161,14 @@ def test_remote_flag_surfaces_live_elsewhere(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _Bus())
     assert cli_module.cmd_identities(_args(remote=True)) == 0
     out = capsys.readouterr().out
-    assert "WAKE" in out and "ALIVE" in out
+    assert "WAKE" in out
+    assert "ALIVE" in out
     assert "live" in out
 
 
-def test_a_corrupt_key_file_does_not_crash_the_inventory(tmp_path, monkeypatch, capsys):
+def test_a_corrupt_key_file_does_not_crash_the_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """One unreadable file must not hide the other identities — that would
     turn a diagnostic into a blind spot."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -170,11 +189,11 @@ class _DevBus:
     """Phonebook + health doubles. `stray` is registered from a different
     device_hash than the acting agent — the compromise signal."""
 
-    def __init__(self, acting="peer-a", stray=None):
+    def __init__(self, acting: str = "peer-a", stray: Any = None) -> None:
         self.agent = acting
         self._stray = stray
 
-    def phonebook(self, *a, **kw):
+    def phonebook(self, *a: Any, **kw: Any) -> Any:
         rows = [{"name": "peer-a", "device_hash": "aaaa" * 16}]
         rows.append(
             {
@@ -184,7 +203,7 @@ class _DevBus:
         )
         return rows
 
-    def health(self, target):
+    def health(self, target: Any) -> dict[str, Any]:
         return {
             "wake_channel_state": "live",
             "watcher_alive": True,
@@ -192,7 +211,9 @@ class _DevBus:
         }
 
 
-def test_elsewhere_fires_when_an_identity_lives_on_another_device(tmp_path, monkeypatch, capsys):
+def test_elsewhere_fires_when_an_identity_lives_on_another_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """THE KNOWN-POSITIVE. macbook's SEV-1 asked for an evidence-of-use
     trail: 'is one of my stored identities being used somewhere I do not
     expect'. wake_channel answers 'is it live', not 'live WHERE'. This is
@@ -217,7 +238,9 @@ def test_elsewhere_fires_when_an_identity_lives_on_another_device(tmp_path, monk
     assert rc == 1, "a stray identity must exit non-zero so scripts can gate on it"
 
 
-def test_no_warning_when_every_identity_is_on_this_device(tmp_path, monkeypatch, capsys):
+def test_no_warning_when_every_identity_is_on_this_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """KNOWN-NEGATIVE. The ordinary case — several identities provisioned on
     one box, all local — must stay quiet and exit 0, or the warning becomes
     noise that gets ignored on the day it matters."""
@@ -235,7 +258,9 @@ def test_no_warning_when_every_identity_is_on_this_device(tmp_path, monkeypatch,
     assert rc == 0
 
 
-def test_missing_device_hash_is_never_reported_as_elsewhere(tmp_path, monkeypatch, capsys):
+def test_missing_device_hash_is_never_reported_as_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Absence of data must not become an accusation. An older server, or a
     phonebook call that failed, yields no device_hash — that is 'cannot
     tell', not 'compromised'. Crying wolf on missing data is how a real
@@ -244,7 +269,7 @@ def test_missing_device_hash_is_never_reported_as_elsewhere(tmp_path, monkeypatc
     _seed(tmp_path, ["peer-a", "peer-b"])
 
     class _NoDev(_DevBus):
-        def phonebook(self, *a, **kw):
+        def phonebook(self, *a: Any, **kw: Any) -> list[Any]:
             return [{"name": "peer-a"}, {"name": "peer-b"}]  # no device_hash at all
 
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _NoDev())

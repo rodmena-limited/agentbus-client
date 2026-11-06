@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from collections.abc import Sequence
+
     from ._mixin_base import AsyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
     _MixinBase = object
@@ -26,7 +27,7 @@ class AsyncDirectoryMixin(_MixinBase):
         persona: str | None = None,
     ) -> dict[str, Any]:
         """Async mirror of AgentBus.register. Prefer `role` over `name`."""
-        from .. import identity
+        from agentbus_client import identity
 
         payload: dict[str, Any] = {
             "name": name,
@@ -130,7 +131,8 @@ class AsyncDirectoryMixin(_MixinBase):
         """Async mirror of AgentBus.tag() (#149)."""
         target = agent or self.agent
         if not target:
-            raise ValueError("tag() needs an acting agent: pass agent= or construct with one")
+            msg = "tag() needs an acting agent: pass agent= or construct with one"
+            raise ValueError(msg)
         result: dict[str, Any] = await self._request(
             "PATCH",
             f"/v1/agents/{target}/labels",
@@ -154,7 +156,8 @@ class AsyncDirectoryMixin(_MixinBase):
         """Stand this agent down (reversible) — async twin."""
         target = agent or self.agent
         if not target:
-            raise ValueError("retire() needs an acting agent: pass agent= or construct with one")
+            msg = "retire() needs an acting agent: pass agent= or construct with one"
+            raise ValueError(msg)
         await self._request("POST", f"/v1/agents/{target}/retire", agent=target)
 
     async def heartbeat_liveness(self, agent: str | None = None) -> dict[str, Any]:

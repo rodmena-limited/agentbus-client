@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -86,7 +87,9 @@ def test_tags_are_a_fixed_column_not_a_suffix() -> None:
     assert "{cell:<{tag_width + 2}}  {agent['address']}" in source
 
 
-def test_every_column_lines_up_across_rows(capsys, monkeypatch) -> None:
+def test_every_column_lines_up_across_rows(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE TEST THE UNIT TESTS COULD NOT BE.
 
     Feeding _format_tags directly proves a string is short enough; it never
@@ -114,7 +117,7 @@ def test_every_column_lines_up_across_rows(capsys, monkeypatch) -> None:
     ]
 
     class _Bus:
-        def phonebook(self, *_a, **_k):
+        def phonebook(self, *_a: Any, **_k: Any) -> Any:
             return roster
 
     monkeypatch.setattr(cli._common, "_bus", lambda _args: _Bus())
@@ -125,7 +128,9 @@ def test_every_column_lines_up_across_rows(capsys, monkeypatch) -> None:
     assert len(offsets) == 1, f"address column starts at {sorted(offsets)} — rows do not align"
 
 
-def test_history_renders_the_fields_the_endpoint_actually_returns(capsys, monkeypatch) -> None:
+def test_history_renders_the_fields_the_endpoint_actually_returns(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A blank cell where a value belongs is a silent display failure.
 
     My first `agentbus history` guessed `sent_at`/`sender_display` from the
@@ -141,7 +146,7 @@ def test_history_renders_the_fields_the_endpoint_actually_returns(capsys, monkey
     from agentbus_client import cli
 
     class _Bus:
-        def room_history(self, *_a, **_k):
+        def room_history(self, *_a: Any, **_k: Any) -> dict[str, Any]:
             return {
                 "room": "ops",
                 "messages": [

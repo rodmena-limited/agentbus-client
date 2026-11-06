@@ -34,7 +34,7 @@ from agentbus_client.client import AgentBusError, TransportError
 IS_PRE_311 = sys.version_info < (3, 11)
 
 
-def test_cft_identity_matches_this_interpreter_version():
+def test_cft_identity_matches_this_interpreter_version() -> None:
     """Pin the documented divergence. If a future Python changes this
     again, THIS test tells you before the watcher does."""
     is_alias = concurrent.futures.TimeoutError is TimeoutError
@@ -64,7 +64,7 @@ def test_cft_identity_matches_this_interpreter_version():
         "and would be a check that cannot go red."
     ),
 )
-def test_on_py310_a_naive_oserror_guard_would_have_missed_cft():
+def test_on_py310_a_naive_oserror_guard_would_have_missed_cft() -> None:
     """THE ORIGINAL BUG, asserted as a property rather than a story.
 
     This is what every pre-0.9.24 guard in watch.py / cli.py /
@@ -77,7 +77,7 @@ def test_on_py310_a_naive_oserror_guard_would_have_missed_cft():
     escaped = False
     try:
         with contextlib.suppress(AgentBusError, OSError, httpx.HTTPError, ValueError, KeyError):
-            raise concurrent.futures.TimeoutError()
+            raise concurrent.futures.TimeoutError
     except concurrent.futures.TimeoutError:
         escaped = True
 
@@ -89,7 +89,7 @@ def test_on_py310_a_naive_oserror_guard_would_have_missed_cft():
     )
 
 
-def test_the_translated_error_is_caught_by_that_same_naive_guard():
+def test_the_translated_error_is_caught_by_that_same_naive_guard() -> None:
     """THE FIX, asserted as a property, on EVERY version.
 
     The boundary translation converts CFT into TransportError, which is an
@@ -103,7 +103,8 @@ def test_the_translated_error_is_caught_by_that_same_naive_guard():
     caught = True
     try:
         with contextlib.suppress(AgentBusError, OSError, httpx.HTTPError, ValueError, KeyError):
-            raise TransportError("SDK call did not complete within 35.0s")
+            msg = "SDK call did not complete within 35.0s"
+            raise TransportError(msg)
     except TransportError:
         caught = False
 

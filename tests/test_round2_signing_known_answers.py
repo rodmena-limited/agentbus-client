@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from typing import Any
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -44,7 +45,7 @@ CANONICAL_SIG = (
 EMPTY_SHA = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
-def _fields(**overrides):
+def _fields(**overrides: Any) -> Any:
     base = {
         "sender": "alice-1a2b3c",
         "to": ["zed", "bob"],
@@ -57,22 +58,22 @@ def _fields(**overrides):
     return base
 
 
-def test_body_hash_constant_is_the_real_sha256():
+def test_body_hash_constant_is_the_real_sha256() -> None:
     assert hashlib.sha256(BODY.encode()).hexdigest() == BODY_SHA
     assert hashlib.sha256(b"").hexdigest() == EMPTY_SHA
 
 
-def test_public_key_matches_rfc8032_vector():
+def test_public_key_matches_rfc8032_vector() -> None:
     assert _signing.public_from_private(PRIVATE) == PUBLIC
     assert bech32_decode(PUBLIC) == RFC8032_PUBLIC
     assert bech32_decode(PRIVATE.lower()) == RFC8032_SEED
 
 
-def test_public_from_private_accepts_lowercase_private():
+def test_public_from_private_accepts_lowercase_private() -> None:
     assert _signing.public_from_private(PRIVATE.lower()) == PUBLIC
 
 
-def test_fingerprint_is_sixteen_lowercase_hex_of_sha256_of_raw_key():
+def test_fingerprint_is_sixteen_lowercase_hex_of_sha256_of_raw_key() -> None:
     fp = _signing.fingerprint(PUBLIC)
     assert fp == FINGERPRINT
     assert fp == hashlib.sha256(RFC8032_PUBLIC).hexdigest()[:16]
@@ -80,23 +81,23 @@ def test_fingerprint_is_sixteen_lowercase_hex_of_sha256_of_raw_key():
     assert re.fullmatch(r"[0-9a-f]{16}", fp)
 
 
-def test_fingerprint_rejects_a_sealing_key():
+def test_fingerprint_rejects_a_sealing_key() -> None:
     _priv, age_public = sealing.generate_keypair()
     with pytest.raises(ValueError, match="expected a absig1"):
         _signing.fingerprint(age_public)
 
 
-def test_sign_empty_message_is_rfc8032_signature():
+def test_sign_empty_message_is_rfc8032_signature() -> None:
     sig = _signing.sign(PRIVATE, b"")
     assert sig == EMPTY_SIG
     assert bech32_decode(sig) == RFC8032_EMPTY_SIG
 
 
-def test_canonical_bytes_known_answer():
+def test_canonical_bytes_known_answer() -> None:
     assert _signing.canonical_bytes(**_fields()) == CANONICAL
 
 
-def test_canonical_bytes_empty_message_known_answer():
+def test_canonical_bytes_empty_message_known_answer() -> None:
     got = _signing.canonical_bytes(sender="a", to=[], cc=None, subject=None, priority="normal")
     assert got == (
         b"agentbus-sig-v1\nfrom: a\nto: \ncc: \nsubject: \npriority: normal\n"
@@ -104,19 +105,19 @@ def test_canonical_bytes_empty_message_known_answer():
     )
 
 
-def test_canonical_bytes_body_sha256_wins_over_body():
+def test_canonical_bytes_body_sha256_wins_over_body() -> None:
     fields = _fields()
     fields.pop("body")
     assert _signing.canonical_bytes(**fields, body_sha256=BODY_SHA) == CANONICAL
     assert _signing.canonical_bytes(**_fields(body="other"), body_sha256=BODY_SHA) == CANONICAL
 
 
-def test_canonical_bytes_none_body_hashes_empty_string():
+def test_canonical_bytes_none_body_hashes_empty_string() -> None:
     got = _signing.canonical_bytes(**_fields(body=None))
     assert got.endswith(b"body-sha256: " + EMPTY_SHA.encode() + b"\n")
 
 
-def test_canonical_bytes_sorts_recipients_regardless_of_input_order():
+def test_canonical_bytes_sorts_recipients_regardless_of_input_order() -> None:
     a = _signing.canonical_bytes(**_fields(to=["bob", "zed"], cc=["al", "carol"]))
     b = _signing.canonical_bytes(**_fields(to=["zed", "bob"], cc=["carol", "al"]))
     assert a == b == CANONICAL
@@ -137,27 +138,27 @@ def test_canonical_bytes_sorts_recipients_regardless_of_input_order():
         {"body": None},
     ],
 )
-def test_every_signed_field_changes_the_canonical_bytes(override):
+def test_every_signed_field_changes_the_canonical_bytes(override: Any) -> None:
     assert _signing.canonical_bytes(**_fields(**override)) != CANONICAL
 
 
-def test_sign_canonical_known_answer_and_independent_verify():
+def test_sign_canonical_known_answer_and_independent_verify() -> None:
     sig = _signing.sign(PRIVATE, CANONICAL)
     assert sig == CANONICAL_SIG
     Ed25519PublicKey.from_public_bytes(RFC8032_PUBLIC).verify(bech32_decode(sig), CANONICAL)
 
 
-def test_sign_matches_cryptography_directly():
+def test_sign_matches_cryptography_directly() -> None:
     expected = Ed25519PrivateKey.from_private_bytes(RFC8032_SEED).sign(CANONICAL)
     assert bech32_decode(_signing.sign(PRIVATE, CANONICAL)) == expected
 
 
-def test_verify_accepts_pinned_signature():
+def test_verify_accepts_pinned_signature() -> None:
     assert _signing.verify(PUBLIC, CANONICAL, CANONICAL_SIG) is None
     assert _signing.verify(PUBLIC, b"", EMPTY_SIG) is None
 
 
-def test_verify_accepts_signature_made_independently():
+def test_verify_accepts_signature_made_independently() -> None:
     raw = Ed25519PrivateKey.from_private_bytes(RFC8032_SEED).sign(CANONICAL)
     assert _signing.verify(PUBLIC, CANONICAL, bech32_encode("absigv", raw)) is None
 
@@ -173,19 +174,19 @@ def test_verify_accepts_signature_made_independently():
         {"body": "ledger unbalanced\n"},
     ],
 )
-def test_verify_rejects_tampered_canonical_payload(override):
+def test_verify_rejects_tampered_canonical_payload(override: Any) -> None:
     tampered = _signing.canonical_bytes(**_fields(**override))
     with pytest.raises(_signing.BadSignature):
         _signing.verify(PUBLIC, tampered, CANONICAL_SIG)
 
 
-def test_verify_rejects_one_flipped_byte():
+def test_verify_rejects_one_flipped_byte() -> None:
     tampered = CANONICAL[:-2] + bytes([CANONICAL[-2] ^ 1]) + CANONICAL[-1:]
     with pytest.raises(_signing.BadSignature):
         _signing.verify(PUBLIC, tampered, CANONICAL_SIG)
 
 
-def test_verify_rejects_signature_from_another_key():
+def test_verify_rejects_signature_from_another_key() -> None:
     other_private, other_public = _signing.generate_keypair()
     sig = _signing.sign(other_private, CANONICAL)
     with pytest.raises(_signing.BadSignature):
@@ -193,29 +194,29 @@ def test_verify_rejects_signature_from_another_key():
     assert _signing.verify(other_public, CANONICAL, sig) is None
 
 
-def test_verify_rejects_garbage_signature_as_bad_signature():
+def test_verify_rejects_garbage_signature_as_bad_signature() -> None:
     with pytest.raises(_signing.BadSignature, match="expected a absigv1"):
         _signing.verify(PUBLIC, CANONICAL, "not-a-signature")
 
 
-def test_verify_rejects_public_key_used_as_signature():
+def test_verify_rejects_public_key_used_as_signature() -> None:
     with pytest.raises(_signing.BadSignature):
         _signing.verify(PUBLIC, CANONICAL, PUBLIC)
 
 
-def test_verify_rejects_sealing_key_as_public_key():
+def test_verify_rejects_sealing_key_as_public_key() -> None:
     _priv, age_public = sealing.generate_keypair()
     with pytest.raises(_signing.BadSignature, match="expected a absig1"):
         _signing.verify(age_public, CANONICAL, CANONICAL_SIG)
 
 
-def test_verify_bad_signature_carries_reason_text():
+def test_verify_bad_signature_carries_reason_text() -> None:
     with pytest.raises(_signing.BadSignature) as info:
         _signing.verify(PUBLIC, CANONICAL + b"x", CANONICAL_SIG)
     assert str(info.value) == "signature does not verify"
 
 
-def test_generate_keypair_shape_and_consistency():
+def test_generate_keypair_shape_and_consistency() -> None:
     private, public = _signing.generate_keypair()
     assert private.startswith("ABSIGSEC1")
     assert private == private.upper()
@@ -228,10 +229,10 @@ def test_generate_keypair_shape_and_consistency():
     assert _signing.verify(public, CANONICAL, sig) is None
 
 
-def test_generate_keypair_is_fresh_each_call():
+def test_generate_keypair_is_fresh_each_call() -> None:
     assert _signing.generate_keypair()[0] != _signing.generate_keypair()[0]
 
 
-def test_sign_rejects_a_public_key_as_private():
+def test_sign_rejects_a_public_key_as_private() -> None:
     with pytest.raises(ValueError, match="expected a absigsec1"):
         _signing.sign(PUBLIC, CANONICAL)

@@ -17,8 +17,12 @@ import argparse
 import inspect
 import io
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class FakeBus:
@@ -27,7 +31,7 @@ class FakeBus:
     def __init__(self) -> None:
         self.sent: dict | None = None
 
-    def read(self, _delivery_id):
+    def read(self, _delivery_id: Any) -> dict[str, Any]:
         # `read` unseals on the way through, so this is the plaintext this
         # agent was entitled to.
         return {
@@ -38,12 +42,12 @@ class FakeBus:
             "message_id": "msg_1",
         }
 
-    def send(self, **kwargs):
+    def send(self, **kwargs: Any) -> dict[str, Any]:
         self.sent = kwargs
         return {"id": "msg_2", "recipients": kwargs["to"]}
 
 
-def _forward(to, body=None):
+def _forward(to: Any, body: Any = None) -> Any:
     args = argparse.Namespace(
         delivery_id="del_1", to=to, cc=None, body=body, priority=None, json=False, agent=None
     )
@@ -53,7 +57,9 @@ def _forward(to, body=None):
     return rc, buf.getvalue()
 
 
-def test_forwarding_sends_plaintext_through_the_sealing_send_path(monkeypatch):
+def test_forwarding_sends_plaintext_through_the_sealing_send_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The plaintext is handed to `send`, which seals it to the NEW recipients.
     Reimplementing the sealing here would be a second copy of the rule that
     matters most."""
@@ -66,7 +72,7 @@ def test_forwarding_sends_plaintext_through_the_sealing_send_path(monkeypatch):
     assert "the original secret" in bus.sent["text"]
 
 
-def test_the_original_ciphertext_is_never_relayed(monkeypatch):
+def test_the_original_ciphertext_is_never_relayed(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE POINT. If a forward copied the sealed bytes, the third party would
     hold something only the ORIGINAL recipients can open."""
     bus = FakeBus()
@@ -75,7 +81,7 @@ def test_the_original_ciphertext_is_never_relayed(monkeypatch):
     assert "BEGIN AGE ENCRYPTED FILE" not in bus.sent["text"]
 
 
-def test_the_forward_is_attributed(monkeypatch):
+def test_the_forward_is_attributed(monkeypatch: pytest.MonkeyPatch) -> None:
     """A quoted block with no attribution is how a forwarded claim becomes the
     forwarder's own."""
     bus = FakeBus()
@@ -87,14 +93,16 @@ def test_the_forward_is_attributed(monkeypatch):
     assert "msg_1" in text
 
 
-def test_a_note_can_be_added_above_the_quote(monkeypatch):
+def test_a_note_can_be_added_above_the_quote(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = FakeBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"], body="see below")
     assert bus.sent["text"].startswith("see below")
 
 
-def test_an_unreadable_message_is_refused_not_forwarded_empty(monkeypatch):
+def test_an_unreadable_message_is_refused_not_forwarded_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """If this agent cannot unseal it, there is nothing to re-seal. Sending an
     empty forward would look like a delivered message with no content."""
     bus = FakeBus()
@@ -105,7 +113,7 @@ def test_an_unreadable_message_is_refused_not_forwarded_empty(monkeypatch):
     assert bus.sent is None
 
 
-def test_a_recipient_without_a_key_is_refused_by_the_send_path():
+def test_a_recipient_without_a_key_is_refused_by_the_send_path() -> None:
     """Not re-checked here on purpose: the send path already refuses, and a
     second copy of that rule would drift. This asserts we did not bypass it."""
     src = inspect.getsource(cli.cmd_forward)
@@ -113,14 +121,16 @@ def test_a_recipient_without_a_key_is_refused_by_the_send_path():
     assert "seal_for" not in src, "forward must not seal by hand; use the send path"
 
 
-def test_the_subject_is_marked_as_a_forward(monkeypatch):
+def test_the_subject_is_marked_as_a_forward(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = FakeBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"])
     assert bus.sent["subject"].startswith("Fwd: ")
 
 
-def test_an_already_forwarded_subject_is_not_double_prefixed(monkeypatch):
+def test_an_already_forwarded_subject_is_not_double_prefixed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     bus = FakeBus()
     bus.read = lambda _d: {"text_body": "x", "subject": "Fwd: budget", "sender_display": "a"}
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)

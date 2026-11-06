@@ -25,37 +25,43 @@ from __future__ import annotations
 
 import json
 import time
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client import watch as watch_module
 from agentbus_client.watch import Watcher
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 class _FakeBus:
-    def __init__(self):
+    def __init__(self) -> None:
         self.agent = "test-agent"
         self.base_url = "https://x"
         self.api_key = "ab_sk_test"
         self.inbox_raises: BaseException | None = None
 
-    def inbox(self, cursor, limit=100, agent=None):
+    def inbox(self, cursor: Any, limit: int = 100, agent: Any = None) -> list[Any]:
         if self.inbox_raises is not None:
             raise self.inbox_raises
         return []
 
-    def whoami(self, agent=None):
+    def whoami(self, agent: Any = None) -> dict[str, Any]:
         return {"workspace": {"slug": "test-ws"}}
 
 
-def _new_watcher(tmp_path, cursor=0):
+def _new_watcher(tmp_path: Path, cursor: int = 0) -> Watcher:
     return Watcher(_FakeBus(), agent="test-agent", state_path=tmp_path / "state.json")
 
 
 # ------------------------------------------------------------- persist across restart
 
 
-def test_failures_persist_across_restart_within_ttl(tmp_path, monkeypatch):
+def test_failures_persist_across_restart_within_ttl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The exact SEV-1 shape: an OS supervisor's crash-and-restart during
     an outage MUST NOT reset the backoff ladder to step 0."""
     monkeypatch.setattr(time, "sleep", lambda s: None)
@@ -80,7 +86,7 @@ def test_failures_persist_across_restart_within_ttl(tmp_path, monkeypatch):
     assert w2._last_failure_at == fixed_now
 
 
-def test_failures_reset_after_ttl_expires(tmp_path, monkeypatch):
+def test_failures_reset_after_ttl_expires(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """If the persisted failure is old (watcher was up for hours after one
     early transient), the ladder must reset. Otherwise the next reconnect
     after a long healthy uptime would incorrectly start at some high step."""
@@ -102,7 +108,9 @@ def test_failures_reset_after_ttl_expires(tmp_path, monkeypatch):
     assert w2._failures == 0, "stale last_failure_at (older than TTL) must reset the ladder"
 
 
-def test_successful_reconnect_clears_persisted_failures(tmp_path, monkeypatch):
+def test_successful_reconnect_clears_persisted_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When the stream opens cleanly, the successful open MUST persist the
     reset — otherwise a restart shortly after would reload stale failures
     and start at a high backoff step for no reason."""
@@ -133,7 +141,9 @@ def test_successful_reconnect_clears_persisted_failures(tmp_path, monkeypatch):
 # ------------------------------------------------------------- jitter
 
 
-def test_sleep_delay_is_jittered_around_the_base_step(tmp_path, monkeypatch):
+def test_sleep_delay_is_jittered_around_the_base_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """+/-15% around the base step — deterministic when random.uniform is
     patched, so tests can pin the exact expected delay."""
     slept: list[float] = []
@@ -164,7 +174,9 @@ def test_sleep_delay_is_jittered_around_the_base_step(tmp_path, monkeypatch):
     assert slept == [pytest.approx(1.7, abs=1e-3)]
 
 
-def test_jitter_never_produces_a_negative_delay(tmp_path, monkeypatch):
+def test_jitter_never_produces_a_negative_delay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """max(0.0, base + jitter) guards against a pathological jitter value
     that could underflow. Belt-and-braces."""
     slept: list[float] = []
@@ -179,7 +191,9 @@ def test_jitter_never_produces_a_negative_delay(tmp_path, monkeypatch):
     assert slept == [0.0]  # clamped, not negative
 
 
-def test_backoff_walks_persisted_ladder_across_restarts(tmp_path, monkeypatch):
+def test_backoff_walks_persisted_ladder_across_restarts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """End-to-end: three backoffs, restart, one more backoff — the restarted
     watcher's backoff step comes from the persisted count, so its sleep
     reflects step 3 (the ladder is at index min(3, 5) = 3 → 10s), not
@@ -211,13 +225,15 @@ def test_backoff_walks_persisted_ladder_across_restarts(tmp_path, monkeypatch):
 # ------------------------------------------------------------- persist immediately
 
 
-def test_backoff_state_persisted_before_sleep_completes(tmp_path, monkeypatch):
+def test_backoff_state_persisted_before_sleep_completes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`_save_cursor` is called BEFORE the sleep so a kill -9 during the
     sleep window (or an OS-supervisor pull) doesn't lose the ladder step."""
     saves = []
     real_save = Watcher._save_cursor
 
-    def tracking_save(self):
+    def tracking_save(self) -> None:
         saves.append(self._failures)
         real_save(self)
 
@@ -237,7 +253,9 @@ def test_backoff_state_persisted_before_sleep_completes(tmp_path, monkeypatch):
 # ------------------------------------------------------------- state file schema
 
 
-def test_state_file_writes_new_backoff_fields(tmp_path, monkeypatch):
+def test_state_file_writes_new_backoff_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Contract check on the persisted schema: the state file must include
     `failures` and `last_failure_at` alongside the existing cursor +
     workspace + client_version. A schema audit tool reading state files can

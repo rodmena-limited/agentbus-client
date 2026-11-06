@@ -19,23 +19,27 @@ import argparse
 import io
 import json
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentbus_client.cli import _register
+from agentbus_client.cli import _identity_cmd
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
-def _no_env_identity(monkeypatch):
+def _no_env_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
 
 
-def _declare(root, name):
+def _declare(root: Path, name: str) -> None:
     (root / ".agentbus").mkdir(parents=True, exist_ok=True)
     (root / ".agentbus" / "agent").write_text(f"{name}\n")
 
 
-def _mirror(root, name):
+def _mirror(root: Path, name: str) -> None:
     d = root / ".claude"
     d.mkdir(parents=True, exist_ok=True)
     (d / "settings.local.json").write_text(json.dumps({"env": {"AGENTBUS_AGENT": name}}))
@@ -55,20 +59,22 @@ def _agent_line(out: str) -> str:
     return ""
 
 
-def _run(as_json=False):
+def _run(as_json: bool = False) -> Any:
     buf = io.StringIO()
     with redirect_stdout(buf):
-        assert _register.cmd_identity(argparse.Namespace(json=as_json, workdir=None)) == 0
+        assert _identity_cmd.cmd_identity(argparse.Namespace(json=as_json, workdir=None)) == 0
     return buf.getvalue()
 
 
-def test_the_resolved_agent_is_printed(tmp_path, monkeypatch):
+def test_the_resolved_agent_is_printed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _declare(tmp_path, "declared-name")
     monkeypatch.chdir(tmp_path)
     assert "declared-name" in _agent_line(_run())
 
 
-def test_a_disagreeing_source_is_shown_as_ignored(tmp_path, monkeypatch):
+def test_a_disagreeing_source_is_shown_as_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE SPLIT-IDENTITY CASE. Both names must appear, and which one lost."""
     _declare(tmp_path, "declared-name")
     _mirror(tmp_path, "mirrored-name")
@@ -80,7 +86,9 @@ def test_a_disagreeing_source_is_shown_as_ignored(tmp_path, monkeypatch):
     assert "DISAGREE" in out
 
 
-def test_agreeing_sources_are_not_reported_as_a_conflict(tmp_path, monkeypatch):
+def test_agreeing_sources_are_not_reported_as_a_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-negative: the DISAGREE banner must be able to stay silent.
 
     Without this, a warning that always fires is indistinguishable from one
@@ -94,7 +102,9 @@ def test_agreeing_sources_are_not_reported_as_a_conflict(tmp_path, monkeypatch):
     assert "DISAGREE" not in out
 
 
-def test_no_declared_identity_says_so_plainly(tmp_path, monkeypatch):
+def test_no_declared_identity_says_so_plainly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-negative for the whole feature: it must not invent a name."""
     monkeypatch.chdir(tmp_path)
     out = _run()
@@ -102,7 +112,9 @@ def test_no_declared_identity_says_so_plainly(tmp_path, monkeypatch):
     assert "DISAGREE" not in out
 
 
-def test_env_var_is_reported_as_the_winner_and_others_as_ignored(tmp_path, monkeypatch):
+def test_env_var_is_reported_as_the_winner_and_others_as_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _declare(tmp_path, "declared-name")
     _mirror(tmp_path, "mirrored-name")
     monkeypatch.chdir(tmp_path)
@@ -112,7 +124,7 @@ def test_env_var_is_reported_as_the_winner_and_others_as_ignored(tmp_path, monke
     assert out.count("IGNORED") == 2
 
 
-def test_json_carries_the_same_answer(tmp_path, monkeypatch):
+def test_json_carries_the_same_answer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _declare(tmp_path, "declared-name")
     _mirror(tmp_path, "mirrored-name")
     monkeypatch.chdir(tmp_path)
@@ -121,7 +133,9 @@ def test_json_carries_the_same_answer(tmp_path, monkeypatch):
     assert any("mirrored-name" in s for s in d["identity_sources"])
 
 
-def test_the_derivation_inputs_are_still_printed(tmp_path, monkeypatch):
+def test_the_derivation_inputs_are_still_printed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The original purpose must survive: MCP callers pass these to register."""
     monkeypatch.chdir(tmp_path)
     out = _run()

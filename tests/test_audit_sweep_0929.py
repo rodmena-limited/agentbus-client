@@ -28,14 +28,20 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 # ------------------------------------------------------- REG-8d traversal
 
 
-def test_agent_key_cannot_traverse_to_operator_env(tmp_path, monkeypatch):
+def test_agent_key_cannot_traverse_to_operator_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE ESCALATION, reproduced then pinned.
 
     Before the fix, a hostile `.claude/settings.local.json` naming the
@@ -56,7 +62,9 @@ def test_agent_key_cannot_traverse_to_operator_env(tmp_path, monkeypatch):
     )
 
 
-def test_agent_key_still_resolves_a_legitimate_bound_key(tmp_path, monkeypatch):
+def test_agent_key_still_resolves_a_legitimate_bound_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """KNOWN-POSITIVE. Without it, a sanitizer that returned None for
     everything would satisfy the test above while silently breaking every
     real credential lookup — the fix would be an outage, not a guard."""
@@ -70,7 +78,9 @@ def test_agent_key_still_resolves_a_legitimate_bound_key(tmp_path, monkeypatch):
     assert onboarding._agent_key("realagent") == "ab_sk_LEGIT"
 
 
-def test_agent_key_matches_its_siblings_sanitizer(tmp_path, monkeypatch):
+def test_agent_key_matches_its_siblings_sanitizer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The four call sites that resolve keys/<agent>.env must agree.
     REG-8b sanitized three and enumerated them in bound_env_filename's
     docstring; this one was left off that list."""
@@ -98,11 +108,11 @@ class _Bus:
     base_url = "https://x"
     api_key = "k"
 
-    def inbox(self, *a, **kw):
+    def inbox(self, *a: Any, **kw: Any) -> list[Any]:
         return []
 
 
-def test_drain_lock_is_released_when_the_thread_cannot_start(tmp_path):
+def test_drain_lock_is_released_when_the_thread_cannot_start(tmp_path: Path) -> None:
     """F1. Thread.start() raises RuntimeError under thread/FD exhaustion.
     The lock was taken BEFORE it and released only inside the thread body,
     so a failed start stranded it forever — after which _drain_async was a
@@ -122,7 +132,7 @@ def test_drain_lock_is_released_when_the_thread_cannot_start(tmp_path):
     w._drain_lock.release()
 
 
-def test_drain_lock_released_on_memory_error_too(tmp_path):
+def test_drain_lock_released_on_memory_error_too(tmp_path: Path) -> None:
     """Same guard, the other plausible failure under pressure."""
     from agentbus_client.watch import Watcher
 
@@ -136,7 +146,9 @@ def test_drain_lock_released_on_memory_error_too(tmp_path):
 # ------------------------------------------------------- F2 bounded acquire
 
 
-def test_backoff_does_not_block_forever_on_an_in_flight_drain(tmp_path, monkeypatch):
+def test_backoff_does_not_block_forever_on_an_in_flight_drain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """F2. The recovery path must never wait unboundedly on the failing
     path. With the lock held by a long drain, _backoff_and_drain must skip
     the opportunistic drain, say so, and still perform its backoff sleep."""
@@ -165,7 +177,7 @@ def test_backoff_does_not_block_forever_on_an_in_flight_drain(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize(
-    "exc_factory,label",
+    ("exc_factory", "label"),
     [
         (
             lambda: __import__("agentbus_client.client", fromlist=["AgentBusError"]).AgentBusError(
@@ -188,7 +200,9 @@ def test_backoff_does_not_block_forever_on_an_in_flight_drain(tmp_path, monkeypa
         (lambda: RuntimeError("something nobody predicted"), "unforeseen shape"),
     ],
 )
-def test_rewake_poll_survives_every_typed_api_error(exc_factory, label, monkeypatch):
+def test_rewake_poll_survives_every_typed_api_error(
+    exc_factory: Any, label: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """F3. Each of these used to ESCAPE the poll and abandon the whole
     600-second re-wake window, because the classifier matched on exception
     TYPE-NAME SUBSTRING and none of these names contain 'timeout',
@@ -207,7 +221,7 @@ def test_rewake_poll_survives_every_typed_api_error(exc_factory, label, monkeypa
     assert result == "", f"{label} did not degrade to an empty poll result"
 
 
-def test_rewake_poll_still_returns_real_text_on_success(monkeypatch):
+def test_rewake_poll_still_returns_real_text_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE for the guard above — a poll that returned "" for
     everything would satisfy every case in the parametrised test while
     silently disabling the re-waker entirely."""
@@ -218,7 +232,7 @@ def test_rewake_poll_still_returns_real_text_on_success(monkeypatch):
     assert poll() == "agentbus show 01ABC"
 
 
-def test_rewake_classifies_503_as_transient():
+def test_rewake_classifies_503_as_transient() -> None:
     """The audit gap: during a rolling deploy, ServiceUnavailable (503) and
     bare AgentBusError (502/504) must be classified TRANSIENT so the retry
     policy backoffs and the circuit breaker counts them — not escape the
@@ -252,7 +266,7 @@ def test_rewake_classifies_503_as_transient():
 # ------------------------------------------------------- F2b doctor ledger path
 
 
-def test_doctor_reads_the_ledger_the_rewaker_actually_writes():
+def test_doctor_reads_the_ledger_the_rewaker_actually_writes() -> None:
     """The doctor's 'production wake-ledger untouched' assertion used to
     build the path inline, diverging from rewake._ledger_path on THREE
     axes ($AGENTBUS_REWAKE_STATE, $AGENTBUS_WAKE_DIR vs

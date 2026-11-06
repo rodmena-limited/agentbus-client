@@ -29,21 +29,26 @@ from __future__ import annotations
 
 import os
 import subprocess
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client.cli import _common
 from agentbus_client.hooks import _identity
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
 
 @pytest.fixture(autouse=True)
-def _clear_caches():
+def _clear_caches() -> Iterator[Any]:
     _identity._REPO_ROOT_CACHE.clear()
     yield
     _identity._REPO_ROOT_CACHE.clear()
 
 
-def _worktree_pair(tmp_path):
+def _worktree_pair(tmp_path: Path) -> Any:
     """A real main checkout plus a real LINKED worktree."""
     main = tmp_path / "main"
     main.mkdir()
@@ -58,7 +63,9 @@ def _worktree_pair(tmp_path):
     return main, linked
 
 
-def _resolve(monkeypatch, cwd, env_agent, break_git=False):
+def _resolve(
+    monkeypatch: pytest.MonkeyPatch, cwd: Path, env_agent: Any, break_git: bool = False
+) -> Any:
     monkeypatch.chdir(cwd)
     monkeypatch.setenv("AGENTBUS_AGENT", env_agent)
     if break_git:
@@ -72,19 +79,25 @@ def _resolve(monkeypatch, cwd, env_agent, break_git=False):
 
 
 @pytest.mark.skipif(not os.environ.get("PATH"), reason="needs a shell")
-def test_linked_worktree_resolves_correctly_with_git(tmp_path, monkeypatch):
+def test_linked_worktree_resolves_correctly_with_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-positive: the path that already worked must keep working."""
     _main, linked = _worktree_pair(tmp_path)
     assert _resolve(monkeypatch, linked, "main-agent") == "linked-agent"
 
 
-def test_linked_worktree_resolves_the_same_when_git_is_unavailable(tmp_path, monkeypatch):
+def test_linked_worktree_resolves_the_same_when_git_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE REGRESSION. Before the fix this returned 'main-agent', silently."""
     _main, linked = _worktree_pair(tmp_path)
     assert _resolve(monkeypatch, linked, "main-agent", break_git=True) == "linked-agent"
 
 
-def test_the_two_agree_so_identity_is_deterministic(tmp_path, monkeypatch):
+def test_the_two_agree_so_identity_is_deterministic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The property that actually matters: same inputs, same sender, always."""
     _main, linked = _worktree_pair(tmp_path)
     with_git = _resolve(monkeypatch, linked, "main-agent")
@@ -92,7 +105,9 @@ def test_the_two_agree_so_identity_is_deterministic(tmp_path, monkeypatch):
     assert with_git == without == "linked-agent"
 
 
-def test_agreeing_env_and_declaration_still_work(tmp_path, monkeypatch):
+def test_agreeing_env_and_declaration_still_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """tracker-manager's control: the fix must not pass vacuously.
 
     A worktree where env and declaration AGREE is the only environment most
@@ -103,7 +118,7 @@ def test_agreeing_env_and_declaration_still_work(tmp_path, monkeypatch):
     assert _resolve(monkeypatch, linked, "linked-agent", break_git=True) == "linked-agent"
 
 
-def test_a_deliberate_export_still_wins(tmp_path, monkeypatch):
+def test_a_deliberate_export_still_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """#90 must stay intact: a name a PERSON exported is not an injection.
 
     Known-negative for the reversal — it must be able to NOT fire.
@@ -113,7 +128,9 @@ def test_a_deliberate_export_still_wins(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("var", ["GIT_DIR", "GIT_WORK_TREE"])
-def test_misdirected_git_cannot_change_the_sender(tmp_path, monkeypatch, var):
+def test_misdirected_git_cannot_change_the_sender(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, var: Any
+) -> None:
     """#44: git ANSWERS, but about another repository.
 
     tracker-manager found this within the hour of #42 shipping, and named the
@@ -133,7 +150,9 @@ def test_misdirected_git_cannot_change_the_sender(tmp_path, monkeypatch, var):
     assert _resolve(monkeypatch, linked, "main-agent") == "linked-agent"
 
 
-def test_git_dir_pointing_at_a_REAL_other_repo_cannot_change_the_sender(tmp_path, monkeypatch):
+def test_git_dir_pointing_at_a_REAL_other_repo_cannot_change_the_sender(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The sharpest form of #44: git succeeds and answers about a VALID other repo.
 
     Distinct from the nonexistent-path case above, which git REJECTS — that one
@@ -155,7 +174,9 @@ def test_git_dir_pointing_at_a_REAL_other_repo_cannot_change_the_sender(tmp_path
     assert _resolve(monkeypatch, linked, "main-agent") == "linked-agent"
 
 
-def test_misdirected_git_still_lets_a_deliberate_export_win(tmp_path, monkeypatch):
+def test_misdirected_git_still_lets_a_deliberate_export_win(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-negative under the same stimulus: #90 must survive the #44 fix too.
 
     Without this, making the filesystem primary could have been implemented as
@@ -167,7 +188,7 @@ def test_misdirected_git_still_lets_a_deliberate_export_win(tmp_path, monkeypatc
     assert _resolve(monkeypatch, linked, "deliberate-name") == "deliberate-name"
 
 
-def test_common_dir_is_read_from_disk_for_a_linked_worktree(tmp_path):
+def test_common_dir_is_read_from_disk_for_a_linked_worktree(tmp_path: Path) -> None:
     """The mechanism: `.git` is a FILE in a linked worktree, a DIRECTORY in main."""
     main, linked = _worktree_pair(tmp_path)
     assert (linked / ".git").is_file()

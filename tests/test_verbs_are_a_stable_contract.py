@@ -22,6 +22,7 @@ import io
 import json
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Any
 
 from agentbus_client.cli._diag import cmd_quickref
 from agentbus_client.cli._parser import build
@@ -31,14 +32,14 @@ def _parser_verbs() -> list[str]:
     return sorted(build().commands)
 
 
-def test_no_verb_was_lost_or_added_by_the_click_migration():
+def test_no_verb_was_lost_or_added_by_the_click_migration() -> None:
     oracle = json.loads(
         (Path(__file__).parent / "fixtures" / "cli_argparse_oracle_0_9_94.json").read_text()
     )
     assert _parser_verbs() == oracle["verbs"]
 
 
-def _run(**flags) -> str:
+def _run(**flags: Any) -> str:
     args = argparse.Namespace(json=flags.get("json", False), verbs=flags.get("verbs", False))
     buf = io.StringIO()
     with redirect_stdout(buf):
@@ -46,19 +47,19 @@ def _run(**flags) -> str:
     return buf.getvalue()
 
 
-def test_the_list_matches_the_parser_exactly():
+def test_the_list_matches_the_parser_exactly() -> None:
     """THE CONTRACT. Not 'contains some verbs' — the same set."""
     printed = [ln for ln in _run(verbs=True).splitlines() if ln.strip()]
     assert printed == _parser_verbs()
 
 
-def test_there_are_verbs_to_check():
+def test_there_are_verbs_to_check() -> None:
     """KNOWN-POSITIVE: an empty list would satisfy `printed == parser_verbs`
     if the parser were also broken, and satisfies nothing useful."""
     assert len(_parser_verbs()) > 40
 
 
-def test_one_verb_per_line_so_wc_l_is_the_count():
+def test_one_verb_per_line_so_wc_l_is_the_count() -> None:
     """The whole point is that a script can count it without a regex."""
     out = _run(verbs=True)
     lines = [ln for ln in out.splitlines() if ln.strip()]
@@ -66,19 +67,19 @@ def test_one_verb_per_line_so_wc_l_is_the_count():
     assert all(" " not in ln.strip() for ln in lines), "a verb line must be one token"
 
 
-def test_json_form_is_a_list_of_strings():
+def test_json_form_is_a_list_of_strings() -> None:
     data = json.loads(_run(verbs=True, json=True))
     assert data == _parser_verbs()
 
 
-def test_without_the_flag_it_is_still_the_human_quickref():
+def test_without_the_flag_it_is_still_the_human_quickref() -> None:
     """Known-negative: the flag must not have replaced the default output."""
     out = _run()
     assert "AgentBus quick reference" in out
     assert "agentbus whoami" in out
 
 
-def test_known_verbs_from_the_reported_gap_are_present():
+def test_known_verbs_from_the_reported_gap_are_present() -> None:
     """The verbs that started this thread must be in the contract, since a
     consumer's doc guard is what will look for them."""
     verbs = _parser_verbs()

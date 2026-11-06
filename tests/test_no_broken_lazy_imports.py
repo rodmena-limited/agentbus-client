@@ -24,6 +24,7 @@ from __future__ import annotations
 import ast
 import importlib
 import pathlib
+from typing import Any
 
 import pytest
 
@@ -43,7 +44,9 @@ def _lazy_imports() -> list[tuple[str, str, int]]:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             for inner in ast.walk(node):
-                if isinstance(inner, ast.ImportFrom) and inner.level:
+                if isinstance(inner, ast.ImportFrom) and (
+                    inner.level or (inner.module or "").startswith("agentbus_client")
+                ):
                     rel = path.relative_to(ROOT.parent)
                     pkg = ".".join(rel.with_suffix("").parts[:-1])
                     base = pkg
@@ -58,7 +61,7 @@ def _lazy_imports() -> list[tuple[str, str, int]]:
     return found
 
 
-def test_there_are_lazy_imports_to_check():
+def test_there_are_lazy_imports_to_check() -> None:
     """KNOWN-POSITIVE for the collector itself.
 
     If `_lazy_imports()` silently returned nothing — a walk that matched no
@@ -68,8 +71,8 @@ def test_there_are_lazy_imports_to_check():
     assert len(_lazy_imports()) > 10, "the AST walk found almost nothing; it is broken"
 
 
-@pytest.mark.parametrize("pkg,target,lineno", _lazy_imports())
-def test_every_lazy_import_resolves(pkg, target, lineno):
+@pytest.mark.parametrize(("pkg", "target", "lineno"), _lazy_imports())
+def test_every_lazy_import_resolves(pkg: Any, target: Any, lineno: Any) -> None:
     """Execute it. A function-level import is dead code until someone runs the
     verb, which is exactly how `verify-sender` shipped broken."""
     module, _, name = target.rpartition(".")
@@ -88,7 +91,7 @@ def test_every_lazy_import_resolves(pkg, target, lineno):
             pytest.fail(f"{pkg} line {lineno}: `{name}` not in {resolved.__name__}: {exc}")
 
 
-def test_room_history_unseals_like_thread_does():
+def test_room_history_unseals_like_thread_does() -> None:
     """BUG: `history --json` returned raw age armor while every other read path
     rendered prose. Silent — the call SUCCEEDS and the body is unusable, which
     is worse than an error because nothing signals it.

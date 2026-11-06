@@ -24,37 +24,45 @@ from __future__ import annotations
 
 import json
 import subprocess
+from typing import TYPE_CHECKING
 
 import pytest
 
 from agentbus_client.onboarding import _identity
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 @pytest.fixture(autouse=True)
-def _no_env_identity(monkeypatch):
+def _no_env_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """The env var outranks everything, so it must be absent for these cases."""
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
 
 
-def _declare(root, name):
+def _declare(root: Path, name: str) -> None:
     (root / ".agentbus").mkdir(parents=True, exist_ok=True)
     (root / ".agentbus" / "agent").write_text(f"{name}\n")
 
 
-def _settings(root, name):
+def _settings(root: Path, name: str) -> None:
     d = root / ".claude"
     d.mkdir(parents=True, exist_ok=True)
     (d / "settings.local.json").write_text(json.dumps({"env": {"AGENTBUS_AGENT": name}}))
 
 
-def test_declared_identity_is_read_outside_a_git_repo(tmp_path, monkeypatch):
+def test_declared_identity_is_read_outside_a_git_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The regression itself: no git root must not mean no identity."""
     _declare(tmp_path, "declared-name")
     monkeypatch.chdir(tmp_path)
     assert _identity._resolve_agent_name() == "declared-name"
 
 
-def test_declared_identity_still_works_inside_a_git_repo(tmp_path, monkeypatch):
+def test_declared_identity_still_works_inside_a_git_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-positive control: the path that already worked must keep working."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=False)
     _declare(tmp_path, "repo-name")
@@ -62,7 +70,9 @@ def test_declared_identity_still_works_inside_a_git_repo(tmp_path, monkeypatch):
     assert _identity._resolve_agent_name() == "repo-name"
 
 
-def test_no_file_outside_a_repo_still_resolves_to_nothing(tmp_path, monkeypatch):
+def test_no_file_outside_a_repo_still_resolves_to_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-negative: the fallback must not invent an identity.
 
     Without this, the test above would pass in a world where the resolver
@@ -74,7 +84,9 @@ def test_no_file_outside_a_repo_still_resolves_to_nothing(tmp_path, monkeypatch)
     assert _identity._resolve_agent_name() is None
 
 
-def test_worktree_file_outranks_settings_local_json_outside_a_repo(tmp_path, monkeypatch):
+def test_worktree_file_outranks_settings_local_json_outside_a_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE EXACT SHAPE THAT BIT US: both files present, no git repo.
 
     Before the fix settings.local.json won here, so `setup` re-registered the
@@ -86,14 +98,18 @@ def test_worktree_file_outranks_settings_local_json_outside_a_repo(tmp_path, mon
     assert _identity._resolve_agent_name() == "declared-name"
 
 
-def test_settings_local_json_still_answers_when_nothing_is_declared(tmp_path, monkeypatch):
+def test_settings_local_json_still_answers_when_nothing_is_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Known-negative for the assertion above: it must be able to lose."""
     _settings(tmp_path, "mirrored-name")
     monkeypatch.chdir(tmp_path)
     assert _identity._resolve_agent_name() == "mirrored-name"
 
 
-def test_env_var_still_outranks_the_declared_file(tmp_path, monkeypatch):
+def test_env_var_still_outranks_the_declared_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Precedence step 1 is unchanged — the 2026-08-11 incident stays fixed."""
     _declare(tmp_path, "declared-name")
     monkeypatch.chdir(tmp_path)
@@ -101,11 +117,14 @@ def test_env_var_still_outranks_the_declared_file(tmp_path, monkeypatch):
     assert _identity._resolve_agent_name() == "env-name"
 
 
-def test_the_source_is_named_so_a_wrong_identity_is_debuggable(tmp_path, monkeypatch):
+def test_the_source_is_named_so_a_wrong_identity_is_debuggable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A wrong identity that announces its provenance is debuggable; this whole
     incident cost hours because nothing said which source had answered."""
     _declare(tmp_path, "declared-name")
     monkeypatch.chdir(tmp_path)
     explain: list[str] = []
     _identity._resolve_agent_name(explain)
-    assert explain and ".agentbus/agent" in explain[0]
+    assert explain
+    assert ".agentbus/agent" in explain[0]

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from typing import Any
 
 import pytest
 
@@ -40,7 +41,7 @@ def _emit(manager: str) -> str:
     return buf.getvalue() + err.getvalue()
 
 
-def test_systemd_refuses_to_restart_a_permanent_auth_failure():
+def test_systemd_refuses_to_restart_a_permanent_auth_failure() -> None:
     unit = _emit("systemd")
     assert "RestartPreventExitStatus=" in unit, "the 404,386-restart loop is back"
     line = next(x for x in unit.splitlines() if x.startswith("RestartPreventExitStatus="))
@@ -48,7 +49,7 @@ def test_systemd_refuses_to_restart_a_permanent_auth_failure():
     assert "8" in codes, "exit 8 is AuthError — a revoked key cannot be fixed by waiting"
 
 
-def test_systemd_still_restarts_forever_on_a_transient_fault():
+def test_systemd_still_restarts_forever_on_a_transient_fault() -> None:
     """KNOWN-POSITIVE TWIN. The point is to stop hammering a wall, not to make a
     network blip terminal — a watcher that gives up on DNS is worse than one that
     retries."""
@@ -61,7 +62,7 @@ def test_systemd_still_restarts_forever_on_a_transient_fault():
 
 
 @pytest.mark.parametrize("manager", ["launchd", "rc.d"])
-def test_a_manager_without_exit_status_suppression_says_so(manager):
+def test_a_manager_without_exit_status_suppression_says_so(manager: Any) -> None:
     """Neither launchd nor daemon(8) can suppress a restart per exit status.
     Implying parity would leave an operator believing a loop is impossible on a
     platform where it is merely slower."""
@@ -74,13 +75,13 @@ def test_a_manager_without_exit_status_suppression_says_so(manager):
     ("manager", "needle"),
     [("launchd", "ThrottleInterval"), ("rc.d", "-R 60")],
 )
-def test_the_unsuppressable_managers_are_throttled(manager, needle):
+def test_the_unsuppressable_managers_are_throttled(manager: Any, needle: Any) -> None:
     """If the loop cannot be prevented it must at least be paced: one attempt a
     minute instead of twelve turns 24,324 requests a day into ~1,440."""
     assert needle in _emit(manager)
 
 
-def test_a_crash_loop_on_any_other_status_is_also_capped():
+def test_a_crash_loop_on_any_other_status_is_also_capped() -> None:
     """The residual the server team raised: RestartPreventExitStatus closes the
     terminal statuses, but a crash loop on exit 1 (corrupt config, missing file,
     an unhandled exception at startup) reproduced the same 24,324/day shape under
@@ -102,7 +103,7 @@ def test_a_crash_loop_on_any_other_status_is_also_capped():
     )
 
 
-def test_the_cap_is_loose_enough_not_to_strand_a_healthy_watcher():
+def test_the_cap_is_loose_enough_not_to_strand_a_healthy_watcher() -> None:
     """KNOWN-POSITIVE TWIN. A brake tight enough to stop a crash loop but tight
     enough to also stop a legitimate restarter would be worse than none: a bus
     client that gives up permanently after a fortnight of DNS blips is the

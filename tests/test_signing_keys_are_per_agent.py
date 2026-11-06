@@ -27,12 +27,15 @@ covers both: each agent holds its own keypair, even on one machine.
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from agentbus_client import _signing, sealing
 from agentbus_client.client import _Base
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_two_agents_on_one_machine_get_different_signing_keys(

@@ -159,8 +159,8 @@ def _adopt_credential_for(agent: str) -> None:
     noise here would put it in front of a reader who cannot act on it mid-hook.
     """
     with contextlib.suppress(OSError, ValueError):
-        from .. import sealing
-        from ..identity import config_dir
+        from agentbus_client import sealing
+        from agentbus_client.identity import config_dir
 
         # REG-8b (round-3.5 re-audit): sanitize the filename. This is THE most
         # dangerous of the round-3.5 sites because (a) `agent` traces back

@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from agentbus_client._coalesce import Coalescer, is_envelope
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _msg(
@@ -19,7 +23,7 @@ def _msg(
     priority: str = "normal",
     thread_id: str = "01T",
     agent_seq: int = 1,
-):
+) -> dict[str, Any]:
     return {
         "delivery_id": delivery_id,
         "message_id": f"m-{delivery_id}",
@@ -222,9 +226,10 @@ def test_arrivals_after_close_deliver_directly_and_do_not_reopen_window() -> Non
 def test_a_crashing_sink_does_not_break_the_coalescer() -> None:
     calls = []
 
-    def crashy(msg):
+    def crashy(msg: Any) -> NoReturn:
         calls.append(msg)
-        raise RuntimeError("hook is broken")
+        msg_0 = "hook is broken"
+        raise RuntimeError(msg_0)
 
     c = Coalescer(crashy, window_ms=100, quiet_ms=30)
     c.handle(_msg("01E0"))  # leading, sink raises — must not propagate
@@ -240,7 +245,7 @@ def test_a_crashing_sink_does_not_break_the_coalescer() -> None:
 # --------------------------------------------------------------- handler compat
 
 
-def test_notify_command_survives_a_coalesced_envelope(tmp_path) -> None:
+def test_notify_command_survives_a_coalesced_envelope(tmp_path: Path) -> None:
     """The three built-in handlers (notify_command, append_file, print_line)
     are called with an envelope dict when count>=2. They must render
     something sensible — never KeyError, never crash — because they are
@@ -253,11 +258,11 @@ def test_notify_command_survives_a_coalesced_envelope(tmp_path) -> None:
     # references every placeholder, including the new envelope_count.
     calls: list[str] = []
 
-    def fake_run(command, **kwargs):
+    def fake_run(command: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         calls.append(command)
         return subprocess.CompletedProcess(args=command, returncode=0)
 
-    import unittest.mock as mock
+    from unittest import mock
 
     handler = watch_module.notify_command(
         'echo "{envelope_count} messages from {sender}, first: {subject}"'
@@ -282,17 +287,17 @@ def test_notify_command_survives_a_coalesced_envelope(tmp_path) -> None:
     assert "3 messages" in calls[0]
 
 
-def test_notify_command_still_works_for_a_lone_message(tmp_path) -> None:
+def test_notify_command_still_works_for_a_lone_message(tmp_path: Path) -> None:
     """Backward compat: envelope_count=1 for a single message."""
     import subprocess
-    import unittest.mock as mock
+    from unittest import mock
 
     from agentbus_client import watch as watch_module
 
     calls = []
     handler = watch_module.notify_command('touch "solo-{envelope_count}"')
 
-    def fake_run(command, **kwargs):
+    def fake_run(command: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         calls.append(command)
         return subprocess.CompletedProcess(args=command, returncode=0)
 

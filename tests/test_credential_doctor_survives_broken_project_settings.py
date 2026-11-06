@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
+from typing import TYPE_CHECKING
 
 from agentbus_client.onboarding import _credentials
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, settings: str) -> Path:

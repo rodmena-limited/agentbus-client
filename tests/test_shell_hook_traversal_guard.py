@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import os
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agentbus_client import onboarding
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _run_snippet(snippet: str, home: Path, agent: str) -> str:
@@ -58,7 +61,7 @@ def _seed(home: Path) -> None:
     (cfg / "keys" / "legit-agent.env").write_text("export AGENTBUS_API_KEY=ab_sk_LEGIT_BOUND_KEY\n")
 
 
-def test_session_start_cmd_blocks_traversal(tmp_path):
+def test_session_start_cmd_blocks_traversal(tmp_path: Path) -> None:
     """The SessionStart hook snippet must NOT source operator.env when
     AGENTBUS_AGENT=../operator."""
     _seed(tmp_path)
@@ -68,35 +71,35 @@ def test_session_start_cmd_blocks_traversal(tmp_path):
     )
 
 
-def test_session_start_cmd_sources_legit_key(tmp_path):
+def test_session_start_cmd_sources_legit_key(tmp_path: Path) -> None:
     """KNOWN-POSITIVE: a legit agent name must still source its own key."""
     _seed(tmp_path)
     out = _run_snippet(onboarding._SESSION_START_CMD, tmp_path, "legit-agent")
     assert "KEY=ab_sk_LEGIT_BOUND_KEY" in out, "the legit agent's key was not sourced"
 
 
-def test_pending_cmd_blocks_traversal(tmp_path):
+def test_pending_cmd_blocks_traversal(tmp_path: Path) -> None:
     """_PENDING_CMD is derived from _SESSION_START_CMD — same guard must hold."""
     _seed(tmp_path)
     out = _run_snippet(onboarding._PENDING_CMD, tmp_path, "../operator")
     assert "OPERATOR_SECRET" not in out
 
 
-def test_stop_rewake_sh_blocks_traversal(tmp_path):
+def test_stop_rewake_sh_blocks_traversal(tmp_path: Path) -> None:
     """The re-waker/monitor snippet must also block the traversal."""
     _seed(tmp_path)
     out = _run_snippet(onboarding.STOP_REWAKE_SH, tmp_path, "../operator")
     assert "OPERATOR_SECRET" not in out
 
 
-def test_stop_rewake_sh_sources_legit_key(tmp_path):
+def test_stop_rewake_sh_sources_legit_key(tmp_path: Path) -> None:
     """KNOWN-POSITIVE for the re-waker snippet."""
     _seed(tmp_path)
     out = _run_snippet(onboarding.STOP_REWAKE_SH, tmp_path, "legit-agent")
     assert "KEY=ab_sk_LEGIT_BOUND_KEY" in out
 
 
-def test_shell_metachar_is_rejected(tmp_path):
+def test_shell_metachar_is_rejected(tmp_path: Path) -> None:
     """A backtick / $() in the agent name must not execute — the guard rejects
     any char outside [a-zA-Z0-9._-]."""
     _seed(tmp_path)

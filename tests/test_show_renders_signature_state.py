@@ -16,14 +16,18 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
 from agentbus_client.cli import _sigline
 
+if TYPE_CHECKING:
+    import pytest
+
 _UNSIGNED = {"signature": {"signed": False, "means": "no signature."}}
 
 
-def _delivery(**over) -> dict:
+def _delivery(**over: Any) -> dict:
     base = {
         "message_id": "msg_1",
         "thread_id": "th_1",
@@ -47,10 +51,11 @@ class FakeBus:
         return self._delivery
 
     def thread(self, thread_id: str) -> dict:
-        raise AssertionError("show must not fetch the thread to render Signed:")
+        msg = "show must not fetch the thread to render Signed:"
+        raise AssertionError(msg)
 
 
-def _run_show(monkeypatch, delivery: dict) -> str:
+def _run_show(monkeypatch: pytest.MonkeyPatch, delivery: dict) -> str:
     monkeypatch.setattr(cli._common, "_bus", lambda _args: FakeBus(delivery))
     args = argparse.Namespace(delivery_id="del_1", json=False, thread=False, agent=None)
     buf = io.StringIO()
@@ -59,7 +64,9 @@ def _run_show(monkeypatch, delivery: dict) -> str:
     return buf.getvalue()
 
 
-def test_a_valid_signature_is_rendered_with_its_key_and_the_check_command(monkeypatch):
+def test_a_valid_signature_is_rendered_with_its_key_and_the_check_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     out = _run_show(
         monkeypatch,
         _delivery(signature_state="valid", signing_key_fingerprint="53965be076ddea7b"),
@@ -69,7 +76,9 @@ def test_a_valid_signature_is_rendered_with_its_key_and_the_check_command(monkey
     assert "agentbus verify-sender del_1" in out
 
 
-def test_show_never_claims_the_word_this_client_reserves_for_a_real_check(monkeypatch):
+def test_show_never_claims_the_word_this_client_reserves_for_a_real_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`verify-sender` prints VERIFIED after checking on this machine. `show`
     has checked nothing, so it must not borrow the word (#173)."""
     out = _run_show(
@@ -80,7 +89,7 @@ def test_show_never_claims_the_word_this_client_reserves_for_a_real_check(monkey
     assert "BUS says" in out
 
 
-def test_an_unsigned_delivery_still_gets_a_line(monkeypatch):
+def test_an_unsigned_delivery_still_gets_a_line(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE TRAP. `if delivery.get("signature_state"):` is falsy on None, so the
     delivery a reader is actually exposed to renders as silence — the reported
     bug preserved. Memory #4: null must render differently from a real value,
@@ -91,16 +100,19 @@ def test_an_unsigned_delivery_still_gets_a_line(monkeypatch):
     assert "no signing key" in out
 
 
-def test_signed_and_unsigned_do_not_render_the_same(monkeypatch):
+def test_signed_and_unsigned_do_not_render_the_same(monkeypatch: pytest.MonkeyPatch) -> None:
     signed = _run_show(
         monkeypatch, _delivery(signature_state="valid", signing_key_fingerprint="abc")
     )
     unsigned = _run_show(monkeypatch, _delivery(provenance=_UNSIGNED))
-    assert "Signed:" in signed and "Signed:" in unsigned
+    assert "Signed:" in signed
+    assert "Signed:" in unsigned
     assert signed != unsigned
 
 
-def test_an_attachment_explains_the_absence_without_attesting_to_it(monkeypatch):
+def test_an_attachment_explains_the_absence_without_attesting_to_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     out = _run_show(
         monkeypatch,
         _delivery(provenance=_UNSIGNED, attachments=[{"filename": "bundle.git", "size": 10}]),
@@ -111,7 +123,7 @@ def test_an_attachment_explains_the_absence_without_attesting_to_it(monkeypatch)
     assert "stripped" in out
 
 
-def test_an_html_body_or_a_payload_explains_the_absence_too():
+def test_an_html_body_or_a_payload_explains_the_absence_too() -> None:
     """All three shapes block signing in client/base.py, not attachments alone."""
     html = _sigline.signature_lines({"provenance": _UNSIGNED, "html_body": "<p>hi</p>"}, "del_1")
     payload = _sigline.signature_lines({"provenance": _UNSIGNED, "payload": {"k": "v"}}, "del_1")
@@ -119,7 +131,7 @@ def test_an_html_body_or_a_payload_explains_the_absence_too():
     assert any("a structured payload" in line for line in payload)
 
 
-def test_a_bad_verdict_does_not_read_as_a_pass():
+def test_a_bad_verdict_does_not_read_as_a_pass() -> None:
     lines = _sigline.signature_lines(
         {"signature_state": "invalid", "signing_key_fingerprint": "abc", "signature": "absigv1x"},
         "del_1",
@@ -131,7 +143,7 @@ def test_a_bad_verdict_does_not_read_as_a_pass():
     assert "yes" not in text
 
 
-def test_a_signature_with_no_server_verdict_is_not_reported_as_unsigned():
+def test_a_signature_with_no_server_verdict_is_not_reported_as_unsigned() -> None:
     """'the bus did not rule on it' and 'there is nothing here' are different
     facts with different remedies."""
     lines = _sigline.signature_lines({"signature": "absigv1x", "signature_state": None}, "del_1")
@@ -141,7 +153,7 @@ def test_a_signature_with_no_server_verdict_is_not_reported_as_unsigned():
     assert "agentbus verify-sender del_1" in text
 
 
-def test_every_shape_produces_at_least_one_line():
+def test_every_shape_produces_at_least_one_line() -> None:
     for delivery in (
         {},
         {"provenance": _UNSIGNED},
@@ -153,7 +165,7 @@ def test_every_shape_produces_at_least_one_line():
         assert _sigline.signature_lines(delivery, "del_1"), delivery
 
 
-def test_the_thread_caveat_fires_only_when_the_view_does_not_serve_the_field():
+def test_the_thread_caveat_fires_only_when_the_view_does_not_serve_the_field() -> None:
     """Live check, 2026-09-22: the thread payload's message schema has no
     signature fields at all, so rendering them as unsigned would mark every
     message in every conversation unsigned."""
@@ -163,7 +175,7 @@ def test_the_thread_caveat_fires_only_when_the_view_does_not_serve_the_field():
     assert _sigline.thread_signature_caveat(served) is None
 
 
-def test_the_per_message_thread_line_is_silent_when_the_field_is_absent():
+def test_the_per_message_thread_line_is_silent_when_the_field_is_absent() -> None:
     assert _sigline.thread_signature_line({"id": "m1"}) is None
     assert "VALID" in (
         _sigline.thread_signature_line({"id": "m1", "signature_state": "valid"}) or ""
@@ -173,7 +185,7 @@ def test_the_per_message_thread_line_is_silent_when_the_field_is_absent():
     )
 
 
-def test_provenance_is_preferred_over_the_flat_fields():
+def test_provenance_is_preferred_over_the_flat_fields() -> None:
     """`verify-sender` reads provenance.signature. If `show` read a different
     field the two could disagree about the same delivery."""
     lines = _sigline.signature_lines(
@@ -191,14 +203,14 @@ def test_provenance_is_preferred_over_the_flat_fields():
     assert "fromflat" not in text
 
 
-def test_the_flat_fields_still_work_when_provenance_is_absent():
+def test_the_flat_fields_still_work_when_provenance_is_absent() -> None:
     lines = _sigline.signature_lines(
         {"signature_state": "valid", "signing_key_fingerprint": "fromflat"}, "del_1"
     )
     assert any("fromflat" in line for line in lines)
 
 
-def test_provenance_signed_false_is_an_explicit_no_not_an_inference():
+def test_provenance_signed_false_is_an_explicit_no_not_an_inference() -> None:
     """Live shape, 2026-09-22: the server states
     {"signed": false, "means": "no signature..."} rather than omitting."""
     lines = _sigline.signature_lines(
@@ -207,7 +219,7 @@ def test_provenance_signed_false_is_an_explicit_no_not_an_inference():
     assert any("Signed:  no" in line for line in lines)
 
 
-def test_a_server_that_reports_nothing_renders_unknown_not_unsigned():
+def test_a_server_that_reports_nothing_renders_unknown_not_unsigned() -> None:
     """THE SECOND TRAP. A field this view does not serve is not a negative.
     Rendering it as 'no' would mark every message unsigned on any server that
     stops sending the block — a check that cannot go green reporting a red."""
@@ -218,7 +230,7 @@ def test_a_server_that_reports_nothing_renders_unknown_not_unsigned():
     assert "Signed:  no" not in text
 
 
-def test_the_thread_view_renders_per_message_the_moment_provenance_appears():
+def test_the_thread_view_renders_per_message_the_moment_provenance_appears() -> None:
     """FORWARD GUARD for agentbus-8dc08d's #350.
 
     They confirmed the gap is one query's column list in get_thread(), and said
@@ -244,7 +256,7 @@ def test_the_thread_view_renders_per_message_the_moment_provenance_appears():
     assert "no signature" in (_sigline.thread_signature_line(served[1]) or "")
 
 
-def test_the_thread_line_does_not_render_a_bad_verdict_as_valid():
+def test_the_thread_line_does_not_render_a_bad_verdict_as_valid() -> None:
     """THE SURVIVOR. Found by mutation, not by reading: replacing
     `if signed and state == "valid"` with `if signed` in thread_signature_line
     left the whole suite green, because the VALID branch was asserted only in
@@ -263,7 +275,7 @@ def test_the_thread_line_does_not_render_a_bad_verdict_as_valid():
     assert "NOT a pass" in bad
 
 
-def test_the_thread_line_does_not_render_a_missing_verdict_as_valid():
+def test_the_thread_line_does_not_render_a_missing_verdict_as_valid() -> None:
     no_verdict = _sigline.thread_signature_line(
         {"id": "m1", "signature": "absigv1x", "signature_state": None}
     )
@@ -275,7 +287,7 @@ def test_the_thread_line_does_not_render_a_missing_verdict_as_valid():
 _PROV_INVALID = {"signature": {"signed": True, "state": "invalid", "key_fingerprint": "53965be0"}}
 
 
-def test_a_bad_verdict_arriving_through_provenance_is_not_a_pass():
+def test_a_bad_verdict_arriving_through_provenance_is_not_a_pass() -> None:
     """SECOND SURVIVOR. Forcing `state = "valid"` inside the provenance branch of
     _source left the suite green: every provenance test fed `valid` or
     `signed: false`, so no test ever carried a bad verdict down that path.
@@ -291,7 +303,7 @@ def test_a_bad_verdict_arriving_through_provenance_is_not_a_pass():
     assert "agentbus verify-sender del_1" in text
 
 
-def test_the_thread_line_carries_a_bad_verdict_through_provenance_too():
+def test_the_thread_line_carries_a_bad_verdict_through_provenance_too() -> None:
     line = _sigline.thread_signature_line({"id": "m1", "provenance": _PROV_INVALID})
     assert line is not None
     assert "VALID" not in line
@@ -299,7 +311,7 @@ def test_the_thread_line_carries_a_bad_verdict_through_provenance_too():
     assert "NOT a pass" in line
 
 
-def test_provenance_and_flat_fields_agree_on_a_bad_verdict():
+def test_provenance_and_flat_fields_agree_on_a_bad_verdict() -> None:
     """The two sources must not differ in what they call a failure — the whole
     reason `show` reads the block `verify-sender` reads."""
     via_prov = _sigline.signature_lines({"provenance": _PROV_INVALID}, "del_1")

@@ -193,8 +193,7 @@ def _daemon_executor(max_workers: int, prefix: str) -> Any:
     that would fail on their first task.
     """
     import inspect
-    from concurrent.futures import ThreadPoolExecutor
-    from concurrent.futures import thread as _cft
+    from concurrent.futures import ThreadPoolExecutor, thread as _cft
 
     worker = getattr(_cft, "_worker", None)
     try:
@@ -348,7 +347,8 @@ def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: b
 
     def _attempt() -> Any:
         if cancel.is_set():
-            raise _Abandoned("the caller's deadline already fired; not issuing another attempt")
+            msg = "the caller's deadline already fired; not issuing another attempt"
+            raise _Abandoned(msg)
         if idempotent:
             return fn()
         # #45: a 5xx means the server failed, not that it did nothing. Wrap it
@@ -377,21 +377,22 @@ def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: b
             cause = _root_cause(exc)
             if cause is not exc:
                 raise cause  # noqa: B904 - deliberate: propagate the original
-            raise TransportError("agentbus SDK: retries exhausted") from exc
+            msg = "agentbus SDK: retries exhausted"
+            raise TransportError(msg) from exc
         except ProtectedCallError as exc:
-            raise TransportError(
+            msg = (
                 "agentbus SDK circuit breaker is OPEN: recent calls to the bus failed, so the "
                 "client is failing fast for the cooldown (AGENTBUS_SDK_CB_COOLDOWN, default 30s) "
                 "instead of hammering it. Retry after the cooldown, or set "
                 "AGENTBUS_SDK_RESILIENCE=0 to bypass the resilience layer."
-            ) from exc
+            )
+            raise TransportError(msg) from exc
         except ProtectionException as exc:
             protection_cause = exc.__cause__ or exc.__context__
             if protection_cause is not None:
                 raise protection_cause  # noqa: B904 - deliberate: propagate the original
-            raise TransportError(
-                f"agentbus SDK resilience layer refused the call ({type(exc).__name__})"
-            ) from exc
+            msg = f"agentbus SDK resilience layer refused the call ({type(exc).__name__})"
+            raise TransportError(msg) from exc
         finally:
             _CURRENT_CANCEL.flag = None
             with _INFLIGHT_LOCK:
@@ -402,10 +403,11 @@ def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: b
     except bulkman.BulkheadFullError as exc:
         with _INFLIGHT_LOCK:
             _INFLIGHT.discard(cancel)
-        raise TransportError(
+        msg = (
             f"agentbus SDK bulkhead full ({exc}); raise AGENTBUS_SDK_MAX_CONCURRENT "
             "or AGENTBUS_SDK_MAX_QUEUE if this is a legitimate high-fan-out caller."
-        ) from exc
+        )
+        raise TransportError(msg) from exc
     try:
         result = future.result(timeout=timeout)
     except _ConcurrentFuturesTimeout as exc:
@@ -417,11 +419,12 @@ def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: b
         cancel.set()
         with contextlib.suppress(Exception):
             future.cancel()
-        raise TransportError(
+        msg = (
             f"agentbus SDK call did not complete within {timeout}s "
             f"({type(exc).__name__} — likely a transient network stall). "
             "The reconnect loop treats this as retryable."
-        ) from exc
+        )
+        raise TransportError(msg) from exc
     if result.success:
         return result.result
     assert result.error is not None

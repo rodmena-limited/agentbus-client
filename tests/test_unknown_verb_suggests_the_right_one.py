@@ -19,6 +19,8 @@ verb; an alias hides it, and the reader never discovers `--expire` or `reminds`.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agentbus_client.cli._parser import build_parser
@@ -43,7 +45,7 @@ def _suggestion_line(err: str) -> str:
     "typed",
     ["cron", "crontab", "schedule", "timer", "wake", "snooze", "poke", "followup"],
 )
-def test_scheduling_intents_point_at_remind(typed, capsys):
+def test_scheduling_intents_point_at_remind(typed: Any, capsys: pytest.CaptureFixture[str]) -> None:
     """Every word an operator reaches for when they mean 'do this later'."""
     parser = build_parser()
     with pytest.raises(SystemExit):
@@ -53,7 +55,9 @@ def test_scheduling_intents_point_at_remind(typed, capsys):
     assert "remind" in line, f"{typed!r} did not point at remind: {line!r}"
 
 
-def test_the_suggestion_names_repeat_for_recurring_intents(capsys):
+def test_the_suggestion_names_repeat_for_recurring_intents(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """`cron` means RECURRING. Pointing at bare `remind` would send them to a
     one-shot and the 20-minute cadence would fire once."""
     parser = build_parser()
@@ -62,14 +66,16 @@ def test_the_suggestion_names_repeat_for_recurring_intents(capsys):
     assert "--repeat" in _suggestion_line(capsys.readouterr().err)
 
 
-def test_a_plain_typo_gets_the_close_match(capsys):
+def test_a_plain_typo_gets_the_close_match(capsys: pytest.CaptureFixture[str]) -> None:
     parser = build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["inbx"])
     assert "inbox" in _suggestion_line(capsys.readouterr().err)
 
 
-def test_an_unguessable_verb_still_falls_back_to_argparse(capsys):
+def test_an_unguessable_verb_still_falls_back_to_argparse(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """KNOWN-NEGATIVE. If every unknown word produced a confident suggestion,
     the suggestion would carry no information — and a wrong one is worse than
     the list, because it will be followed."""
@@ -82,7 +88,7 @@ def test_an_unguessable_verb_still_falls_back_to_argparse(capsys):
 
 
 @pytest.mark.parametrize("verb", ["inbox", "remind", "reminds", "whoami", "show"])
-def test_real_verbs_are_not_intercepted(verb):
+def test_real_verbs_are_not_intercepted(verb: Any) -> None:
     """KNOWN-POSITIVE control: the handler must only fire on UNKNOWN verbs.
 
     Without this, 'suggests correctly' would also pass in a world where the
@@ -107,7 +113,7 @@ def test_real_verbs_are_not_intercepted(verb):
 
 
 @pytest.mark.parametrize(
-    "typed,want",
+    ("typed", "want"),
     [
         ("inbx", "inbox"),
         ("sned", "send"),
@@ -116,7 +122,9 @@ def test_real_verbs_are_not_intercepted(verb):
         ("wathc", "watch"),
     ],
 )
-def test_real_typos_still_resolve(typed, want, capsys):
+def test_real_typos_still_resolve(
+    typed: Any, want: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     """KNOWN-POSITIVE for the threshold: tightening it must not break typos."""
     parser = build_parser()
     with pytest.raises(SystemExit):
@@ -125,7 +133,9 @@ def test_real_typos_still_resolve(typed, want, capsys):
 
 
 @pytest.mark.parametrize("typed", ["nudge", "ping", "chase", "deploy", "commit"])
-def test_a_semantic_near_miss_gets_no_confident_suggestion(typed, capsys):
+def test_a_semantic_near_miss_gets_no_confident_suggestion(
+    typed: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     """THE 0.9.63 BUG. `nudge` is not a typo of `usage`; it is a different word.
 
     Falling back to argparse costs the reader a list. A wrong suggestion costs
@@ -142,7 +152,9 @@ def test_a_semantic_near_miss_gets_no_confident_suggestion(typed, capsys):
 
 
 @pytest.mark.parametrize("typed", ["mute", "ignore", "silence", "spam", "blocklist", "unmute"])
-def test_suppression_intents_point_at_the_block_verbs(typed, capsys):
+def test_suppression_intents_point_at_the_block_verbs(
+    typed: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The `remind` incident was a feature that existed with nothing pointing at
     it, and an agent built a session-local timer instead. `block` is a feature
     somebody reaches for while ALREADY ANNOYED, which is the worst moment to be
@@ -155,7 +167,7 @@ def test_suppression_intents_point_at_the_block_verbs(typed, capsys):
     assert "block" in line, f"{typed!r} did not point at block: {line!r}"
 
 
-def test_unmute_points_at_unblock_not_block(capsys):
+def test_unmute_points_at_unblock_not_block(capsys: pytest.CaptureFixture[str]) -> None:
     """Pointing `unmute` at `block` would do the opposite of what was asked."""
     parser = build_parser()
     with pytest.raises(SystemExit):

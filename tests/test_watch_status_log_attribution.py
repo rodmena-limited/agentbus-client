@@ -32,6 +32,7 @@ from __future__ import annotations
 import inspect
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -41,19 +42,19 @@ sys.path.insert(0, str(REPO / "src"))
 from agentbus_client import cli
 
 
-@pytest.fixture()
-def runtime(tmp_path, monkeypatch):
+@pytest.fixture
+def runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(cli._watch_runtime, "_watch_runtime_dir", lambda create=True: tmp_path)
     return tmp_path
 
 
-def test_no_log_at_all_is_reported_as_none(runtime) -> None:
+def test_no_log_at_all_is_reported_as_none(runtime: Any) -> None:
     """bikeroom's case. The old code printed a path here — sending a reader to
     grep a file nothing had ever written."""
     assert cli._existing_logfile("a", "st.json.pid") is None
 
 
-def test_a_state_keyed_log_is_reported_as_this_watchers(runtime) -> None:
+def test_a_state_keyed_log_is_reported_as_this_watchers(runtime: Any) -> None:
     """THE KNOWN-POSITIVE. Without it every other case here could be satisfied
     by a function that returns None unconditionally, and the feature would be
     'watch-status never reports a log', which is not the fix."""
@@ -65,7 +66,7 @@ def test_a_state_keyed_log_is_reported_as_this_watchers(runtime) -> None:
     assert is_ours is True
 
 
-def test_a_legacy_log_is_reported_but_NOT_claimed_as_this_watchers(runtime) -> None:
+def test_a_legacy_log_is_reported_but_NOT_claimed_as_this_watchers(runtime: Any) -> None:
     """THIS HOST'S CASE, and the one that keeps the fix honest. The file exists
     and is worth naming; the filename cannot support the claim that it belongs
     to the state-keyed watcher being reported on."""
@@ -77,7 +78,7 @@ def test_a_legacy_log_is_reported_but_NOT_claimed_as_this_watchers(runtime) -> N
     assert is_ours is False, "a shared path must never be claimed as this watcher's"
 
 
-def test_the_state_keyed_log_wins_when_both_exist(runtime) -> None:
+def test_the_state_keyed_log_wins_when_both_exist(runtime: Any) -> None:
     (runtime / "a.log").write_text("legacy")
     (runtime / "a-st.json.pid.log").write_text("keyed")
     found = cli._existing_logfile("a", "st.json.pid")
@@ -87,7 +88,7 @@ def test_the_state_keyed_log_wins_when_both_exist(runtime) -> None:
     assert is_ours is True
 
 
-def test_a_legacy_watcher_owns_the_legacy_log(runtime) -> None:
+def test_a_legacy_watcher_owns_the_legacy_log(runtime: Any) -> None:
     """A watcher with no state key IS the legacy slot, so the unkeyed log is
     genuinely its own. Flagging that one as unattributed would be a false
     warning, and false warnings are how real ones stop being read."""
@@ -99,7 +100,7 @@ def test_a_legacy_watcher_owns_the_legacy_log(runtime) -> None:
     assert is_ours is True
 
 
-def test_the_daemon_writes_the_state_keyed_path(runtime) -> None:
+def test_the_daemon_writes_the_state_keyed_path(runtime: Any) -> None:
     """The read side is worthless if the write side still shares one file: two
     watchers for one agent would interleave into it, and every log would be
     unattributable by construction."""
@@ -109,7 +110,7 @@ def test_the_daemon_writes_the_state_keyed_path(runtime) -> None:
     )
 
 
-def test_watch_status_does_not_print_a_path_it_has_not_checked(runtime) -> None:
+def test_watch_status_does_not_print_a_path_it_has_not_checked(runtime: Any) -> None:
     """THE REGRESSION. The old line was an unconditional
     `print(f"  log: {_watch_logfile(agent)}")`."""
     src = inspect.getsource(cli.cmd_watch_status)
@@ -119,7 +120,7 @@ def test_watch_status_does_not_print_a_path_it_has_not_checked(runtime) -> None:
     assert src.count("_existing_logfile") >= 2
 
 
-def test_watch_status_says_why_there_is_no_log(runtime) -> None:
+def test_watch_status_says_why_there_is_no_log(runtime: Any) -> None:
     """'log: none' alone would read as a fault. The reason — only
     `watch --daemon` captures output — is what stops someone hunting a bug in
     their watcher."""

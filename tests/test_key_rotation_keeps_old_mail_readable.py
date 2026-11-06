@@ -26,7 +26,7 @@ sys.path.insert(0, str(REPO / "src"))
 from agentbus_client import sealing
 
 
-@pytest.fixture()
+@pytest.fixture
 def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(sealing, "config_dir", lambda: tmp_path)
     # A sealing key now belongs to ONE agent, so a test must say which it is.

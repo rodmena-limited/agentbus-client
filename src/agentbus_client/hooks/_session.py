@@ -48,17 +48,19 @@ the bus is unreachable is worse than one that says nothing.
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import _identity
 from ._identity import _resolve_agent
 from ._state import EXIT_NOT_WIRED, _hook_warn, _wake_file, _warn_if_shadow_queue
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _is_self_send(sender_display: str) -> bool:
@@ -82,8 +84,8 @@ def _is_self_send(sender_display: str) -> bool:
 
 
 def _identity_claim_path(agent: str) -> Path:
-    from .. import sealing
-    from ..identity import config_dir
+    from agentbus_client import sealing
+    from agentbus_client.identity import config_dir
 
     # REG-8c: same sanitization as _wake_file. The session-claim file is
     # written on session start and unlinked on session end; a traversal
@@ -176,7 +178,7 @@ def _identity_held_live(agent: str, session: str) -> bool:
     could not look for.
     """
     try:
-        from ..onboarding import _monitor_pids
+        from agentbus_client.onboarding import _monitor_pids
 
         return bool(_monitor_pids(agent, session=session))
     except Exception:
@@ -343,7 +345,7 @@ def _greet_with_qr(identity: dict[str, Any], agent: str) -> None:
     field (any server older than the release that added it), a missing extra, a
     missing address. Unrequested output that guesses wrong is worse than none.
     """
-    from ..qr import render, should_offer_unrequested
+    from agentbus_client.qr import render, should_offer_unrequested
 
     address = identity.get("address")
     policy = (identity.get("workspace") or {}).get("ingress_policy")
@@ -378,7 +380,7 @@ def session_start(_: argparse.Namespace) -> int:
     _warn_if_env_overrides_this_checkout(agent)
     _warn_if_identity_shared(agent)
     try:
-        from ..client import AgentBus
+        from agentbus_client.client import AgentBus
 
         bus = AgentBus(agent=agent)
         identity = bus.whoami()

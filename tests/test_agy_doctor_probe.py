@@ -19,10 +19,14 @@ from __future__ import annotations
 import io
 import json
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client.onboarding import _doctor_agy, _paths
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _hooks(command: str) -> dict:
@@ -30,7 +34,7 @@ def _hooks(command: str) -> dict:
 
 
 @pytest.fixture
-def wired(tmp_path, monkeypatch):
+def wired(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     repo = tmp_path / "repo"
     (repo / ".agentbus").mkdir(parents=True)
     (repo / ".agentbus" / "agent").write_text("alpha\n")
@@ -49,7 +53,7 @@ def wired(tmp_path, monkeypatch):
     return repo
 
 
-def _run(root, doctor_agent: str = "alpha") -> tuple[int, str]:
+def _run(root: Path, doctor_agent: str = "alpha") -> tuple[int, str]:
     """`doctor_agent` is the name DOCTOR resolved for itself — which honours
     $AGENTBUS_AGENT and so legitimately differs from the checkout's."""
     buf = io.StringIO()
@@ -58,14 +62,16 @@ def _run(root, doctor_agent: str = "alpha") -> tuple[int, str]:
     return rc, buf.getvalue()
 
 
-def test_a_healthy_checkout_passes_and_names_the_operative_agent(wired, monkeypatch):
+def test_a_healthy_checkout_passes_and_names_the_operative_agent(
+    wired: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     rc, out = _run(wired)
     assert rc == 0, out
     assert "hook resolves: alpha" in out
     assert "WIRED for alpha" in out
 
 
-def test_a_shell_carrying_another_identity_is_not_a_failure(wired):
+def test_a_shell_carrying_another_identity_is_not_a_failure(wired: Any) -> None:
     """THE SECOND TRAP. doctor honours $AGENTBUS_AGENT; the hook deliberately
     does not. Comparing them flagged a correct system as broken."""
     rc, out = _run(wired, doctor_agent="someone-elses-session")
@@ -73,7 +79,9 @@ def test_a_shell_carrying_another_identity_is_not_a_failure(wired):
     assert "Not a fault" in out
 
 
-def test_a_checkout_that_never_opted_in_is_reported(wired, monkeypatch, tmp_path):
+def test_a_checkout_that_never_opted_in_is_reported(
+    wired: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     other = tmp_path / "unwired"
     (other / ".agentbus").mkdir(parents=True)
     (other / ".agentbus" / "agent").write_text("beta\n")
@@ -82,7 +90,7 @@ def test_a_checkout_that_never_opted_in_is_reported(wired, monkeypatch, tmp_path
     assert "not in the agy opt-in list" in out
 
 
-def test_a_missing_hook_binary_is_caught(wired, monkeypatch):
+def test_a_missing_hook_binary_is_caught(wired: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A hook that cannot execute is indistinguishable from an agent with no
     mail — silence either way."""
     plugin = _paths.agy_plugin_dir()
@@ -92,7 +100,7 @@ def test_a_missing_hook_binary_is_caught(wired, monkeypatch):
     assert "does not exist" in out
 
 
-def test_a_plugin_with_no_stop_handler_is_caught(wired):
+def test_a_plugin_with_no_stop_handler_is_caught(wired: Any) -> None:
     plugin = _paths.agy_plugin_dir()
     (plugin / "hooks.json").write_text(json.dumps({"something-else": {"PreInvocation": []}}))
     rc, out = _run(wired)
@@ -100,7 +108,7 @@ def test_a_plugin_with_no_stop_handler_is_caught(wired):
     assert "no agy-stop Stop handler" in out
 
 
-def test_the_workspace_limit_is_always_stated(wired):
+def test_the_workspace_limit_is_always_stated(wired: Any) -> None:
     """The probe supplies its own workspace, so a green result does NOT prove the
     operator's real session will have one. Saying so is the whole point — this is
     the fact that cost two hours."""

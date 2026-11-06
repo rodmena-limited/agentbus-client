@@ -83,7 +83,7 @@ def _hook_state_dir() -> Path:
     root = os.environ.get("AGENTBUS_WAKE_DIR")
     if root:
         return Path(root)
-    from ..identity import config_dir
+    from agentbus_client.identity import config_dir
 
     return config_dir()
 
@@ -97,7 +97,7 @@ def _wake_file(agent: str) -> Path:
     # /tmp/PWNED.jsonl. notify() calls this file's .parent.mkdir(parents=True)
     # and then opens+writes JSON to it, so it is a directory-create + file-write
     # primitive reachable from a hostile checkout, no flag required.
-    from .. import sealing
+    from agentbus_client import sealing
 
     return _hook_state_dir() / f"wake-{sealing.agent_slug(agent)}.jsonl"
 
@@ -191,7 +191,7 @@ def _notify_error_file(agent: str) -> Path:
     # REG-8c: same sanitization rule as _wake_file — record_notify_failure
     # mkdirs the parent and writes JSON here, so a traversal payload was a
     # directory-create + file-write primitive.
-    from .. import sealing
+    from agentbus_client import sealing
 
     return _hook_state_dir() / f"notify-error-{sealing.agent_slug(agent)}.json"
 
@@ -241,7 +241,7 @@ def _gate_degraded_file(agent: str) -> Path:
     # mkdirs + writes JSON, and the fast-fail circuit READS this file — a
     # traversal payload would let a hostile checkout stash content that the
     # fast-fail circuit later reads as legitimate degraded-gate state.
-    from .. import sealing
+    from agentbus_client import sealing
 
     return _hook_state_dir() / f"gate-degraded-{sealing.agent_slug(agent)}.json"
 

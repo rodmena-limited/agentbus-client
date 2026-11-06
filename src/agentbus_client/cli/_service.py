@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import sys
+from typing import TYPE_CHECKING
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from . import _common
 from ._common import _cfg_dir, _print
 from ._watch_runtime import _watch_logfile
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_retire(args: argparse.Namespace) -> int:
@@ -63,7 +67,7 @@ def cmd_retire(args: argparse.Namespace) -> int:
             return 0
         raise
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
     else:
         print(f"retired {name}")
         print(
@@ -90,7 +94,7 @@ def _warn_local_wiring_will_revive(name: str) -> None:
     import contextlib
     from pathlib import Path
 
-    from ..onboarding import _git_root_or_none
+    from agentbus_client.onboarding import _git_root_or_none
 
     root = _git_root_or_none() or Path.cwd()
     declares: list[str] = []
@@ -190,7 +194,7 @@ def cmd_service(args: argparse.Namespace) -> int:
     # path in a systemd unit, so a rogue service would auto-source the
     # operator credential on every start. bound_env_filename ensures the
     # generated unit only points inside keys/.
-    from .. import sealing as _sealing
+    from agentbus_client import sealing as _sealing
 
     default_key_file = _cfg_dir() / "keys" / _sealing.bound_env_filename(agent)
     if not env_file and default_key_file.exists():

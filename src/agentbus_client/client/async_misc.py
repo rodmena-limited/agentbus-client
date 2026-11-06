@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from .._timefmt import _as_instant, _duration_seconds, _expiry_instant
+from agentbus_client._timefmt import _as_instant, _duration_seconds, _expiry_instant
+
 from .errors import AgentBusError, TransportError, _raise_for
 from .models import _max_attachment_bytes
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from collections.abc import Sequence
+
     from ._mixin_base import AsyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
     _MixinBase = object
@@ -48,7 +50,8 @@ class AsyncMiscMixin(_MixinBase):
         """Async mirror of AgentBus.room_history() (#170)."""
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         params: dict[str, Any] = {}
         if limit is not None:
             params["limit"] = limit
@@ -75,7 +78,8 @@ class AsyncMiscMixin(_MixinBase):
         """Async mirror of AgentBus.set_room_schema() (#169)."""
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         result: dict[str, Any] = await self._request(
             "PUT", f"/v1/rooms/{room}/schema", json={"schema": schema}, agent=target
         )
@@ -85,7 +89,8 @@ class AsyncMiscMixin(_MixinBase):
         """Async mirror of AgentBus.join_room()."""
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         result: dict[str, Any] = await self._request("POST", f"/v1/rooms/{room}/join", agent=target)
         return result
 
@@ -97,7 +102,7 @@ class AsyncMiscMixin(_MixinBase):
         strip is fragile — a display-suffix change breaks verification — but
         removing it outright would break older servers, so it stays as a fallback.
         """
-        from .. import _signing  # package root, NOT client/ — see below
+        from agentbus_client import _signing  # package root, NOT client/ — see below
 
         message = await self.read(delivery_id, agent=agent)
         provenance = message.get("provenance") or {}
@@ -268,13 +273,15 @@ class AsyncMiscMixin(_MixinBase):
         # the whole create. Refused here with the reason rather than passed
         # through to become a confusing server error.
         if repeat_until is not None:
-            raise ValueError(
+            msg = (
                 "repeat_until is not accepted by the server yet — a recurring "
                 "reminder currently has no end date. Track it and cancel with "
                 "cancel_remind(), or omit it."
             )
+            raise ValueError(msg)
         if delay is not None and at is not None:
-            raise ValueError("pass delay OR at, not both — they say the same thing two ways")
+            msg = "pass delay OR at, not both — they say the same thing two ways"
+            raise ValueError(msg)
         body: dict[str, Any] = {"subject": subject, "text": text}
         if target:
             body["target"] = target
@@ -368,10 +375,11 @@ class AsyncMiscMixin(_MixinBase):
             recipients = json.loads(recipients)
         opened = self.unseal_message({"text_body": draft.get("text_body") or draft.get("text")})
         if opened.get("sealed_unreadable"):
-            raise AgentBusError(
+            msg = (
                 "cannot send this draft: its stored body is sealed to a key this "
                 f"machine does not hold ({opened['sealed_unreadable']})"
             )
+            raise AgentBusError(msg)
         payload: dict[str, Any] = {
             "text": opened.get("text_body"),
             "subject": draft.get("subject"),
@@ -446,7 +454,7 @@ class AsyncMiscMixin(_MixinBase):
         REG-9 (round-3 re-audit): stream + boundary cap, same rule as the sync
         twin. See AgentBus.attachment for the reasoning.
         """
-        from .. import sealing
+        from agentbus_client import sealing
 
         cap = int(1.5 * _max_attachment_bytes())
         content: bytes
@@ -462,13 +470,14 @@ class AsyncMiscMixin(_MixinBase):
                 async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
                     total += len(chunk)
                     if total > cap:
-                        raise AgentBusError(
+                        msg = (
                             f"attachment is over the {cap:,} byte cap "
                             f"({total:,} bytes received so far and still coming). "
                             "Raise AGENTBUS_MAX_ATTACHMENT_BYTES if this machine "
                             "has the RAM budget; the client holds the ciphertext "
                             "and the plaintext at the same time during unseal."
                         )
+                        raise AgentBusError(msg)
                     chunks.append(chunk)
                 content = b"".join(chunks)
         except httpx.HTTPError as exc:
@@ -476,15 +485,14 @@ class AsyncMiscMixin(_MixinBase):
 
         if content[:64].lstrip().startswith(b"-----BEGIN AGE ENCRYPTED FILE-----"):
             if not sealing.load_private_keys(agent or self.agent):
-                raise AgentBusError(
-                    "this attachment is sealed and this machine holds no sealing key"
-                )
+                msg = "this attachment is sealed and this machine holds no sealing key"
+                raise AgentBusError(msg)
             try:
                 return sealing.unseal_bytes_with_any(content, agent or self.agent)
             except sealing.MalformedSealed as exc:
-                raise AgentBusError(f"this attachment is damaged: {exc}") from exc
+                msg = f"this attachment is damaged: {exc}"
+                raise AgentBusError(msg) from exc
             except sealing.CannotDecrypt as exc:
-                raise AgentBusError(
-                    "this attachment was sealed to keys this machine does not hold"
-                ) from exc
+                msg = "this attachment was sealed to keys this machine does not hold"
+                raise AgentBusError(msg) from exc
         return content

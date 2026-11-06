@@ -197,7 +197,8 @@ def _watch_pids(agent: str) -> dict[str, int]:
             pid = int(Path(path).read_text().strip())
             os.kill(pid, 0)
             if not _pid_is_watcher(pid, agent):
-                raise ProcessLookupError(f"pid {pid} is not an agentbus watcher for {agent}")
+                msg = f"pid {pid} is not an agentbus watcher for {agent}"
+                raise ProcessLookupError(msg)
             out[Path(path).name] = pid
         except (OSError, ValueError):
             with contextlib.suppress(OSError):
@@ -209,7 +210,8 @@ def _watch_pids(agent: str) -> dict[str, int]:
         pid = int(_watch_pidfile(agent).read_text().strip())
         os.kill(pid, 0)
         if not _pid_is_watcher(pid, agent):
-            raise ProcessLookupError(f"pid {pid} is not an agentbus watcher for {agent}")
+            msg = f"pid {pid} is not an agentbus watcher for {agent}"
+            raise ProcessLookupError(msg)
         out["(legacy)"] = pid
     except (OSError, ValueError):
         with contextlib.suppress(OSError):
@@ -284,7 +286,8 @@ def _watch_pid(agent: str, state: str | None = None) -> int | None:
     try:
         os.kill(pid, 0)
         if not _pid_is_watcher(pid, agent):
-            raise ProcessLookupError(f"pid {pid} is not an agentbus watcher for {agent}")
+            msg = f"pid {pid} is not an agentbus watcher for {agent}"
+            raise ProcessLookupError(msg)
     except (OSError, ProcessLookupError):
         # Stale pidfile from a dead (or REUSED, #28) pid. Best-effort: on a
         # read-only config dir we cannot clean it up, and failing to tidy must

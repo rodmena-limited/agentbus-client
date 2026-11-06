@@ -30,7 +30,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from ..identity import config_dir as identity_config_dir
+from agentbus_client.identity import config_dir as identity_config_dir
 
 
 def _device_hash(device_id: str | None) -> str:
@@ -341,13 +341,15 @@ def _load_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text())
     except json.JSONDecodeError as exc:
-        raise SystemExit(
+        msg = (
             f"refusing to touch {path}: it is not valid JSON ({exc}). "
             "A broken settings file silently disables everything in it — "
             "fix it first, then re-run setup."
-        ) from exc
+        )
+        raise SystemExit(msg) from exc
     if not isinstance(data, dict):
-        raise SystemExit(f"refusing to touch {path}: expected a JSON object")
+        msg = f"refusing to touch {path}: expected a JSON object"
+        raise SystemExit(msg)
     return data
 
 
@@ -434,7 +436,8 @@ def _ensure_hook_entry(
     marker = _MARKER_REWAKE if _MARKER_REWAKE in command else _MARKER_HOOK
     groups = hooks.setdefault(event, [])
     if not isinstance(groups, list):
-        raise SystemExit(f"hooks.{event} is not a list; refusing to touch it")
+        msg = f"hooks.{event} is not a list; refusing to touch it"
+        raise SystemExit(msg)
     for group in groups:
         for hook in group.get("hooks", []):
             if hook.get("type") == "command" and marker in str(hook.get("command", "")):

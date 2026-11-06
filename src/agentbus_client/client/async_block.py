@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .._timefmt import _expiry_instant
+from agentbus_client._timefmt import _expiry_instant
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
     from ._mixin_base import AsyncClientBase as _MixinBase

@@ -24,31 +24,36 @@ what rotation actually writes.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import pytest
 
 from agentbus_client.cli._keys import _superseded_fingerprints
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 @pytest.fixture
-def keys_dir(tmp_path, monkeypatch):
+def keys_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     from agentbus_client import sealing
 
     monkeypatch.setattr(sealing, "key_path", lambda *a, **k: tmp_path / "sealing-x.key")
     return tmp_path
 
 
-def test_a_hyphenated_agent_name_still_yields_the_bare_fingerprint(keys_dir):
+def test_a_hyphenated_agent_name_still_yields_the_bare_fingerprint(keys_dir: Any) -> None:
     """THE REPORTED CASE, byte for byte."""
     (keys_dir / "sealing-bikeroom-freebsd-operato-b124c2-e3da2fdd83562a70.key.superseded").touch()
     assert _superseded_fingerprints() == {"e3da2fdd83562a70"}
 
 
-def test_a_simple_agent_name_works_too(keys_dir):
+def test_a_simple_agent_name_works_too(keys_dir: Any) -> None:
     (keys_dir / "sealing-alice-76a412e56b8b7d3b.key.superseded").touch()
     assert _superseded_fingerprints() == {"76a412e56b8b7d3b"}
 
 
-def test_several_superseded_keys_are_all_found(keys_dir):
+def test_several_superseded_keys_are_all_found(keys_dir: Any) -> None:
     """An agent that has rotated more than once holds several old keys, and
     every one of them can still open mail sealed to it."""
     for fp in ("aaaa1111bbbb2222", "cccc3333dddd4444"):
@@ -56,14 +61,14 @@ def test_several_superseded_keys_are_all_found(keys_dir):
     assert _superseded_fingerprints() == {"aaaa1111bbbb2222", "cccc3333dddd4444"}
 
 
-def test_an_empty_directory_is_empty_not_an_error(keys_dir):
+def test_an_empty_directory_is_empty_not_an_error(keys_dir: Any) -> None:
     """KNOWN-NEGATIVE. If this returned something, the positives above would be
     meaningless — a parser that reports fingerprints for files that do not exist
     would make `known_locally` always True, which is the dangerous direction."""
     assert _superseded_fingerprints() == set()
 
 
-def test_unrelated_files_are_ignored(keys_dir):
+def test_unrelated_files_are_ignored(keys_dir: Any) -> None:
     """The CURRENT key and signing keys must not be mistaken for superseded
     ones — the warning turns on exactly that distinction."""
     (keys_dir / "sealing-alice-ffff0000ffff0000.key").touch()  # current
@@ -72,7 +77,7 @@ def test_unrelated_files_are_ignored(keys_dir):
     assert _superseded_fingerprints() == set()
 
 
-def test_the_old_parser_would_fail_these(keys_dir):
+def test_the_old_parser_would_fail_these(keys_dir: Any) -> None:
     """Documents the exact regression, so a future 'simplification' back to
     removeprefix-only is caught rather than looking tidier."""
     name = "sealing-bikeroom-freebsd-operato-b124c2-e3da2fdd83562a70.key.superseded"

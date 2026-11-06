@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError, EmptyBodyError, SelfReplyError
+from agentbus_client.client import AgentBusError, EmptyBodyError, SelfReplyError
+
 from . import _common
 from ._common import _as_message_id, _parse_duration, _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_send_batch(args: argparse.Namespace) -> int:
@@ -187,7 +190,7 @@ def cmd_send(args: argparse.Namespace) -> int:
         normalised.update(result or {})
         result = normalised
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
     else:
         # #161: the receipt NAMES THE ACTING IDENTITY. An agent that spent an
         # hour sending as somebody else would have caught it on the first
@@ -294,7 +297,7 @@ def cmd_reply(args: argparse.Namespace) -> int:
         return 2
     acting = bus.agent or "(key-bound agent)"
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
     else:
         # NAME WHO IT REACHED. A reply-all that silently dropped a retired
         # participant must not look like one that reached the room.

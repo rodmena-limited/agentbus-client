@@ -20,8 +20,12 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _thread(n_messages: int) -> dict:
@@ -63,7 +67,9 @@ class FakeBus:
         return self._thread
 
 
-def _run_show(monkeypatch, delivery: dict, thread_data: dict, **flags) -> tuple[str, FakeBus]:
+def _run_show(
+    monkeypatch: pytest.MonkeyPatch, delivery: dict, thread_data: dict, **flags: Any
+) -> tuple[str, FakeBus]:
     bus = FakeBus(delivery, thread_data)
     monkeypatch.setattr(cli._common, "_bus", lambda _args: bus)
     args = argparse.Namespace(
@@ -75,7 +81,7 @@ def _run_show(monkeypatch, delivery: dict, thread_data: dict, **flags) -> tuple[
     return buf.getvalue(), bus
 
 
-def _delivery(**over) -> dict:
+def _delivery(**over: Any) -> dict:
     base = {
         "message_id": "msg_3",
         "thread_id": "th_1",
@@ -92,7 +98,7 @@ def _delivery(**over) -> dict:
     return base
 
 
-def test_the_hint_fires_for_a_peers_first_reply(monkeypatch):
+def test_the_hint_fires_for_a_peers_first_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE REGRESSION. thread_seq is 1 here — a `thread_seq > 1` gate says nothing,
     and this is the commonest message an agent ever reads."""
     out, _ = _run_show(monkeypatch, _delivery(thread_seq=1, thread_message_count=5), _thread(5))
@@ -101,13 +107,15 @@ def test_the_hint_fires_for_a_peers_first_reply(monkeypatch):
     assert "agentbus show del_1 --thread" in out
 
 
-def test_the_hint_is_silent_on_a_one_message_thread(monkeypatch):
+def test_the_hint_is_silent_on_a_one_message_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     """Advice printed on every message is advice that gets tuned out."""
     out, _ = _run_show(monkeypatch, _delivery(thread_message_count=1), _thread(1))
     assert "other message(s) in this conversation" not in out
 
 
-def test_the_hint_is_silent_when_the_server_does_not_send_the_count(monkeypatch):
+def test_the_hint_is_silent_when_the_server_does_not_send_the_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An older server omits thread_message_count. Degrade quietly rather than
     printing '-1 other messages' or crashing on None."""
     delivery = _delivery()
@@ -116,24 +124,26 @@ def test_the_hint_is_silent_when_the_server_does_not_send_the_count(monkeypatch)
     assert "other message(s) in this conversation" not in out
 
 
-def test_thread_flag_renders_every_message_in_order(monkeypatch):
+def test_thread_flag_renders_every_message_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
     out, bus = _run_show(monkeypatch, _delivery(), _thread(5), thread=True)
     assert bus.thread_calls == ["th_1"]
     for i in range(1, 6):
         assert f"body of message {i}" in out
     # Positions are counted, NOT read from thread_seq (which goes 1,2,1,3,2).
-    assert "[1/5]" in out and "[3/5]" in out and "[5/5]" in out
+    assert "[1/5]" in out
+    assert "[3/5]" in out
+    assert "[5/5]" in out
     assert "[4/4]" not in out
 
 
-def test_all_is_accepted_as_an_alias_for_thread():
+def test_all_is_accepted_as_an_alias_for_thread() -> None:
     parser = cli.build_parser()
     assert parser.parse_args(["show", "del_1", "--all"]).thread is True
     assert parser.parse_args(["show", "del_1", "--thread"]).thread is True
     assert parser.parse_args(["show", "del_1"]).thread is False
 
 
-def test_every_message_carries_its_id_so_it_can_be_cited(monkeypatch):
+def test_every_message_carries_its_id_so_it_can_be_cited(monkeypatch: pytest.MonkeyPatch) -> None:
     """Citing the delivery id instead is the mistake this client warns about
     elsewhere: delivery ids are per-recipient and do not resolve for the peer."""
     out, _ = _run_show(monkeypatch, _delivery(), _thread(5), thread=True)
@@ -141,14 +151,14 @@ def test_every_message_carries_its_id_so_it_can_be_cited(monkeypatch):
         assert f"message msg_{i}" in out
 
 
-def test_the_message_you_opened_is_marked(monkeypatch):
+def test_the_message_you_opened_is_marked(monkeypatch: pytest.MonkeyPatch) -> None:
     out, _ = _run_show(monkeypatch, _delivery(message_id="msg_3"), _thread(5), thread=True)
     marked = [line for line in out.splitlines() if "the one you opened" in line]
     assert len(marked) == 1, out
     assert "[3/5]" in marked[0]
 
 
-def test_attachments_and_payloads_are_announced_not_hidden(monkeypatch):
+def test_attachments_and_payloads_are_announced_not_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
     """#212 applied to the thread: a message whose whole point was the thing it
     carried must not render as an empty remark."""
     out, _ = _run_show(monkeypatch, _delivery(), _thread(5), thread=True)
@@ -156,7 +166,7 @@ def test_attachments_and_payloads_are_announced_not_hidden(monkeypatch):
     assert "carries a structured payload (schema://x)" in out
 
 
-def test_thread_view_states_how_many_messages_there_are(monkeypatch):
+def test_thread_view_states_how_many_messages_there_are(monkeypatch: pytest.MonkeyPatch) -> None:
     out, _ = _run_show(monkeypatch, _delivery(), _thread(5), thread=True)
     assert "5 message(s)" in out
     assert "thread th_1" in out
@@ -165,7 +175,7 @@ def test_thread_view_states_how_many_messages_there_are(monkeypatch):
 # ------------------------------------------------------- sealed body rendering
 
 
-def test_thread_render_says_so_instead_of_dumping_ciphertext():
+def test_thread_render_says_so_instead_of_dumping_ciphertext() -> None:
     """A READER THAT CANNOT DECRYPT MUST SAY SO.
 
     `unseal_message`'s docstring states the rule and `show` honours it, but

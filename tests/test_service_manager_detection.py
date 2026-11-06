@@ -20,6 +20,7 @@ import io
 import re
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -28,7 +29,7 @@ sys.path.insert(0, str(REPO / "src"))
 from agentbus_client import cli
 
 
-def _invoke(manager: str | None, which: dict[str, str | None], system: str = "FreeBSD"):
+def _invoke(manager: str | None, which: dict[str, str | None], system: str = "FreeBSD") -> Any:
     """Run cmd_service with a faked platform; return (exit_code, stdout, stderr)."""
     args = argparse.Namespace(agent="probe-agent", manager=manager, env_file=None)
     out, err = io.StringIO(), io.StringIO()
@@ -51,7 +52,7 @@ _LINUX = {
 }
 
 
-def test_bare_autodetect_hard_fails_where_no_manager_exists():
+def test_bare_autodetect_hard_fails_where_no_manager_exists() -> None:
     """The reported defect verbatim: FreeBSD, no flags, expect NON-ZERO and no unit."""
     code, out, err = _invoke(None, _FREEBSD)
     assert code != 0, "exit 0 with an unloadable unit is the silent no-watcher failure"
@@ -62,18 +63,20 @@ def test_bare_autodetect_hard_fails_where_no_manager_exists():
     assert "systemd" in combined and "launchd" in combined, "say what was looked for"
 
 
-def test_linux_with_systemd_still_gets_a_unit():
+def test_linux_with_systemd_still_gets_a_unit() -> None:
     """KNOWN-POSITIVE: the hard-fail must not fire where systemd exists."""
     code, out, _err = _invoke(None, _LINUX, system="Linux")
     assert code == 0
-    assert "[Unit]" in out and "ExecStart=" in out
+    assert "[Unit]" in out
+    assert "ExecStart=" in out
 
 
-def test_explicit_rcd_emits_an_rc_script_not_a_unit():
+def test_explicit_rcd_emits_an_rc_script_not_a_unit() -> None:
     code, out, err = _invoke("rc.d", _FREEBSD)
     assert code == 0, "an explicitly requested rc.d script must be emitted"
     assert "[Unit]" not in out
-    assert "run_rc_command" in out and "rc.subr" in out
+    assert "run_rc_command" in out
+    assert "rc.subr" in out
     # the supervisor/child pidfile split — using only one means `service stop`
     # kills the wrong process and daemon(8) restarts the watcher being stopped
     assert "-P " in out and "-p " in out, "daemon(8) needs BOTH pidfiles (-P supervisor, -p child)"
@@ -95,7 +98,8 @@ def test_explicit_rcd_emits_an_rc_script_not_a_unit():
     )
 
 
-def test_explicit_systemd_on_freebsd_is_the_operators_call():
+def test_explicit_systemd_on_freebsd_is_the_operators_call() -> None:
     """--manager systemd stays honored anywhere: explicit beats detection."""
     code, out, _err = _invoke("systemd", _FREEBSD)
-    assert code == 0 and "[Unit]" in out
+    assert code == 0
+    assert "[Unit]" in out

@@ -7,6 +7,7 @@ import urllib.error
 from typing import Any
 
 import pytest
+from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
 from agentbus_client.hooks import _gate
@@ -22,10 +23,10 @@ class _Resp:
     def read(self) -> bytes:
         return json.dumps(self._payload).encode()
 
-    def __enter__(self) -> _Resp:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *a: Any) -> None:
+    def __exit__(self, *a: object) -> None:
         pass
 
 
@@ -48,8 +49,8 @@ def _longest_string(value: Any) -> int:
     return 0
 
 
-def _guard_with_the_servers_contract(sent: list[dict[str, Any]]):
-    def fake_urlopen(request, timeout=None):
+def _guard_with_the_servers_contract(sent: list[dict[str, Any]]) -> Any:
+    def fake_urlopen(request: pytest.FixtureRequest, timeout: Any = None) -> Any:
         body = json.loads(request.data.decode())
         sent.append(body)
         unknown = set(body) - {"tool_name", "tool_input", "truncated"}
@@ -107,38 +108,43 @@ def _decide(
     return json.loads(line)["hookSpecificOutput"], sent
 
 
-def test_a_padded_destructive_command_is_still_checked_and_denied(monkeypatch):
+def test_a_padded_destructive_command_is_still_checked_and_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     decision, sent = _decide(monkeypatch, "echo " + "x" * 10_000 + " ; rm -rf /")
     assert decision["permissionDecision"] == "deny", decision
     assert _longest_string(sent[-1]["tool_input"]) <= LIMIT
 
 
-def test_a_small_destructive_command_is_denied(monkeypatch):
+def test_a_small_destructive_command_is_denied(monkeypatch: pytest.MonkeyPatch) -> None:
     decision, _ = _decide(monkeypatch, "rm -rf /")
     assert decision["permissionDecision"] == "deny"
 
 
-def test_a_large_harmless_command_gets_a_real_verdict_not_a_degraded_allow(monkeypatch):
+def test_a_large_harmless_command_gets_a_real_verdict_not_a_degraded_allow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     decision, _ = _decide(monkeypatch, "echo " + "y" * 20_000)
     assert decision["permissionDecision"] == "allow"
     assert "UNVETTED" not in decision["permissionDecisionReason"]
 
 
-def test_a_field_under_the_limit_is_sent_unchanged(monkeypatch):
+def test_a_field_under_the_limit_is_sent_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     command = "echo " + "z" * 3_000
     _, sent = _decide(monkeypatch, command)
     assert sent[-1]["tool_input"]["command"] == command
 
 
-def test_shortening_keeps_both_ends_and_names_the_gap():
+def test_shortening_keeps_both_ends_and_names_the_gap() -> None:
     text = "HEAD" + "m" * 9_000 + "TAIL"
     short = _gate.fit_to_guard_limit({"a": [text]})["a"][0]
     assert len(short) <= LIMIT
-    assert short.startswith("HEAD") and short.endswith("TAIL")
+    assert short.startswith("HEAD")
+    assert short.endswith("TAIL")
     assert "characters elided by the AgentBus gate" in short
 
 
-def test_a_shortened_input_is_declared_truncated(monkeypatch):
+def test_a_shortened_input_is_declared_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     """#71: agentbus-8dc08d's guard (#367) accepts `truncated` and echoes it, so a
     rule can refuse to wave elided content through. Verified live before shipping:
     truncated:true -> 200 and echoed; an unknown field is still rejected."""
@@ -146,13 +152,13 @@ def test_a_shortened_input_is_declared_truncated(monkeypatch):
     assert sent[-1].get("truncated") is True
 
 
-def test_an_unshortened_input_carries_no_truncated_field(monkeypatch):
+def test_an_unshortened_input_carries_no_truncated_field(monkeypatch: pytest.MonkeyPatch) -> None:
     """The field is a claim that something was elided; absent means nothing was."""
     _, sent = _decide(monkeypatch, "echo hello")
     assert "truncated" not in sent[-1]
 
 
-def test_the_fake_server_rejects_unknown_fields_like_the_real_one():
+def test_the_fake_server_rejects_unknown_fields_like_the_real_one() -> None:
     """Known-positive for the two tests above: the fake must be as strict as the live
     endpoint, or a misspelled flag would pass here and 422 in production — which the
     gate turns into an UNVETTED allow."""

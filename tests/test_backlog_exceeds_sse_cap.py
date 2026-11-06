@@ -18,13 +18,18 @@ drive real page boundaries through `_drain`.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from agentbus_client.watch import Watcher
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _Delivery:
     """Minimal stand-in for client.Delivery — _drain uses .seq and .raw."""
 
-    def __init__(self, seq: int):
+    def __init__(self, seq: int) -> None:
         self.seq = seq
         self.raw = {"delivery_id": f"d{seq}", "agent_seq": seq, "subject": f"msg-{seq}"}
 
@@ -34,7 +39,7 @@ class _PagingBus:
     real inbox endpoint does — each call returns everything after the
     cursor, capped at the limit."""
 
-    def __init__(self, total: int, page_size: int = 100):
+    def __init__(self, total: int, page_size: int = 100) -> None:
         self.total = total
         self.page_size = page_size
         self.agent = "test-agent"
@@ -42,13 +47,13 @@ class _PagingBus:
         self.api_key = "k"
         self.calls: list[int] = []
 
-    def inbox(self, cursor, limit=100, agent=None):
+    def inbox(self, cursor: Any, limit: int = 100, agent: Any = None) -> list[Any]:
         self.calls.append(cursor)
         remaining = [s for s in range(1, self.total + 1) if s > cursor]
         return [_Delivery(s) for s in remaining[: min(limit, self.page_size)]]
 
 
-def _watcher(bus, tmp_path, seen):
+def _watcher(bus: Any, tmp_path: Path, seen: Any) -> Watcher:
     return Watcher(
         bus,
         agent="test-agent",
@@ -57,7 +62,7 @@ def _watcher(bus, tmp_path, seen):
     )
 
 
-def test_backlog_of_exactly_100_drains_completely(tmp_path):
+def test_backlog_of_exactly_100_drains_completely(tmp_path: Path) -> None:
     """The boundary case. A backlog of exactly the cap must not stop at
     the cap — the next call returning empty is what ends the loop."""
     seen: list[int] = []
@@ -71,7 +76,7 @@ def test_backlog_of_exactly_100_drains_completely(tmp_path):
     assert w.cursor == 100
 
 
-def test_backlog_of_250_drains_past_the_cap(tmp_path):
+def test_backlog_of_250_drains_past_the_cap(tmp_path: Path) -> None:
     """Backend caveat A, exercised. 250 deliveries with a 100-per-page
     cap must all surface — the drain pages three times (100, 100, 50)
     then a fourth empty call terminates it."""
@@ -91,7 +96,7 @@ def test_backlog_of_250_drains_past_the_cap(tmp_path):
     assert bus.calls == [0, 100, 200, 250]
 
 
-def test_drain_resumes_from_a_persisted_cursor_past_the_cap(tmp_path):
+def test_drain_resumes_from_a_persisted_cursor_past_the_cap(tmp_path: Path) -> None:
     """A watcher that crashed mid-backlog resumes where it stopped rather
     than replaying from 0 (which would re-fire every wake hook) or
     skipping ahead (which would lose mail)."""
@@ -107,7 +112,7 @@ def test_drain_resumes_from_a_persisted_cursor_past_the_cap(tmp_path):
     assert bus.calls[0] == 120, "did not resume from the persisted cursor"
 
 
-def test_empty_backlog_makes_exactly_one_call(tmp_path):
+def test_empty_backlog_makes_exactly_one_call(tmp_path: Path) -> None:
     """The common case must not cost extra round trips."""
     seen: list[int] = []
     bus = _PagingBus(total=0)
@@ -118,16 +123,17 @@ def test_empty_backlog_makes_exactly_one_call(tmp_path):
     assert seen == []
 
 
-def test_a_failing_handler_does_not_stop_the_backlog_drain(tmp_path):
+def test_a_failing_handler_does_not_stop_the_backlog_drain(tmp_path: Path) -> None:
     """One bad wake hook must not strand the remaining 249 messages.
     The handler exception is logged per-message and the drain continues —
     otherwise a single malformed delivery would block catch-up forever."""
     delivered_to_handler: list[int] = []
 
-    def flaky(msg):
+    def flaky(msg: Any) -> None:
         delivered_to_handler.append(msg["agent_seq"])
         if msg["agent_seq"] == 42:
-            raise RuntimeError("this one hook is broken")
+            msg_0 = "this one hook is broken"
+            raise RuntimeError(msg_0)
 
     bus = _PagingBus(total=250)
     w = Watcher(

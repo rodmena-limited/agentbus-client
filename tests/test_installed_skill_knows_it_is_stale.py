@@ -33,11 +33,14 @@ from __future__ import annotations
 import inspect
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
+
+from typing import NoReturn
 
 from agentbus_client import onboarding
 
@@ -48,8 +51,8 @@ class _Resp:
         self.content = content
 
 
-@pytest.fixture()
-def skill(tmp_path, monkeypatch):
+@pytest.fixture
+def skill(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """A fake ~/.claude/skills/agentbus/SKILL.md the test controls."""
     home = tmp_path
     (home / ".claude" / "skills" / "agentbus").mkdir(parents=True)
@@ -57,22 +60,22 @@ def skill(tmp_path, monkeypatch):
     return home / ".claude" / "skills" / "agentbus" / "SKILL.md"
 
 
-def _serve(monkeypatch, status: int = 200, body: bytes = b"served"):
+def _serve(monkeypatch: pytest.MonkeyPatch, status: int = 200, body: bytes = b"served") -> None:
     import httpx
 
     monkeypatch.setattr(httpx, "get", lambda *_a, **_k: _Resp(status, body))
 
 
-def _raise(monkeypatch, exc: Exception):
+def _raise(monkeypatch: pytest.MonkeyPatch, exc: Exception) -> None:
     import httpx
 
-    def boom(*_a, **_k):
+    def boom(*_a: Any, **_k: Any) -> NoReturn:
         raise exc
 
     monkeypatch.setattr(httpx, "get", boom)
 
 
-def test_identical_bytes_are_current(skill, monkeypatch) -> None:
+def test_identical_bytes_are_current(skill: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """THE KNOWN-POSITIVE. Without it, a function that returned 'stale'
     unconditionally would satisfy every other case here and would nag every
     agent forever — which is how a warning stops being read."""
@@ -82,7 +85,9 @@ def test_identical_bytes_are_current(skill, monkeypatch) -> None:
     assert state == "current"
 
 
-def test_different_bytes_are_stale_and_name_the_refresh_command(skill, monkeypatch) -> None:
+def test_different_bytes_are_stale_and_name_the_refresh_command(
+    skill: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """'stale' with no remedy leaves the reader knowing they have a problem
     and not what to type. The command NAMED must actually work in the
     scenario the warning appears in — peer agentbus-ui-c760a1 (thread
@@ -98,7 +103,7 @@ def test_different_bytes_are_stale_and_name_the_refresh_command(skill, monkeypat
     assert "13 vs 29 bytes" in detail, detail
 
 
-def test_a_missing_skill_is_missing_not_stale(skill, monkeypatch) -> None:
+def test_a_missing_skill_is_missing_not_stale(skill: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Never installed and installed-but-old need different actions, and
     collapsing them would tell a fresh machine to 'refresh' something it does
     not have."""
@@ -108,7 +113,9 @@ def test_a_missing_skill_is_missing_not_stale(skill, monkeypatch) -> None:
     assert "agentbus setup claude" in detail
 
 
-def test_an_unreachable_server_is_UNKNOWN_and_never_current(skill, monkeypatch) -> None:
+def test_an_unreachable_server_is_UNKNOWN_and_never_current(
+    skill: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE ONE THAT MATTERS. The check needs the network; a version of it that
     fell back to 'current' when it could not ask would be green forever and
     would be exactly the silent staleness this ticket exists to end."""
@@ -119,7 +126,9 @@ def test_an_unreachable_server_is_UNKNOWN_and_never_current(skill, monkeypatch) 
     assert "NOT checked" in detail
 
 
-def test_a_non_200_is_UNKNOWN_and_never_current(skill, monkeypatch) -> None:
+def test_a_non_200_is_UNKNOWN_and_never_current(
+    skill: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A 502 from a proxy returns a body. Comparing against it would report a
     perfectly good skill as stale, and against an empty body as stale forever."""
     skill.write_bytes(b"anything")
@@ -128,7 +137,7 @@ def test_a_non_200_is_UNKNOWN_and_never_current(skill, monkeypatch) -> None:
     assert state == "unknown"
 
 
-def test_doctor_reports_the_skill_and_a_stale_one_is_not_a_clean_bill(skill) -> None:
+def test_doctor_reports_the_skill_and_a_stale_one_is_not_a_clean_bill(skill: Any) -> None:
     """A doctor line nobody prints is #94's F-07 again: a function that works
     and is called from nowhere. And printing STALE while still exiting clean
     would make the line decorative."""
@@ -141,7 +150,7 @@ def test_doctor_reports_the_skill_and_a_stale_one_is_not_a_clean_bill(skill) -> 
     assert "ok = False" in branch
 
 
-def test_setup_still_says_when_the_skill_was_already_current(skill) -> None:
+def test_setup_still_says_when_the_skill_was_already_current(skill: Any) -> None:
     """The ticket's third line — setup must not rewrite silently. This was
     ALREADY true before #196; asserted rather than assumed, because a later
     refactor that dropped the 'current' branch would leave a no-op looking

@@ -15,7 +15,9 @@ class _AsyncCircuitBreaker:
     event-loop affinity and is shared by every AsyncAgentBus in the process.
     """
 
-    def __init__(self, failure_limit: int = 5, success_limit: int = 2, cooldown: float = 30.0):
+    def __init__(
+        self, failure_limit: int = 5, success_limit: int = 2, cooldown: float = 30.0
+    ) -> None:
         self.failure_limit = failure_limit
         self.success_limit = success_limit
         self.cooldown = cooldown

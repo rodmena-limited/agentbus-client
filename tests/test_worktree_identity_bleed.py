@@ -34,6 +34,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -60,7 +61,7 @@ def _declare(root: Path, agent: str) -> None:
 
 
 @pytest.fixture
-def worktrees(tmp_path):
+def worktrees(tmp_path: Path) -> Any:
     """A real main checkout with a real linked worktree, each declaring itself."""
     main = tmp_path / "main"
     main.mkdir()
@@ -79,7 +80,7 @@ def worktrees(tmp_path):
     return main, tree
 
 
-def test_the_fixture_really_is_a_linked_worktree(worktrees):
+def test_the_fixture_really_is_a_linked_worktree(worktrees: Any) -> None:
     """Known-positive for the fixture itself. If this is not a linked worktree,
     every assertion below is about something other than the bug."""
     main, tree = worktrees
@@ -94,7 +95,9 @@ def test_the_fixture_really_is_a_linked_worktree(worktrees):
     assert (tree / ".git").is_file(), "a linked worktree's .git is a file, not a dir"
 
 
-def test_worktree_uses_its_own_identity_despite_the_injected_env(worktrees, monkeypatch, capsys):
+def test_worktree_uses_its_own_identity_despite_the_injected_env(
+    worktrees: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The #129 fix: the main worktree's value must not win here."""
     _main, tree = worktrees
     monkeypatch.chdir(tree)
@@ -105,7 +108,7 @@ def test_worktree_uses_its_own_identity_despite_the_injected_env(worktrees, monk
     capsys.readouterr()
 
 
-def test_main_worktree_is_untouched(worktrees, monkeypatch):
+def test_main_worktree_is_untouched(worktrees: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """The correction must not fire in the main checkout — there is no bleed."""
     main, _tree = worktrees
     monkeypatch.chdir(main)
@@ -115,7 +118,9 @@ def test_main_worktree_is_untouched(worktrees, monkeypatch):
     assert claude_code._resolve_agent() == MAIN_AGENT
 
 
-def test_deliberate_operator_override_still_wins(worktrees, monkeypatch):
+def test_deliberate_operator_override_still_wins(
+    worktrees: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """#90 SURVIVES. A value a person chose is not the main worktree's value, so
     it is not the misinjection signature and must be honoured."""
     _main, tree = worktrees
@@ -126,7 +131,9 @@ def test_deliberate_operator_override_still_wins(worktrees, monkeypatch):
     assert claude_code._resolve_agent() == "some-other-agent-the-operator-chose"
 
 
-def test_no_correction_when_the_worktree_declares_nothing(worktrees, monkeypatch):
+def test_no_correction_when_the_worktree_declares_nothing(
+    worktrees: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An unwired worktree has no identity of its own to prefer."""
     _main, tree = worktrees
     (tree / ".agentbus" / "agent").unlink()
@@ -138,7 +145,9 @@ def test_no_correction_when_the_worktree_declares_nothing(worktrees, monkeypatch
     assert claude_code._resolve_agent() == MAIN_AGENT
 
 
-def test_no_correction_when_the_two_checkouts_agree(worktrees, monkeypatch):
+def test_no_correction_when_the_two_checkouts_agree(
+    worktrees: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Nothing to correct; must not churn the value."""
     _main, tree = worktrees
     _declare(tree, MAIN_AGENT)
@@ -149,7 +158,9 @@ def test_no_correction_when_the_two_checkouts_agree(worktrees, monkeypatch):
     assert claude_code._resolve_agent() == MAIN_AGENT
 
 
-def test_unwired_worktree_with_no_env_stays_off(worktrees, monkeypatch):
+def test_unwired_worktree_with_no_env_stays_off(
+    worktrees: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The kill switch is not weakened by any of this."""
     _main, tree = worktrees
     (tree / ".agentbus" / "agent").unlink()
@@ -161,7 +172,9 @@ def test_unwired_worktree_with_no_env_stays_off(worktrees, monkeypatch):
     assert claude_code._resolve_agent() is None
 
 
-def test_helper_returns_none_outside_a_git_checkout(tmp_path, monkeypatch):
+def test_helper_returns_none_outside_a_git_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ambiguity resolves to 'leave the environment alone', never to a guess."""
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -194,7 +207,9 @@ def _write_key(cfg: Path, agent: str, key: str) -> None:
     )
 
 
-def test_credential_follows_the_reversed_identity(worktrees, tmp_path, monkeypatch):
+def test_credential_follows_the_reversed_identity(
+    worktrees: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The #131 fix: adopting the worktree's identity adopts its key too."""
     _main, tree = worktrees
     cfg = tmp_path / "cfg"
@@ -215,7 +230,9 @@ def test_credential_follows_the_reversed_identity(worktrees, tmp_path, monkeypat
     )
 
 
-def test_credential_untouched_when_no_bleed(worktrees, tmp_path, monkeypatch):
+def test_credential_untouched_when_no_bleed(
+    worktrees: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """KNOWN-POSITIVE FOR THE NEGATIVE. In the main worktree nothing is reversed,
     so the operator's key must survive — otherwise the test above would pass on a
     build that rewrites AGENTBUS_API_KEY unconditionally."""
@@ -232,7 +249,9 @@ def test_credential_untouched_when_no_bleed(worktrees, tmp_path, monkeypatch):
     assert os.environ["AGENTBUS_API_KEY"] == "ab_sk_OPERATOR_CHOSE_THIS"
 
 
-def test_missing_key_file_leaves_the_environment_alone(worktrees, tmp_path, monkeypatch):
+def test_missing_key_file_leaves_the_environment_alone(
+    worktrees: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A worktree wired but never signed in is a real state, not a crash."""
     _main, tree = worktrees
     cfg = tmp_path / "cfg"
@@ -247,7 +266,9 @@ def test_missing_key_file_leaves_the_environment_alone(worktrees, tmp_path, monk
     assert os.environ["AGENTBUS_API_KEY"] == "ab_sk_MAIN"
 
 
-def test_adopting_a_key_does_not_reassert_the_wrong_identity(tmp_path, monkeypatch):
+def test_adopting_a_key_does_not_reassert_the_wrong_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The key file also exports AGENTBUS_AGENT; writing that back would undo the
     correction that just happened."""
     cfg = tmp_path / "cfg"

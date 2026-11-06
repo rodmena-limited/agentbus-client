@@ -11,12 +11,16 @@ none of the expense.
 
 from __future__ import annotations
 
-import argparse
 import sys
+from typing import TYPE_CHECKING
 
-from .._timefmt import _looks_like_duration
+from agentbus_client._timefmt import _looks_like_duration
+
 from . import _common
 from ._common import _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _resolve_self(args: argparse.Namespace) -> str | None:
@@ -55,7 +59,7 @@ def cmd_block(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     result = bus.block(args.name, reason=args.reason, for_=args.for_)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     until = result.get("expires_at")
     print(f"blocked {args.name}")
@@ -73,7 +77,7 @@ def cmd_unblock(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     result = bus.unblock(args.name)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     print(f"unblocked {args.name} — delivery resumes")
     held = result.get("suppressed_count")
@@ -87,7 +91,7 @@ def cmd_blocks(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     rows = bus.blocks()
     if args.json:
-        _print(rows, True)
+        _print(rows, as_json=True)
         return 0
     if not rows:
         print("no blocks — every agent in the workspace can reach you")

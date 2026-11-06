@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import pathlib
 import sys
 import tempfile
+from typing import TYPE_CHECKING
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from . import _common
 from ._common import _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_forward(args: argparse.Namespace) -> int:
@@ -124,7 +128,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
             attachments=paths or None,
         )
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
     else:
         who = ", ".join(result.get("recipients") or args.to)
         print(f"forwarded: {result['id']} as {bus.agent or '(key-bound agent)'} to {who}")
@@ -148,7 +152,7 @@ def cmd_draft(args: argparse.Namespace) -> int:
         to=args.to, subject=args.subject or "", text=_common._read_body(args.body) or ""
     )
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     print(f"draft saved: {result['id']}")
     print(f"  send it:  agentbus draft-send {result['id']}")
@@ -159,7 +163,7 @@ def cmd_draft_send(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     result = bus.send_draft(args.draft_id)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     print(f"sent: {result.get('id')} (draft {args.draft_id} is now gone)")
     return 0
@@ -169,7 +173,8 @@ def _whole_number(flag: str, value: object) -> int:
     try:
         return int(str(value))
     except ValueError:
-        raise _common.InputError(f"{flag} must be a whole number, got {value!r}") from None
+        msg = f"{flag} must be a whole number, got {value!r}"
+        raise _common.InputError(msg) from None
 
 
 def cmd_undeliverable(args: argparse.Namespace) -> int:
@@ -211,7 +216,7 @@ def cmd_undeliverable(args: argparse.Namespace) -> int:
         return 1
     rows = result.get("undeliverable") or []
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     if not rows:
         print("nothing quarantined")
@@ -230,13 +235,13 @@ def cmd_drafts(args: argparse.Namespace) -> int:
     if getattr(args, "delete", None):
         bus.delete_draft(args.delete)
         if args.json:
-            _print({"deleted": args.delete}, True)
+            _print({"deleted": args.delete}, as_json=True)
         else:
             print(f"discarded draft {args.delete}")
         return 0
     drafts = bus.drafts()
     if args.json:
-        _print(drafts, True)
+        _print(drafts, as_json=True)
         return 0
     if not drafts:
         print("no drafts")
@@ -414,7 +419,7 @@ def cmd_approval(args: argparse.Namespace) -> int:
         # The machine-readable surface must still CARRY THE VERDICT in its exit
         # code — a script that pipes this to jq is exactly the caller that must
         # not mistake a denial for a pending decision.
-        _print(settled, True)
+        _print(settled, as_json=True)
         if settled.get("waited_out"):
             return 7
         status = str(settled.get("status") or "")

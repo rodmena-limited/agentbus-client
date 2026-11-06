@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import atexit
 import http.server
 import json
@@ -8,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Any
 
 ROOT = str(pathlib.Path(__file__).resolve().parents[2])
 HOOK = f"{ROOT}/.venv/bin/agentbus-hook"
@@ -16,10 +19,10 @@ hits = []
 
 
 class H(http.server.BaseHTTPRequestHandler):
-    def log_message(self, *a):
+    def log_message(self, *a: Any) -> None:
         pass
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         n = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(n)
         hits.append((time.time(), mode["v"], self.path))
@@ -57,7 +60,7 @@ env = {
 payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}})
 
 
-def call(label):
+def call(label: Any) -> Any:
     before = len(hits)
     out = subprocess.run(
         [HOOK, "pre-tool-use"],

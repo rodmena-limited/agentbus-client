@@ -15,16 +15,20 @@ test_f7_server_cap_check.py.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import pytest
 
-from agentbus_client import client as client_module
-from agentbus_client import sealing as _sealing
+from agentbus_client import client as client_module, sealing as _sealing
 from agentbus_client.client import AgentBusError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _AGE_PUBLIC_KEY = _sealing.generate_keypair()[1]  # a real, valid age public key
 
 
-def _write(path, size: int) -> None:
+def _write(path: Any, size: int) -> None:
     """A file of `size` bytes on disk WITHOUT reading it into Python RAM."""
     with open(path, "wb") as f:
         f.seek(size - 1)
@@ -34,11 +38,13 @@ def _write(path, size: int) -> None:
 # The RAM-cap tests below need the server cap out of the way so a 60 MB file
 # refusal proves the RAM cap fired, not the server cap.
 @pytest.fixture(autouse=True)
-def _server_cap_out_of_the_way(monkeypatch):
+def _server_cap_out_of_the_way(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", str(1024 * 1024 * 1024))
 
 
-def test_default_50mb_cap_refuses_a_60mb_file(tmp_path, monkeypatch) -> None:
+def test_default_50mb_cap_refuses_a_60mb_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("AGENTBUS_MAX_ATTACHMENT_BYTES", raising=False)
     big = tmp_path / "big.bin"
     _write(big, 60 * 1024 * 1024)  # 60 MB, over the 50 MB default
@@ -52,7 +58,7 @@ def test_default_50mb_cap_refuses_a_60mb_file(tmp_path, monkeypatch) -> None:
     assert "AGENTBUS_MAX_ATTACHMENT_BYTES" in msg
 
 
-def test_a_file_under_the_cap_is_encoded(tmp_path, monkeypatch) -> None:
+def test_a_file_under_the_cap_is_encoded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTBUS_MAX_ATTACHMENT_BYTES", raising=False)
     small = tmp_path / "small.txt"
     small.write_bytes(b"hello world")
@@ -65,7 +71,7 @@ def test_a_file_under_the_cap_is_encoded(tmp_path, monkeypatch) -> None:
     assert base64.b64decode(out[0]["content_base64"]) == b"hello world"
 
 
-def test_env_override_raises_the_cap(tmp_path, monkeypatch) -> None:
+def test_env_override_raises_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Cap raised to 100 MB — a 60 MB file now passes.
     monkeypatch.setenv("AGENTBUS_MAX_ATTACHMENT_BYTES", str(100 * 1024 * 1024))
     big = tmp_path / "big.bin"
@@ -78,7 +84,7 @@ def test_env_override_raises_the_cap(tmp_path, monkeypatch) -> None:
     assert len(out) == 1
 
 
-def test_env_override_can_shrink_the_cap(tmp_path, monkeypatch) -> None:
+def test_env_override_can_shrink_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Cap SHRUNK to 1 KB — a 2 KB file is now refused.
     monkeypatch.setenv("AGENTBUS_MAX_ATTACHMENT_BYTES", "1024")
     f = tmp_path / "just-over-1kb.bin"
@@ -88,14 +94,16 @@ def test_env_override_can_shrink_the_cap(tmp_path, monkeypatch) -> None:
         client_module._encode_attachments([str(f)])
 
 
-def test_missing_file_names_the_path(tmp_path) -> None:
+def test_missing_file_names_the_path(tmp_path: Path) -> None:
     missing = tmp_path / "does-not-exist"
     with pytest.raises(AgentBusError) as exc:
         client_module._encode_attachments([str(missing)])
     assert str(missing) in str(exc.value)
 
 
-def test_the_oversize_check_does_not_open_the_file(tmp_path, monkeypatch) -> None:
+def test_the_oversize_check_does_not_open_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The check must be os.stat, not open+read. Otherwise the very memory
     problem the cap exists to prevent would happen inside the check itself."""
     monkeypatch.delenv("AGENTBUS_MAX_ATTACHMENT_BYTES", raising=False)
@@ -105,7 +113,7 @@ def test_the_oversize_check_does_not_open_the_file(tmp_path, monkeypatch) -> Non
     opened: list[str] = []
     real_open = open
 
-    def tracking_open(path, *args, **kwargs):
+    def tracking_open(path: Any, *args: Any, **kwargs: Any) -> Any:
         opened.append(str(path))
         return real_open(path, *args, **kwargs)
 
@@ -128,12 +136,14 @@ def test_the_oversize_check_does_not_open_the_file(tmp_path, monkeypatch) -> Non
 
 # A real, valid age public key for the seal tests. Generated at module load
 # (age keygen is fast). Tests that don't patch seal_for_bytes need it.
+from typing import NoReturn
+
 from agentbus_client import sealing as _sealing
 
 _AGE_PUBLIC_KEY = _sealing.generate_keypair()[1]
 
 
-def test_encrypted_seal_inflation_is_caught_before_upload(monkeypatch):
+def test_encrypted_seal_inflation_is_caught_before_upload(monkeypatch: pytest.MonkeyPatch) -> None:
     """On an ENCRYPTED workspace, the server sees the SEALED base64, which is
     larger than the raw file. The pre-seal check in _encode_attachments
     compares RAW size; this post-seal check compares the WIRE base64 length —
@@ -175,7 +185,7 @@ def test_encrypted_seal_inflation_is_caught_before_upload(monkeypatch):
     assert "near-cap.bin" in msg
 
 
-def test_encrypted_fast_pre_seal_reject_skips_the_seal(monkeypatch):
+def test_encrypted_fast_pre_seal_reject_skips_the_seal(monkeypatch: pytest.MonkeyPatch) -> None:
     """A raw file CLEARLY over the encrypted cap must reject BEFORE the
     expensive seal runs. Proved by a seal that raises if called — if the
     pre-seal estimate fires first, the seal never runs."""
@@ -203,8 +213,9 @@ def test_encrypted_fast_pre_seal_reject_skips_the_seal(monkeypatch):
         "missing_keys": [],
     }
 
-    def seal_should_never_run(raw, keys):
-        raise AssertionError("the expensive seal ran despite the fast pre-seal reject")
+    def seal_should_never_run(raw: Any, keys: Any) -> NoReturn:
+        msg = "the expensive seal ran despite the fast pre-seal reject"
+        raise AssertionError(msg)
 
     with monkeypatch.context() as m:
         m.setattr("agentbus_client.sealing.seal_for_bytes", seal_should_never_run)

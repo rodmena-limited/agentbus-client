@@ -68,12 +68,10 @@ jobs:
     steps:
       - name: Install
         run: uv sync --frozen --all-groups
-      # BOTH scopes, deliberately. src/ was clean for months while tests/ was
-      # not, and every "lint clean" claim in the history meant src/ only.
       - name: Ruff check
-        run: uv run ruff check src tests
+        run: uv run ruff check .
       - name: Ruff format
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check .
 
   types:
     name: "Types"
@@ -82,24 +80,9 @@ jobs:
     steps:
       - name: Install
         run: uv sync --frozen --all-groups
-      # src/ STRICT, nothing disabled.
-      - name: Mypy (src, strict)
+      # Strict over src, tests, scripts and audit, configured in pyproject.toml.
+      - name: Mypy (strict)
         run: uv run mypy
-      # tests/ too, with the fake-related codes named explicitly rather than
-      # hidden in config: the suite is built on doubles (a _Bus for AgentBus, a
-      # _FakeStreamResponse for httpx.Response), and making them satisfy the
-      # real types would mean subclassing production classes in tests — which is
-      # how a fake stops being a fake.
-      - name: Mypy (tests)
-        run: >
-          uv run mypy tests
-          --disable-error-code=arg-type
-          --disable-error-code=method-assign
-          --disable-error-code=override
-          --disable-error-code=exit-return
-          --disable-error-code=no-redef
-          --disable-error-code=assignment
-          --disable-error-code=return-value
 
   limits:
     # House rules that no tool enforces. Both were breached in the week before

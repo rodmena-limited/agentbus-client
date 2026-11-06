@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import pytest
+from typing import TYPE_CHECKING
 
 from agentbus_client.client import AgentBus, resilience
 from agentbus_client.client.errors import AgentBusError, TransportError
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _bus_failing_with(monkeypatch: pytest.MonkeyPatch, status: int) -> tuple[AgentBus, list[str]]:
@@ -16,7 +19,8 @@ def _bus_failing_with(monkeypatch: pytest.MonkeyPatch, status: int) -> tuple[Age
 
     def _boom(*_a: object, **_k: object) -> None:
         calls.append("attempt")
-        raise AgentBusError("server exploded", code="internal_error", status=status)
+        msg = "server exploded"
+        raise AgentBusError(msg, code="internal_error", status=status)
 
     monkeypatch.setattr("agentbus_client.client.sync_client._raise_for", lambda r: _boom())
     monkeypatch.setattr(bus._client, "request", lambda *a, **k: object())

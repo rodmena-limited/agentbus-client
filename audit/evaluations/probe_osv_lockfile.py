@@ -37,7 +37,8 @@ def _query(pins: list[tuple[str, str]]) -> list[list[str]]:
     with urllib.request.urlopen(req, timeout=30) as resp:
         results = json.load(resp)["results"]
     if len(results) != len(pins):
-        raise RuntimeError(f"OSV returned {len(results)} results for {len(pins)} queries")
+        msg = f"OSV returned {len(results)} results for {len(pins)} queries"
+        raise RuntimeError(msg)
     return [[v["id"] for v in r.get("vulns") or []] for r in results]
 
 

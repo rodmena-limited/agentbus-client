@@ -33,6 +33,7 @@ import socket
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -86,7 +87,9 @@ def _serve_once(path: str) -> tuple[threading.Thread, list[bytes]]:
     return t, received
 
 
-def test_no_duplicate_when_socket_accepts(tmp_path, capsys, monkeypatch):
+def test_no_duplicate_when_socket_accepts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Socket took the payload -> stdout stays SILENT. This is the #123 fix."""
     sock_path = str(tmp_path / "s.sock")
     thread, received = _serve_once(sock_path)
@@ -102,7 +105,8 @@ def test_no_duplicate_when_socket_accepts(tmp_path, capsys, monkeypatch):
         "listener accepted no payload; the silent-stdout assertion below would be vacuous"
     )
     body = received[0].decode()
-    assert DELIVERY in body and SENDER in body
+    assert DELIVERY in body
+    assert SENDER in body
 
     out = capsys.readouterr().out
     assert out == "", (
@@ -110,7 +114,9 @@ def test_no_duplicate_when_socket_accepts(tmp_path, capsys, monkeypatch):
     )
 
 
-def test_fallback_when_no_socket_configured(capsys, monkeypatch):
+def test_fallback_when_no_socket_configured(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """No socket is a supported configuration — the notice MUST still be printed."""
     monkeypatch.delenv("CLAUDE_CODE_MESSAGING_SOCKET", raising=False)
 
@@ -124,7 +130,9 @@ def test_fallback_when_no_socket_configured(capsys, monkeypatch):
     )
 
 
-def test_fallback_when_socket_is_dead(tmp_path, capsys, monkeypatch):
+def test_fallback_when_socket_is_dead(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A configured-but-dead socket did NOT deliver, so stdout must fire."""
     monkeypatch.setenv("CLAUDE_CODE_MESSAGING_SOCKET", str(tmp_path / "gone.sock"))
 
@@ -136,7 +144,9 @@ def test_fallback_when_socket_is_dead(tmp_path, capsys, monkeypatch):
     assert "NOT delivered" in captured.err
 
 
-def test_the_socket_is_closed_when_the_connect_fails(tmp_path, capsys, monkeypatch):
+def test_the_socket_is_closed_when_the_connect_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """#69: the dead-socket path used to leave its socket open — `close()` sat
     after `connect()`, so a failed connect skipped it. Surfaced as a
     ResourceWarning only once pytest stopped filtering warnings.
@@ -149,7 +159,7 @@ def test_the_socket_is_closed_when_the_connect_fails(tmp_path, capsys, monkeypat
     made: list = []
     real = _socket.socket
 
-    def tracking(*args, **kwargs):
+    def tracking(*args: Any, **kwargs: Any) -> Any:
         sock = real(*args, **kwargs)
         made.append(sock)
         return sock
@@ -164,7 +174,9 @@ def test_the_socket_is_closed_when_the_connect_fails(tmp_path, capsys, monkeypat
     )
 
 
-def test_notice_matches_print_line_format_without_seq(capsys, monkeypatch):
+def test_notice_matches_print_line_format_without_seq(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The fallback is only a fallback if its shape is the one watch emits."""
     monkeypatch.delenv("CLAUDE_CODE_MESSAGING_SOCKET", raising=False)
     args = _args()
@@ -176,7 +188,9 @@ def test_notice_matches_print_line_format_without_seq(capsys, monkeypatch):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="AF_UNIX")
-def test_socket_payload_is_a_single_newline_delimited_user_turn(tmp_path, monkeypatch):
+def test_socket_payload_is_a_single_newline_delimited_user_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Harness contract: one JSON object, one trailing newline, role=user."""
     import json
 

@@ -12,15 +12,18 @@ filters — thread and since — because the served contract has neither.
 
 from __future__ import annotations
 
-import argparse
 import datetime as _dt
 import json
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from . import _common
 from ._common import InputError, _parse_duration, _print
+
+if TYPE_CHECKING:
+    import argparse
 
 # A --thread filter that matches nothing must not walk an unbounded history.
 _MAX_PAGES = 50
@@ -41,9 +44,8 @@ def _since_instant(value: str | None) -> _dt.datetime | None:
     try:
         instant = _dt.datetime.fromisoformat(text)
     except ValueError:
-        raise InputError(
-            f"--since takes a duration such as 2h or 3d, or an ISO-8601 time; got {value!r}"
-        ) from None
+        msg = f"--since takes a duration such as 2h or 3d, or an ISO-8601 time; got {value!r}"
+        raise InputError(msg) from None
     if instant.tzinfo is None:
         instant = instant.replace(tzinfo=_dt.timezone.utc)
     return instant
@@ -159,7 +161,7 @@ def cmd_sent(args: argparse.Namespace) -> int:
         # so a bulk review does not cost one `show --raw | age` per row.
         for row in rows:
             bus.unseal_message(row)
-        _print({"sent": rows, "count": len(rows), "incomplete": incomplete}, True)
+        _print({"sent": rows, "count": len(rows), "incomplete": incomplete}, as_json=True)
         return 0
 
     if not rows:

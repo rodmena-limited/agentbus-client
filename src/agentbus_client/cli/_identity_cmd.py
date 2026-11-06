@@ -8,9 +8,12 @@ the cap pointed at a seam that was already there.
 
 from __future__ import annotations
 
-import argparse
+from typing import TYPE_CHECKING
 
 from ._common import _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_identity(args: argparse.Namespace) -> int:
@@ -20,7 +23,7 @@ def cmd_identity(args: argparse.Namespace) -> int:
     the MCP server is remote. It runs this once and passes the values to
     bus_register.
     """
-    from .. import identity
+    from agentbus_client import identity
 
     env = identity.describe(getattr(args, "workdir", None))
     # #41: ANSWER THE QUESTION THE COMMAND IS NAMED AFTER. This used to print
@@ -38,7 +41,7 @@ def cmd_identity(args: argparse.Namespace) -> int:
     env["resolved_agent"] = resolved
     env["identity_sources"] = sources
     if args.json:
-        _print(env, True)
+        _print(env, as_json=True)
         return 0
 
     if resolved:
@@ -82,7 +85,7 @@ def _identity_resolution() -> tuple[str | None, list[str], bool]:
     import json as _json
     import os as _os
 
-    from ..onboarding import _identity as _ident
+    from agentbus_client.onboarding import _identity as _ident
 
     sources: list[str] = []
     names: list[str] = []

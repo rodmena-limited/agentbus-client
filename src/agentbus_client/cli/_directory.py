@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import argparse
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from . import _common
 from ._common import _print, _print_qr
+
+if TYPE_CHECKING:
+    import argparse
 
 _REFUSAL_REASONS = {
     "encrypted_workspace": "this workspace is encrypted, so mail from outside cannot be sealed",
@@ -60,7 +63,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
             raise
         name = bus.agent or "(unknown)"
         if args.json:
-            _print({"agent": {"name": name, "retired": True}, "error": exc.code}, True)
+            _print({"agent": {"name": name, "retired": True}, "error": exc.code}, as_json=True)
             return 0
         print(f"agent:     {name}")
         print("state:     RETIRED — addressable again as soon as it re-registers.")
@@ -69,7 +72,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         print("  bring it back:  agentbus setup <harness> --role <role>   (in this checkout)")
         return 0
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
     else:
         workspace = result["workspace"]["slug"]
         agent = (result.get("agent") or {}).get("name", "(no acting agent)")
@@ -216,7 +219,7 @@ def _format_tags(labels: dict[str, Any] | None, limit: int = 40) -> str:
 def cmd_phonebook(args: argparse.Namespace) -> int:
     agents = _common._bus(args).phonebook(args.query, capability=args.capability, label=args.label)
     if args.json:
-        _print(agents, True)
+        _print(agents, as_json=True)
         return 0
     if not agents:
         print("no agents found")
@@ -296,7 +299,7 @@ def cmd_tag(args: argparse.Namespace) -> int:
         result = bus.whoami(agent=agent)
         labels = (result.get("agent") or {}).get("labels") or {}
         if args.json:
-            _print(labels, True)
+            _print(labels, as_json=True)
             return 0
         if not labels:
             print("no tags. Add one: agentbus tag team:frontend 'skill:playwright=takes shots'")
@@ -306,7 +309,7 @@ def cmd_tag(args: argparse.Namespace) -> int:
         return 0
     result = bus.tag(set_labels, args.remove, agent=agent)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     labels = result.get("labels") or {}
     for key, value in sorted(labels.items()):
@@ -319,7 +322,7 @@ def cmd_busy(args: argparse.Namespace) -> int:
     """Declare (or clear) a busy window. Prints what senders will now see."""
     result = _common._bus(args).busy(args.seconds, reason=args.reason, agent=args.agent)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     if not result.get("busy"):
         print("busy cleared — senders will see you as available")
@@ -338,7 +341,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if args.state is None:
         current = bus.status()
         if args.json:
-            _print(current, True)
+            _print(current, as_json=True)
             return 0
         state = current.get("availability", "online")
         held = current.get("held") or 0
@@ -358,7 +361,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         args.state, seconds=args.seconds, reason=args.reason, hold_below=args.hold_below
     )
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     if args.state == "online":
         released = result.get("released") or 0
@@ -383,7 +386,7 @@ def cmd_liveness(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     agents = bus.phonebook()
     if args.json:
-        _print(agents, True)
+        _print(agents, as_json=True)
         return 0
     width = max((len(a["name"]) for a in agents), default=8)
     # #208: THE COLUMN IS "ECHO", NOT "RTT". This never measured a round trip —

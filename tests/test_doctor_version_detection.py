@@ -16,19 +16,23 @@ finding, applied to its own upgrade path.
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client.onboarding import _doctor
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 @pytest.fixture
-def cfg(tmp_path, monkeypatch):
+def cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(_doctor, "identity_config_dir", lambda: tmp_path)
     return tmp_path
 
 
-def _monitor(cfg, agent, version, name="s1"):
+def _monitor(cfg: Any, agent: str, version: Any, name: str = "s1") -> Any:
     p = cfg / f"monitor-{agent}-{name}.json"
     body = {"agent": agent}
     if version is not None:
@@ -37,27 +41,27 @@ def _monitor(cfg, agent, version, name="s1"):
     return p
 
 
-def test_the_running_version_is_read_from_the_watchers_own_state(cfg):
+def test_the_running_version_is_read_from_the_watchers_own_state(cfg: Any) -> None:
     _monitor(cfg, "a", "0.9.1")
     assert _doctor._running_watcher_version("a") == "0.9.1"
 
 
-def test_no_state_file_means_cannot_tell_not_a_match(cfg):
+def test_no_state_file_means_cannot_tell_not_a_match(cfg: Any) -> None:
     assert _doctor._running_watcher_version("a") is None
 
 
-def test_a_watcher_too_old_to_stamp_its_version_reports_none(cfg):
+def test_a_watcher_too_old_to_stamp_its_version_reports_none(cfg: Any) -> None:
     """A file that exists but carries no version is 'cannot confirm'."""
     _monitor(cfg, "a", None)
     assert _doctor._running_watcher_version("a") is None
 
 
-def test_unreadable_state_is_none_rather_than_an_exception(cfg):
+def test_unreadable_state_is_none_rather_than_an_exception(cfg: Any) -> None:
     (cfg / "monitor-a-s1.json").write_text("{not json")
     assert _doctor._running_watcher_version("a") is None
 
 
-def test_the_NEWEST_state_file_wins(cfg):
+def test_the_NEWEST_state_file_wins(cfg: Any) -> None:
     """A session leaves its state file behind. Reading a stale one would report
     the version of a watcher that exited days ago as if it were running."""
     old = _monitor(cfg, "a", "0.1.0", name="old")
@@ -69,13 +73,14 @@ def test_the_NEWEST_state_file_wins(cfg):
     assert _doctor._running_watcher_version("a") == "9.9.9"
 
 
-def test_another_agents_watcher_is_not_read(cfg):
+def test_another_agents_watcher_is_not_read(cfg: Any) -> None:
     """Known-negative: the glob must be scoped, or every agent on a shared host
     reports whichever watcher happened to be newest."""
     _monitor(cfg, "someone-else", "0.9.1")
     assert _doctor._running_watcher_version("a") is None
 
 
-def test_the_installed_version_is_reported(cfg):
+def test_the_installed_version_is_reported(cfg: Any) -> None:
     v = _doctor._installed_version()
-    assert v and v[0].isdigit()
+    assert v
+    assert v[0].isdigit()

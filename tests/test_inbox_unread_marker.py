@@ -23,12 +23,16 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from agentbus_client import cli
 from agentbus_client.client import Delivery
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _delivery(seq: int, *, read: bool, state: str = "delivered") -> Delivery:
@@ -44,11 +48,13 @@ def _delivery(seq: int, *, read: bool, state: str = "delivered") -> Delivery:
     )
 
 
-def _render(monkeypatch, capsys, deliveries):
+def _render(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], deliveries: Any
+) -> Any:
     import argparse
 
     class _Bus:
-        def inbox(self, *_a, **_k):
+        def inbox(self, *_a: Any, **_k: Any) -> Any:
             return deliveries
 
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _Bus())
@@ -59,12 +65,16 @@ def _render(monkeypatch, capsys, deliveries):
     return capsys.readouterr().out
 
 
-def test_an_unread_delivery_is_starred(monkeypatch, capsys):
+def test_an_unread_delivery_is_starred(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     out = _render(monkeypatch, capsys, [_delivery(1, read=False)])
     assert "* #1" in out, "an unread message is not marked, so nothing signals a waiting peer"
 
 
-def test_a_read_delivery_is_not_starred(monkeypatch, capsys):
+def test_a_read_delivery_is_not_starred(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """THE FIX. Previously the star came from transport state, which acking and
     reading both leave untouched, so it never cleared."""
     out = _render(monkeypatch, capsys, [_delivery(2, read=True)])
@@ -72,14 +82,18 @@ def test_a_read_delivery_is_not_starred(monkeypatch, capsys):
     assert "#2" in out, "the message vanished entirely — it should render, just unstarred"
 
 
-def test_transport_state_no_longer_decides_the_marker(monkeypatch, capsys):
+def test_transport_state_no_longer_decides_the_marker(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A read message in the 'delivered' transport state — the exact combination
     that produced the phantom-bug report — must NOT be starred."""
     out = _render(monkeypatch, capsys, [_delivery(3, read=True, state="delivered")])
     assert "* #3" not in out
 
 
-def test_an_unread_message_in_any_state_is_still_starred(monkeypatch, capsys):
+def test_an_unread_message_in_any_state_is_still_starred(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Guards the over-correction: keying on read_at must not lose the star for
     states the old code did not list."""
     out = _render(monkeypatch, capsys, [_delivery(4, read=False, state="read")])

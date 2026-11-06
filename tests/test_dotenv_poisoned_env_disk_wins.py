@@ -36,7 +36,9 @@ def _write_bound_key(home: Path, agent: str, secret: str) -> None:
     )
 
 
-def test_named_agent_prefers_disk_bound_key_over_stomped_env(tmp_path, monkeypatch):
+def test_named_agent_prefers_disk_bound_key_over_stomped_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The exact backend #243 shape: poisoned env, correct bound key on
     disk, agent=NAMED. The client MUST use the disk key."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -48,7 +50,9 @@ def test_named_agent_prefers_disk_bound_key_over_stomped_env(tmp_path, monkeypat
     assert bus.api_key == "ab_sk_CORRECT_BOUND_KEY_ON_DISK"
 
 
-def test_unnamed_agent_still_uses_env_the_operator_cli_path(tmp_path, monkeypatch):
+def test_unnamed_agent_still_uses_env_the_operator_cli_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`agentbus signin`, `agentbus register --name X` etc. construct
     AgentBus() with NO agent= arg. Those must keep the historic
     env-wins-over-disk behaviour so an operator's shell-exported key
@@ -61,7 +65,9 @@ def test_unnamed_agent_still_uses_env_the_operator_cli_path(tmp_path, monkeypatc
     assert bus.api_key == "ab_sk_OPERATOR_ENV_KEY"
 
 
-def test_explicit_api_key_argument_still_wins_over_everything(tmp_path, monkeypatch):
+def test_explicit_api_key_argument_still_wins_over_everything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The `api_key=...` explicit constructor arg is the strongest signal;
     it must beat both disk and env."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -72,7 +78,9 @@ def test_explicit_api_key_argument_still_wins_over_everything(tmp_path, monkeypa
     assert bus.api_key == "ab_sk_EXPLICIT_ARG"
 
 
-def test_named_agent_with_no_disk_key_falls_back_to_env(tmp_path, monkeypatch):
+def test_named_agent_with_no_disk_key_falls_back_to_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """If the caller names an agent BUT there is no bound key on disk for
     that agent, env is still consulted. The tightened rule is 'prefer disk
     if it's there', not 'refuse env when named' — the operator-CLI path
@@ -91,7 +99,9 @@ def test_named_agent_with_no_disk_key_falls_back_to_env(tmp_path, monkeypatch):
     assert bus.api_key == "ab_sk_ENV_FALLBACK"
 
 
-def test_named_agent_with_no_disk_and_no_env_still_raises_auth_error(tmp_path, monkeypatch):
+def test_named_agent_with_no_disk_and_no_env_still_raises_auth_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The existing "no key for this agent" AuthError must still fire when
     neither disk nor env yields a credential."""
     from agentbus_client.client import AuthError
@@ -105,7 +115,9 @@ def test_named_agent_with_no_disk_and_no_env_still_raises_auth_error(tmp_path, m
     assert "no API key for agent 'agent-nowhere'" in str(exc.value)
 
 
-def test_disk_wins_even_when_agentbus_agent_env_also_names_the_same_agent(tmp_path, monkeypatch):
+def test_disk_wins_even_when_agentbus_agent_env_also_names_the_same_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A poisoned $AGENTBUS_API_KEY and a matching $AGENTBUS_AGENT together
     would previously make env win the resolution race. With the fix,
     calling AgentBus(agent=X) explicitly still prefers X's disk key."""

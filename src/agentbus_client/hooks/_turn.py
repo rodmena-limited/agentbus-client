@@ -48,12 +48,12 @@ the bus is unreachable is worse than one that says nothing.
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import _session
 from ._identity import _resolve_agent
@@ -66,6 +66,9 @@ from ._state import (
     clear_notify_failure,
     record_notify_failure,
 )
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def notify(args: argparse.Namespace) -> int:
@@ -163,7 +166,7 @@ def pending(_: argparse.Namespace) -> int:
     count = 0
     server_ok = False
     try:
-        from ..client import AgentBus
+        from agentbus_client.client import AgentBus
 
         bus = AgentBus(agent=agent)
         # `whoami` is the authoritative count; the unread listing is the
@@ -298,7 +301,7 @@ def session_end(_: argparse.Namespace) -> int:
     try:
         import signal
 
-        from ..onboarding import _monitor_pids
+        from agentbus_client.onboarding import _monitor_pids
 
         for pid in _monitor_pids(agent, session=session):
             with contextlib.suppress(OSError, ValueError, ProcessLookupError):
@@ -319,7 +322,7 @@ def session_end(_: argparse.Namespace) -> int:
         # values, reachable from a hostile `.agentbus/agent`; session comes
         # from the harness env var, less obviously attacker-controlled but
         # sanitizing both makes the invariant local to this line.
-        from .. import sealing
+        from agentbus_client import sealing
 
         state = (
             Path(os.environ.get("AGENTBUS_CONFIG_DIR") or (Path.home() / ".config" / "agentbus"))

@@ -15,6 +15,8 @@ should_handle rule is guaranteed correct regardless of the wrapper's plumbing.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agentbus_client import client as client_module
@@ -60,7 +62,7 @@ def test_httpx_transport_level_error_classifies_as_transient() -> None:
     assert _is_transient_sdk_error(httpx.ReadTimeout("slow"))
 
 
-def test_sync_and_async_breakers_share_cb_env_knobs(monkeypatch) -> None:
+def test_sync_and_async_breakers_share_cb_env_knobs(monkeypatch: pytest.MonkeyPatch) -> None:
     """A1: AGENTBUS_SDK_CB_FAILURE_LIMIT / _SUCCESS_LIMIT used to be honored
     only by the async breaker; the sync breaker hardcoded 5/5 and 2/2. One
     helper must feed both, so one operator setting tunes both surfaces."""
@@ -87,7 +89,7 @@ class _StubClient:
         self.script = list(script)
         self.calls = 0
 
-    def request(self, *_a, **_k):
+    def request(self, *_a: Any, **_k: Any) -> Any:
         self.calls += 1
         step = self.script.pop(0)
         if isinstance(step, Exception):
@@ -112,11 +114,11 @@ class _StubResp:
             self._body = None
         self.text = self.content.decode() if isinstance(self.content, bytes) else ""
 
-    def json(self):
+    def json(self) -> Any:
         return self._body
 
 
-def _make_bus(client: _StubClient, monkeypatch) -> AgentBus:
+def _make_bus(client: _StubClient, monkeypatch: pytest.MonkeyPatch) -> AgentBus:
     """Build an AgentBus with the stub as its _client."""
     bus = AgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="test-agent")
     monkeypatch.setattr(bus, "_client", client)
@@ -127,7 +129,9 @@ def _make_bus(client: _StubClient, monkeypatch) -> AgentBus:
     return bus
 
 
-def test_transient_transport_error_retries_and_eventually_succeeds(monkeypatch) -> None:
+def test_transient_transport_error_retries_and_eventually_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """503 -> 503 -> 200. The caller sees success; three attempts on the wire."""
     import httpx
 
@@ -144,7 +148,7 @@ def test_transient_transport_error_retries_and_eventually_succeeds(monkeypatch) 
     assert client.calls == 3
 
 
-def test_gateway_502_retries_and_eventually_succeeds(monkeypatch) -> None:
+def test_gateway_502_retries_and_eventually_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     """502 -> 502 -> 200. A bare AgentBusError 502 (proxy mid-deploy) used to
     be treated as DEFINITIVE and passed through on the first attempt — the
     same transient-classification gap the audit found in rewake.py, one layer
@@ -162,7 +166,7 @@ def test_gateway_502_retries_and_eventually_succeeds(monkeypatch) -> None:
     assert client.calls == 3
 
 
-def test_401_passes_through_immediately(monkeypatch) -> None:
+def test_401_passes_through_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
     """A revoked key returns AuthError on the FIRST attempt. Retrying a 401
     hammers the bus with a credential that will never work."""
     client = _StubClient([(401, {"code": "invalid_api_key", "detail": "no"})])
@@ -172,7 +176,7 @@ def test_401_passes_through_immediately(monkeypatch) -> None:
     assert client.calls == 1, "AuthError MUST NOT be retried"
 
 
-def test_404_passes_through_immediately(monkeypatch) -> None:
+def test_404_passes_through_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _StubClient([(404, {"code": "not_found", "detail": "gone"})])
     bus = _make_bus(client, monkeypatch)
     with pytest.raises(NotFoundError):
@@ -180,7 +184,7 @@ def test_404_passes_through_immediately(monkeypatch) -> None:
     assert client.calls == 1
 
 
-def test_429_passes_through_immediately(monkeypatch) -> None:
+def test_429_passes_through_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
     """Quota exceeded is a definitive answer — retrying hammers the vendor."""
     client = _StubClient([(429, {"code": "quota_exceeded", "retry_after": 60})])
     bus = _make_bus(client, monkeypatch)
@@ -189,7 +193,7 @@ def test_429_passes_through_immediately(monkeypatch) -> None:
     assert client.calls == 1
 
 
-def test_persistent_transport_errors_eventually_raise(monkeypatch) -> None:
+def test_persistent_transport_errors_eventually_raise(monkeypatch: pytest.MonkeyPatch) -> None:
     """After max_retries transient errors, the SDK gives up — but with the
     ORIGINAL TransportError, not a library-specific type."""
     import httpx
@@ -202,7 +206,7 @@ def test_persistent_transport_errors_eventually_raise(monkeypatch) -> None:
     assert client.calls == 4  # 1 initial + 3 retries
 
 
-def test_resilience_opt_out(monkeypatch) -> None:
+def test_resilience_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
     """A caller with its own resilience layer around the SDK can opt out via
     env — the wrapper becomes a passthrough, so retries stop doubling."""
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "0")
@@ -216,7 +220,7 @@ def test_resilience_opt_out(monkeypatch) -> None:
     assert client.calls == 1
 
 
-def test_idempotency_key_is_stable_across_retries(monkeypatch) -> None:
+def test_idempotency_key_is_stable_across_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     """The mint-once-outside-the-loop rule: the vendor's dedup layer must see
     a retry, not two distinct writes."""
     import httpx
@@ -224,7 +228,7 @@ def test_idempotency_key_is_stable_across_retries(monkeypatch) -> None:
     keys_seen: list[str | None] = []
 
     class _CapturingClient(_StubClient):
-        def request(self, *args, **kwargs):
+        def request(self, *args: Any, **kwargs: Any) -> Any:
             keys_seen.append(kwargs.get("headers", {}).get("Idempotency-Key"))
             return super().request(*args, **kwargs)
 

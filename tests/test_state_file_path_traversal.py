@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -38,7 +39,7 @@ from agentbus_client.hooks import claude_code as hc
 
 
 @pytest.fixture
-def isolated_config(monkeypatch, tmp_path):
+def isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
     monkeypatch.setenv("AGENTBUS_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("AGENTBUS_WAKE_DIR", str(tmp_path))
     monkeypatch.delenv("AGENTBUS_REWAKE_STATE", raising=False)
@@ -49,7 +50,7 @@ HOSTILE = "../../../../../../tmp/PWNED_state_traversal"
 
 
 @pytest.mark.parametrize(
-    "name,fn",
+    ("name", "fn"),
     [
         ("_wake_file", hc._wake_file),
         ("_notify_error_file", hc._notify_error_file),
@@ -58,7 +59,9 @@ HOSTILE = "../../../../../../tmp/PWNED_state_traversal"
         ("rewake._ledger_path", rewake._ledger_path),
     ],
 )
-def test_traversal_payload_stays_inside_config_dir(name, fn, isolated_config):
+def test_traversal_payload_stays_inside_config_dir(
+    name: str, fn: Any, isolated_config: Any
+) -> None:
     """The core property: a filename built from an attacker-controlled agent
     name resolves INSIDE the state directory, never outside it. Tested via
     actual path.resolve() rather than substring — a filename containing '..'
@@ -74,7 +77,7 @@ def test_traversal_payload_stays_inside_config_dir(name, fn, isolated_config):
     assert "\\" not in resolved.name
 
 
-def test_legitimate_agent_name_unchanged(isolated_config):
+def test_legitimate_agent_name_unchanged(isolated_config: Any) -> None:
     """The sanitizer MUST NOT change legitimate names. An agent whose state
     file changes name silently loses continuity — wake cursor resets, notify
     errors reappear because a running-clean file was written under a new name.
@@ -87,7 +90,7 @@ def test_legitimate_agent_name_unchanged(isolated_config):
     assert rewake._ledger_path(good).name == f"rewake-seen-{good}.txt"
 
 
-def test_agent_slug_is_the_public_sanitizer():
+def test_agent_slug_is_the_public_sanitizer() -> None:
     """The public sealing.agent_slug is aliased to the internal _agent_slug —
     so a caller who imports either name gets the same function. If a refactor
     ever diverges them, this test catches it before a filename builder ends
@@ -95,7 +98,7 @@ def test_agent_slug_is_the_public_sanitizer():
     assert sealing.agent_slug is sealing._agent_slug
 
 
-def test_write_primitive_actually_lands_inside_config_dir(isolated_config):
+def test_write_primitive_actually_lands_inside_config_dir(isolated_config: Any) -> None:
     """End-to-end: writing to the wake file via a traversal payload must
     create a file inside the config dir, not in /tmp/PWNED.jsonl."""
     # Directly write to what notify() would compute.
@@ -113,7 +116,7 @@ def test_write_primitive_actually_lands_inside_config_dir(isolated_config):
     )
 
 
-def test_session_end_monitor_filename_is_sanitized():
+def test_session_end_monitor_filename_is_sanitized() -> None:
     """The session-end code path unlinks a monitor state file whose name
     interpolates BOTH agent and session — a traversal payload in either
     used to be an arbitrary-path DELETE primitive. Sanitizing both keeps

@@ -223,7 +223,7 @@ def _derived_name(role: str | None) -> str | None:
     if not role:
         return None
     try:
-        from .. import identity
+        from agentbus_client import identity
 
         key = str(identity.describe(None).get("session_key") or "")
         return f"{role}-{key[:6]}" if key else None
@@ -327,7 +327,7 @@ def _agent_key(agent: str) -> str | None:
     makes the traversal resolve to `keys/__operator.env`, which does not
     exist, so the lookup returns None exactly as the siblings do.
     """
-    from .. import sealing
+    from agentbus_client import sealing
 
     path = _keys_dir() / sealing.bound_env_filename(agent)
     if not path.exists():

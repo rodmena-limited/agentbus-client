@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import argparse
+from typing import TYPE_CHECKING
 
-from .. import _signing, sealing
-from ..client import AgentBus, AgentBusError
+from agentbus_client import _signing, sealing
+from agentbus_client.client import AgentBus, AgentBusError
+
 from . import _common
 from ._common import _harden_if_possible, _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _sealing_hostname() -> str:
@@ -55,7 +59,7 @@ def _keys_sign(
     )
     digest = _signing.fingerprint(public)
     if args.json:
-        _print({**published, "fingerprint": digest, "algorithm": "ed25519"}, True)
+        _print({**published, "fingerprint": digest, "algorithm": "ed25519"}, as_json=True)
         return 0
     print(f"signing key published: {digest}")
     # NOT "from this machine": the key belongs to this AGENT. Saying otherwise
@@ -94,7 +98,7 @@ def _keys_list(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str | 
                 f"{agent} has published no sealing key. Run `agentbus signin` on "
                 f"each machine that should be able to read sealed mail."
             ),
-            args.json,
+            as_json=args.json,
         )
         return 0
     # #43: SIGNING KEYS TOO. This listed sealing keys only while `keys --help`
@@ -105,7 +109,7 @@ def _keys_list(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str | 
     signing = _published_signing_keys(bus, agent)
 
     if args.json:
-        _print({**data, "signing_keys": signing, "this_machine": mine}, True)
+        _print({**data, "signing_keys": signing, "this_machine": mine}, as_json=True)
         return 0
     keys = data.get("keys") or []
     print(f"{agent} — {len(keys)} sealing key(s), {len(signing)} signing key(s)")
@@ -185,7 +189,7 @@ def _keys_rotate(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str 
     )
     new_fp = sealing.fingerprint(public)
     if args.json:
-        _print({**published, "published": new_fp, "previous": mine, "revoked": False}, True)
+        _print({**published, "published": new_fp, "previous": mine, "revoked": False}, as_json=True)
         return 0
     print(f"published new key {new_fp}")
     if mine:
@@ -207,7 +211,7 @@ def _superseded_fingerprints() -> set[str]:
     warning, and a warning that crashes is worse than one that is cautious.
     """
     try:
-        from .. import sealing
+        from agentbus_client import sealing
 
         directory = sealing.key_path().parent
         # TAKE THE LAST HYPHENATED SEGMENT, NOT EVERYTHING AFTER "sealing-".
@@ -385,7 +389,7 @@ def _keys_revoke(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str 
                 f"{args.fingerprint} was ALREADY revoked at {result.get('revoked_at')}.\n"
                 f"  Nothing changed. This is success, not a failure to repeat."
             ),
-            args.json,
+            as_json=args.json,
         )
         return 0
     _print(
@@ -398,7 +402,7 @@ def _keys_revoke(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str 
             f"  It stays listed as revoked on `GET /v1/workspace/pubkeys`, so the record\n"
             f"  of when it stopped being offered survives."
         ),
-        args.json,
+        as_json=args.json,
     )
     return 0
 

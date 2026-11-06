@@ -12,19 +12,25 @@ consumes it.
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 from agentbus_client import cli as cli_module
 from agentbus_client.client import AgentBus, AsyncAgentBus
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
+
 # --------------------------------------------------------------- SDK register
 
 
-def test_sdk_register_passes_persona_in_payload():
+def test_sdk_register_passes_persona_in_payload() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     captured: dict = {}
 
-    def fake_request(method, path, json=None, **kw):
+    def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
         return {"agent": {"name": "test-agent"}}
 
@@ -34,7 +40,7 @@ def test_sdk_register_passes_persona_in_payload():
     assert captured.get("persona") == "backend"
 
 
-def test_sdk_register_omits_persona_when_not_provided():
+def test_sdk_register_omits_persona_when_not_provided() -> None:
     """Absence is not the same as empty string. A None persona must NOT
     appear in the payload at all — the server treats a missing field and
     an empty field differently (missing = 'don't change', empty = 'clear
@@ -42,7 +48,7 @@ def test_sdk_register_omits_persona_when_not_provided():
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     captured: dict = {}
 
-    def fake_request(method, path, json=None, **kw):
+    def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
         return {"agent": {"name": "test-agent"}}
 
@@ -56,11 +62,11 @@ def test_sdk_register_omits_persona_when_not_provided():
     assert "persona" not in captured
 
 
-async def test_async_register_passes_persona():
+async def test_async_register_passes_persona() -> None:
     bus = AsyncAgentBus(api_key="ab_sk_test_test", agent="me")
     captured: dict = {}
 
-    async def fake_request(method, path, json=None, **kw):
+    async def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
         return {"agent": {"name": "test-agent"}}
 
@@ -72,7 +78,7 @@ async def test_async_register_passes_persona():
 # --------------------------------------------------------------- CLI register
 
 
-def _register_args(**over):
+def _register_args(**over: Any) -> argparse.Namespace:
     base = {
         "name": None,
         "label": None,
@@ -92,7 +98,7 @@ def _register_args(**over):
     return argparse.Namespace(**base)
 
 
-def test_cli_register_argparse_has_persona_flag():
+def test_cli_register_argparse_has_persona_flag() -> None:
     """The --persona flag is registered on the register subparser.
     Without this, the flag is unreachable from the CLI even though the
     SDK accepts it."""
@@ -101,7 +107,7 @@ def test_cli_register_argparse_has_persona_flag():
     assert 'metavar="LANE"' in src or "metavar='LANE'" in src
 
 
-def test_cli_setup_argparse_has_persona_flag():
+def test_cli_setup_argparse_has_persona_flag() -> None:
     """Same for the setup subparser — the primary onboarding path."""
     src = _cli_source()
     # setup's --persona is in a different block from register's
@@ -111,9 +117,11 @@ def test_cli_setup_argparse_has_persona_flag():
 # --------------------------------------------------------------- whoami display
 
 
-def test_whoami_displays_persona_when_present(monkeypatch, capsys):
+def test_whoami_displays_persona_when_present(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     class _Bus:
-        def whoami(self, agent=None):
+        def whoami(self, agent: Any = None) -> dict[str, Any]:
             return {
                 "workspace": {"slug": "test-ws"},
                 "agent": {"name": "me", "persona": "backend"},
@@ -129,12 +137,14 @@ def test_whoami_displays_persona_when_present(monkeypatch, capsys):
     assert "persona:   backend" in out
 
 
-def test_whoami_silent_when_persona_absent(monkeypatch, capsys):
+def test_whoami_silent_when_persona_absent(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Forward-compatible: old server returns no persona field. The line
     must not appear so the output is byte-identical to pre-persona."""
 
     class _Bus:
-        def whoami(self, agent=None):
+        def whoami(self, agent: Any = None) -> dict[str, Any]:
             return {
                 "workspace": {"slug": "test-ws"},
                 "agent": {"name": "me"},
@@ -153,9 +163,11 @@ def test_whoami_silent_when_persona_absent(monkeypatch, capsys):
 # --------------------------------------------------------------- phonebook display
 
 
-def test_phonebook_shows_persona_column_when_any_agent_has_one(monkeypatch, capsys):
+def test_phonebook_shows_persona_column_when_any_agent_has_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     class _Bus:
-        def phonebook(self, *a, **kw):
+        def phonebook(self, *a: Any, **kw: Any) -> list[Any]:
             return [
                 {
                     "name": "alice",
@@ -194,12 +206,14 @@ def test_phonebook_shows_persona_column_when_any_agent_has_one(monkeypatch, caps
     assert any("-" in line for line in lines)
 
 
-def test_phonebook_no_persona_column_when_nobody_has_one(monkeypatch, capsys):
+def test_phonebook_no_persona_column_when_nobody_has_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Forward-compatible: old server returns no persona for anyone. The
     column must not appear, so the layout is byte-identical to pre-persona."""
 
     class _Bus:
-        def phonebook(self, *a, **kw):
+        def phonebook(self, *a: Any, **kw: Any) -> list[Any]:
             return [
                 {
                     "name": "alice",
@@ -233,18 +247,18 @@ def test_phonebook_no_persona_column_when_nobody_has_one(monkeypatch, capsys):
 # --------------------------------------------------------------- lane in hook payload
 
 
-def test_notify_command_substitutes_lane_placeholder():
+def test_notify_command_substitutes_lane_placeholder() -> None:
     """The {lane} template placeholder must substitute. An empty lane
     (no persona) produces an empty string, not a KeyError."""
     import subprocess
-    import unittest.mock as mock
+    from unittest import mock
 
     from agentbus_client import watch as watch_module
 
     calls: list[str] = []
     handler = watch_module.notify_command('echo "lane={lane}"')
 
-    def fake_run(command, **kwargs):
+    def fake_run(command: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         calls.append(command)
         return subprocess.CompletedProcess(args=command, returncode=0)
 
@@ -258,7 +272,7 @@ def test_notify_command_substitutes_lane_placeholder():
     assert "lane=" in calls[0]  # empty, not KeyError
 
 
-def _inject_body(sock_args):
+def _inject_body(sock_args: Any) -> Any:
     import json as _json
     import socket as _socket
 
@@ -267,16 +281,16 @@ def _inject_body(sock_args):
     captured: list[bytes] = []
 
     class _FakeSock:
-        def settimeout(self, s):
+        def settimeout(self, s: Any) -> None:
             pass
 
-        def connect(self, addr):
+        def connect(self, addr: Any) -> None:
             pass
 
-        def sendall(self, data):
+        def sendall(self, data: Any) -> None:
             captured.append(data)
 
-        def close(self):
+        def close(self) -> None:
             pass
 
     with (
@@ -288,7 +302,7 @@ def _inject_body(sock_args):
     return _json.loads(captured[0])["message"]["content"]
 
 
-def test_inject_uses_my_lane_for_the_reminder():
+def test_inject_uses_my_lane_for_the_reminder() -> None:
     """The handoff reminder must use the RECEIVER's own lane (my_lane),
     NOT the sender's lane — the SEV-2 fix.
 
@@ -312,7 +326,7 @@ def test_inject_uses_my_lane_for_the_reminder():
     assert "Your lane is: frontend" not in body
 
 
-def test_inject_sender_lane_alone_does_not_trigger_reminder():
+def test_inject_sender_lane_alone_does_not_trigger_reminder() -> None:
     """--lane (sender's persona) without --my-lane must NOT trigger the
     receiver's reminder. They are distinct; the sender's lane is not the
     receiver's lane."""
@@ -330,7 +344,7 @@ def test_inject_sender_lane_alone_does_not_trigger_reminder():
     assert "Your lane is" not in body
 
 
-def test_inject_no_lane_no_reminder():
+def test_inject_no_lane_no_reminder() -> None:
     args = argparse.Namespace(
         subject="test",
         sender="peer",
@@ -348,7 +362,7 @@ def test_inject_no_lane_no_reminder():
 # --------------------------------------------------------------- lane collision
 
 
-def test_watch_does_not_overwrite_sender_lane_with_acting_agent_persona(tmp_path):
+def test_watch_does_not_overwrite_sender_lane_with_acting_agent_persona(tmp_path: Path) -> None:
     """cmd_watch must NOT clobber the server's `lane` (the SENDER's persona,
     #267) with the acting agent's own persona.
 
@@ -368,23 +382,25 @@ def test_watch_does_not_overwrite_sender_lane_with_acting_agent_persona(tmp_path
         agent = "me"
         base_url = "http://test"
 
-        def whoami(self, agent=None):
+        def whoami(self, agent: Any = None) -> dict[str, Any]:
             # The acting agent's OWN persona — the value that used to win.
             return {"agent": {"name": "me", "persona": "backend"}}
 
     captured: list[dict] = []
 
     class FakeWatcher:
-        def __init__(self, bus, agent, *args, on_message=None, **kwargs):
+        def __init__(
+            self, bus: Any, agent: str, *args: Any, on_message: Any = None, **kwargs: Any
+        ) -> None:
             self.handler = on_message
 
-        def run(self, once=False):
+        def run(self, once: bool = False) -> int:
             # A message arrives whose sender is a frontend-persona agent.
             self.handler({"delivery_id": "01D", "lane": "frontend"})
             return 0
 
-    def fake_notify_command(cmd):
-        def handler(message):
+    def fake_notify_command(cmd: Any) -> Any:
+        def handler(message: str) -> None:
             captured.append(message)
 
         return handler
@@ -423,7 +439,7 @@ def test_watch_does_not_overwrite_sender_lane_with_acting_agent_persona(tmp_path
     )
 
 
-def test_watch_injects_my_lane_without_clobbering_sender_lane(tmp_path):
+def test_watch_injects_my_lane_without_clobbering_sender_lane(tmp_path: Path) -> None:
     """SEV-2 companion to the regression test: `with_my_lane` adds the
     acting agent's OWN persona as `my_lane`, and MUST NOT touch the
     server's `lane` (the sender's persona). Both facts must be present
@@ -435,21 +451,23 @@ def test_watch_injects_my_lane_without_clobbering_sender_lane(tmp_path):
         agent = "me"
         base_url = "http://test"
 
-        def whoami(self, agent=None):
+        def whoami(self, agent: Any = None) -> dict[str, Any]:
             return {"agent": {"name": "me", "persona": "backend"}}
 
     captured: list[dict] = []
 
     class FakeWatcher:
-        def __init__(self, bus, agent, *a, on_message=None, **kw):
+        def __init__(
+            self, bus: Any, agent: str, *a: Any, on_message: Any = None, **kw: Any
+        ) -> None:
             self.handler = on_message
 
-        def run(self, once=False):
+        def run(self, once: bool = False) -> int:
             self.handler({"delivery_id": "01D", "lane": "frontend"})
             return 0
 
-    def fake_notify_command(cmd):
-        def handler(message):
+    def fake_notify_command(cmd: Any) -> Any:
+        def handler(message: str) -> None:
             captured.append(message)
 
         return handler

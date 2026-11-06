@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agentbus_client import identity as identity_mod
-from agentbus_client import sealing
+from agentbus_client import identity as identity_mod, sealing
 
 MARKERS = (
     "AGENTBUS_EPHEMERAL",

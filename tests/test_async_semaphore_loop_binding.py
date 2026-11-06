@@ -11,6 +11,7 @@ event loop; this test proves reuse across loops now works.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import httpx
 import pytest
@@ -25,7 +26,7 @@ class _StubAsyncClient:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def request(self, *_a, **_k):
+    async def request(self, *_a: Any, **_k: Any) -> Any:
         self.calls += 1
 
         class _Resp:
@@ -33,7 +34,7 @@ class _StubAsyncClient:
             content = b'{"ok": true}'
             text = '{"ok": true}'
 
-            def json(self):
+            def json(self) -> dict[str, Any]:
                 return {"ok": True}
 
         return _Resp()
@@ -43,7 +44,7 @@ class _StubAsyncClient:
 
 
 @pytest.fixture
-def bus(monkeypatch):
+def bus(monkeypatch: pytest.MonkeyPatch) -> Any:
     """A single AsyncAgentBus instance we can reuse across event loops."""
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="test-agent")
     monkeypatch.setattr(b, "_client", _StubAsyncClient())
@@ -55,7 +56,7 @@ def bus(monkeypatch):
     return b
 
 
-def test_the_same_instance_survives_two_event_loops(bus) -> None:
+def test_the_same_instance_survives_two_event_loops(bus: Any) -> None:
     """The old code (asyncio.Semaphore stored on the instance) raised
     RuntimeError on the SECOND asyncio.run because the semaphore was bound to
     the first loop, which was closed. The fix per-loop-keyed lookup means the
@@ -75,14 +76,14 @@ def test_the_same_instance_survives_two_event_loops(bus) -> None:
     assert hasattr(bus, "_async_bulkheads_by_loop")
 
 
-def test_concurrent_requests_share_a_semaphore_within_one_loop(bus) -> None:
+def test_concurrent_requests_share_a_semaphore_within_one_loop(bus: Any) -> None:
     """Under ONE loop, concurrent requests must serialize through the same
     semaphore — otherwise the bulkhead cap does nothing. Assert both requests
     complete AND the bulkhead dict has exactly one entry per loop for this
     invocation (proving they used the same semaphore rather than each spawning
     one)."""
 
-    async def two_concurrent():
+    async def two_concurrent() -> Any:
         a, b = await asyncio.gather(
             bus._request("GET", "/v1/whoami"),
             bus._request("GET", "/v1/whoami"),
@@ -96,32 +97,33 @@ def test_concurrent_requests_share_a_semaphore_within_one_loop(bus) -> None:
     assert sem_count == 1
 
 
-def test_transient_errors_still_retry_across_loops(monkeypatch) -> None:
+def test_transient_errors_still_retry_across_loops(monkeypatch: pytest.MonkeyPatch) -> None:
     """The retry loop itself must survive the loop rebind — a caller who
     ran asyncio.run(bus.send()) and hit a 503 must still see the same retry
     behaviour on the next asyncio.run."""
 
     class _FlakyClient:
-        def __init__(self):
+        def __init__(self) -> None:
             self.calls = 0
 
-        async def request(self, *_a, **_k):
+        async def request(self, *_a: Any, **_k: Any) -> Any:
             self.calls += 1
             # First call fails, second succeeds. On each fresh asyncio.run.
             if self.calls % 2 == 1:
-                raise httpx.ConnectError("network")
+                msg = "network"
+                raise httpx.ConnectError(msg)
 
             class _R:
                 status_code = 200
                 content = b'{"ok": true}'
                 text = '{"ok": true}'
 
-                def json(self):
+                def json(self) -> dict[str, Any]:
                     return {"ok": True}
 
             return _R()
 
-        async def aclose(self):  # pragma: no cover
+        async def aclose(self) -> None:  # pragma: no cover
             pass
 
     monkeypatch.setattr(client_module.resilience, "_SDK_BULKHEAD", None)

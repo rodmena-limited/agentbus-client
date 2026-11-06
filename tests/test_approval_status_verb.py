@@ -46,12 +46,14 @@ LIVE_REJECTED_OUTCOME = {
 }
 
 
-def test_approved_is_the_only_zero():
+def test_approved_is_the_only_zero() -> None:
     assert _report_approval({"id": "a", "status": "approved"}) == 0
 
 
 @pytest.mark.parametrize("status", ["rejected", "cancelled", "timed_out", "changes_requested"])
-def test_every_other_terminal_status_is_a_denial(status, capsys):
+def test_every_other_terminal_status_is_a_denial(
+    status: int, capsys: pytest.CaptureFixture[str]
+) -> None:
     """All four non-approved terminal states exit 1, not 0 and not 7.
 
     `cancelled` is here deliberately: the backend delivered NOTHING to the
@@ -62,7 +64,7 @@ def test_every_other_terminal_status_is_a_denial(status, capsys):
     assert "DO NOT PROCEED" in capsys.readouterr().out
 
 
-def test_waited_out_is_not_a_denial_and_not_an_approval(capsys):
+def test_waited_out_is_not_a_denial_and_not_an_approval(capsys: pytest.CaptureFixture[str]) -> None:
     """The distinction the old `0 if approved else 1` could not express."""
     code = _report_approval({"id": "a", "status": "pending", "waited_out": True})
     assert code == 7, "a wait that elapsed is not a decision"
@@ -70,7 +72,7 @@ def test_waited_out_is_not_a_denial_and_not_an_approval(capsys):
     assert "NOT a decision" in out
 
 
-def test_timed_out_and_waited_out_do_not_collapse():
+def test_timed_out_and_waited_out_do_not_collapse() -> None:
     """The single most dangerous confusion in this command.
 
     `timed_out` = the human's window closed -> a denial (1).
@@ -78,17 +80,18 @@ def test_timed_out_and_waited_out_do_not_collapse():
     """
     denial = _report_approval({"id": "a", "status": "timed_out"})
     no_answer = _report_approval({"id": "a", "status": "pending", "waited_out": True})
-    assert denial == 1 and no_answer == 7
+    assert denial == 1
+    assert no_answer == 7
     assert denial != no_answer
 
 
-def test_pending_without_waiting_is_not_success(capsys):
+def test_pending_without_waiting_is_not_success(capsys: pytest.CaptureFixture[str]) -> None:
     """Checking without --wait must not read as a go."""
     assert _report_approval({"id": "abc", "status": "pending"}) == 7
     assert "agentbus approval abc --wait" in capsys.readouterr().out
 
 
-def test_unknown_status_is_never_silently_approved():
+def test_unknown_status_is_never_silently_approved() -> None:
     """A status we have never heard of is not a go and not a denial."""
     assert _report_approval({"id": "a", "status": "some_new_state"}) == 7
 
@@ -96,7 +99,9 @@ def test_unknown_status_is_never_silently_approved():
 # --------------------------------------------------------------- the printer
 
 
-def test_reviewer_reasoning_prints_from_the_real_payload(capsys):
+def test_reviewer_reasoning_prints_from_the_real_payload(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """THE KNOWN-POSITIVE. If this cannot go green, the absence checks below
     are worthless — a printer that renders nothing passes every 'no output'
     assertion with full confidence. Both earlier drafts failed exactly here."""
@@ -108,13 +113,15 @@ def test_reviewer_reasoning_prints_from_the_real_payload(capsys):
     assert "farshid@rodmena.co.uk" in out
 
 
-def test_flat_keys_are_not_where_the_reasoning_lives(capsys):
+def test_flat_keys_are_not_where_the_reasoning_lives(capsys: pytest.CaptureFixture[str]) -> None:
     """NEGATIVE CONTROL for draft 1, which guessed flat `reason`/`feedback`."""
     _print_reviewer_reasoning({"reason": "x", "feedback": "y"})
     assert "no reviewer reasoning recorded" in capsys.readouterr().out
 
 
-def test_top_level_reasons_are_not_where_the_reasoning_lives(capsys):
+def test_top_level_reasons_are_not_where_the_reasoning_lives(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """NEGATIVE CONTROL for draft 2, which looked one level too shallow."""
     _print_reviewer_reasoning({"reasons": [{"text": "not here"}]})
     out = capsys.readouterr().out
@@ -122,13 +129,15 @@ def test_top_level_reasons_are_not_where_the_reasoning_lives(capsys):
     assert "no reviewer reasoning recorded" in out
 
 
-def test_absent_reasoning_says_so_rather_than_printing_nothing(capsys):
+def test_absent_reasoning_says_so_rather_than_printing_nothing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Silence is indistinguishable from the bug this printer has had twice."""
     _print_reviewer_reasoning({"status": "timed_out"})
     assert "no reviewer reasoning recorded" in capsys.readouterr().out
 
 
-def test_printer_tolerates_junk_without_raising(capsys):
+def test_printer_tolerates_junk_without_raising(capsys: pytest.CaptureFixture[str]) -> None:
     for junk in (
         None,
         "a string",
@@ -141,7 +150,7 @@ def test_printer_tolerates_junk_without_raising(capsys):
     assert capsys.readouterr().out  # said "none recorded" rather than crashing
 
 
-def test_duplicate_feedback_and_reason_print_once(capsys):
+def test_duplicate_feedback_and_reason_print_once(capsys: pytest.CaptureFixture[str]) -> None:
     """The live payload repeats the same string in both fields; printing it
     twice reads as two separate objections."""
     _print_reviewer_reasoning(LIVE_REJECTED_OUTCOME)
@@ -152,16 +161,17 @@ def test_duplicate_feedback_and_reason_print_once(capsys):
 # --------------------------------------------------------------- wiring
 
 
-def test_the_verb_is_registered_and_takes_an_id():
+def test_the_verb_is_registered_and_takes_an_id() -> None:
     """The whole point: reach an approval THIS process did not create."""
     from agentbus_client.cli._parser import build_parser, verbs
 
     assert "approval" in verbs()
     args = build_parser().parse_args(["approval", "01M0X", "--wait", "30"])
-    assert args.approval_id == "01M0X" and args.wait == 30
+    assert args.approval_id == "01M0X"
+    assert args.wait == 30
 
 
-def test_wait_is_optional():
+def test_wait_is_optional() -> None:
     from agentbus_client.cli._parser import build_parser
 
     assert build_parser().parse_args(["approval", "01M0X"]).wait == 0

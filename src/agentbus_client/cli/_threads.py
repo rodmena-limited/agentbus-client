@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import argparse
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError, NotFoundError
+from agentbus_client.client import AgentBusError, NotFoundError
+
 from . import _common, _sigline
 from ._common import _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _render_thread(result: dict[str, Any], highlight_message_id: str | None = None) -> None:
@@ -89,10 +92,13 @@ def cmd_thread(args: argparse.Namespace) -> int:
         try:
             delivery = bus.read(args.thread_id)
         except AgentBusError:
-            raise NotFoundError(
+            msg = (
                 f"{args.thread_id} is neither a thread you are in nor a delivery of "
                 "yours. `thread` takes a THREAD id; `show` takes a DELIVERY id (from "
-                "your inbox). They look alike and are not the same.",
+                "your inbox). They look alike and are not the same."
+            )
+            raise NotFoundError(
+                msg,
                 code=exc.code,
                 status=exc.status,
                 body=exc.body,
@@ -106,7 +112,7 @@ def cmd_thread(args: argparse.Namespace) -> int:
         )
         result = bus.thread(thread_id)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     _render_thread(result)
     return 0
@@ -121,7 +127,7 @@ def cmd_history(args: argparse.Namespace) -> int:
     bus = _common._bus(args)
     result = bus.room_history(args.room, limit=args.limit, since=args.since)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     messages = result.get("messages") or []
     if not messages:
@@ -153,7 +159,7 @@ def cmd_schema(args: argparse.Namespace) -> int:
     if args.set is None and not args.clear:
         result = bus.room_schema(args.room)
         if args.json:
-            _print(result, True)
+            _print(result, as_json=True)
             return 0
         schema = result.get("schema")
         if schema is None:
@@ -180,7 +186,7 @@ def cmd_schema(args: argparse.Namespace) -> int:
             f"room:{args.room} schema {'cleared' if schema is None else 'declared'} "
             f"(version {result.get('version', '?')}) — it applies to messages sent AFTER now"
         ),
-        args.json,
+        as_json=args.json,
     )
     return 0
 
@@ -188,7 +194,7 @@ def cmd_schema(args: argparse.Namespace) -> int:
 def cmd_usage(args: argparse.Namespace) -> int:
     usage = _common._bus(args).usage()
     if args.json:
-        _print(usage, True)
+        _print(usage, as_json=True)
         return 0
     for policy in usage["policies"]:
         used = policy["used"] if policy["used"] is not None else "-"
@@ -247,7 +253,7 @@ def cmd_reminders(args: argparse.Namespace) -> int:
         raise
 
     if args.json:
-        _print({kind: rows, "count": len(rows)}, True)
+        _print({kind: rows, "count": len(rows)}, as_json=True)
         return 0
 
     if not rows:

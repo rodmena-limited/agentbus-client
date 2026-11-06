@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -31,20 +32,20 @@ META = {"filename": "shot.png", "size": len(PAYLOAD)}
 
 
 class _Bus:
-    def __init__(self, attachments=None, data=PAYLOAD):
+    def __init__(self, attachments: Any = None, data: Any = PAYLOAD) -> None:
         self._attachments = [META] if attachments is None else attachments
         self._data = data
         self.asked = []
 
-    def read(self, _delivery_id):
+    def read(self, _delivery_id: Any) -> dict[str, Any]:
         return {"attachments": self._attachments}
 
-    def attachment(self, delivery_id, index):
+    def attachment(self, delivery_id: str, index: Any) -> Any:
         self.asked.append((delivery_id, index))
         return self._data
 
 
-def _args(**over):
+def _args(**over: Any) -> argparse.Namespace:
     import argparse
 
     base = {
@@ -61,14 +62,16 @@ def _args(**over):
 
 
 @pytest.fixture
-def bus(monkeypatch):
+def bus(monkeypatch: pytest.MonkeyPatch) -> Any:
     b = _Bus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: b)
     return b
 
 
 @pytest.mark.usefixtures("bus")  # patches cli._bus; value unused
-def test_writes_the_bytes_under_the_senders_filename(tmp_path, monkeypatch, capsys):
+def test_writes_the_bytes_under_the_senders_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     assert cli.cmd_attachment(_args()) == 0
 
@@ -80,7 +83,9 @@ def test_writes_the_bytes_under_the_senders_filename(tmp_path, monkeypatch, caps
 
 
 @pytest.mark.usefixtures("bus")
-def test_reported_size_comes_from_disk_not_from_the_metadata(tmp_path, monkeypatch, capsys):
+def test_reported_size_comes_from_disk_not_from_the_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """If it echoed the server's claimed size, a truncated write would look fine."""
     monkeypatch.chdir(tmp_path)
     cli.cmd_attachment(_args())
@@ -89,7 +94,9 @@ def test_reported_size_comes_from_disk_not_from_the_metadata(tmp_path, monkeypat
 
 
 @pytest.mark.usefixtures("bus")
-def test_refuses_to_overwrite_an_existing_file(tmp_path, monkeypatch, capsys):
+def test_refuses_to_overwrite_an_existing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The filename is chosen by the SENDER, so silently replacing a local file
     with a peer's payload is not the recipient's decision to skip."""
     monkeypatch.chdir(tmp_path)
@@ -101,7 +108,7 @@ def test_refuses_to_overwrite_an_existing_file(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.usefixtures("bus")
-def test_force_overwrites(tmp_path, monkeypatch):
+def test_force_overwrites(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE for the refusal: it must be a guard, not an inability."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "shot.png").write_bytes(b"mine")
@@ -111,7 +118,7 @@ def test_force_overwrites(tmp_path, monkeypatch):
 
 
 @pytest.mark.usefixtures("bus")
-def test_explicit_output_path_is_honoured(tmp_path, monkeypatch):
+def test_explicit_output_path_is_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     target = tmp_path / "sub" / "other.bin"
     target.parent.mkdir()
@@ -120,7 +127,9 @@ def test_explicit_output_path_is_honoured(tmp_path, monkeypatch):
     assert target.read_bytes() == PAYLOAD
 
 
-def test_no_attachments_is_an_error_not_an_empty_file(monkeypatch, tmp_path, capsys):
+def test_no_attachments_is_an_error_not_an_empty_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _Bus(attachments=[]))
 
@@ -129,7 +138,9 @@ def test_no_attachments_is_an_error_not_an_empty_file(monkeypatch, tmp_path, cap
     assert not list(tmp_path.iterdir()), "wrote a file for a delivery with no attachment"
 
 
-def test_out_of_range_index_lists_what_is_actually_there(monkeypatch, tmp_path, capsys):
+def test_out_of_range_index_lists_what_is_actually_there(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """An index error that does not say what the valid indexes are makes the
     caller guess."""
     monkeypatch.chdir(tmp_path)
@@ -141,7 +152,7 @@ def test_out_of_range_index_lists_what_is_actually_there(monkeypatch, tmp_path, 
     assert "shot.png" in err
 
 
-def test_the_verb_is_registered_in_the_parser():
+def test_the_verb_is_registered_in_the_parser() -> None:
     """A command nobody can invoke is not a command."""
     parser = cli.build_parser() if hasattr(cli, "build_parser") else None
     if parser is None:
@@ -151,7 +162,7 @@ def test_the_verb_is_registered_in_the_parser():
 # ------------------------------------------------------ filename traversal guard
 
 
-def test_hostile_filename_is_sanitized_to_basename():
+def test_hostile_filename_is_sanitized_to_basename() -> None:
     """A sender-controlled filename must never write outside the working
     directory. `../outside/PWNED.txt` becomes `PWNED.txt`, not a path that
     escapes CWD (audit finding, confirmed live)."""
@@ -163,7 +174,9 @@ def test_hostile_filename_is_sanitized_to_basename():
     assert cli._safe_attachment_name("", 2) == "attachment-2"
 
 
-def test_attachment_write_does_not_escape_cwd(tmp_path, monkeypatch):
+def test_attachment_write_does_not_escape_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """End-to-end: a hostile filename must write INSIDE the cwd, never
     outside it (verified: before the fix it wrote to a sibling directory)."""
     from agentbus_client import cli as _cli
@@ -173,10 +186,10 @@ def test_attachment_write_does_not_escape_cwd(tmp_path, monkeypatch):
     sentinel = escape_target / "PWNED.txt"
 
     class _HostileBus:
-        def read(self, delivery_id):
+        def read(self, delivery_id: str) -> dict[str, Any]:
             return {"attachments": [{"filename": "../OUTSIDE/PWNED.txt", "size": 5}]}
 
-        def attachment(self, delivery_id, index):
+        def attachment(self, delivery_id: str, index: Any) -> bytes:
             return b"PWNED"
 
     monkeypatch.chdir(tmp_path)
@@ -189,7 +202,7 @@ def test_attachment_write_does_not_escape_cwd(tmp_path, monkeypatch):
     assert written.read_bytes() == b"PWNED"
 
 
-def _args(**over):
+def _args(**over: Any) -> _a.Namespace:
     import argparse as _a
 
     base = {

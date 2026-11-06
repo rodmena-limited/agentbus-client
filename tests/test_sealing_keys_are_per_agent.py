@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -34,7 +35,7 @@ from agentbus_client import sealing
 from agentbus_client.sealing import CannotDecrypt
 
 
-@pytest.fixture()
+@pytest.fixture
 def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(sealing, "config_dir", lambda: tmp_path)
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
@@ -43,7 +44,7 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.mark.usefixtures("store")
-def test_two_agents_on_one_machine_get_different_keys():
+def test_two_agents_on_one_machine_get_different_keys() -> None:
     """THE REGRESSION. Before, both calls returned the same keypair."""
     _priv_a, pub_a = sealing.ensure_keypair("agent-a")
     _priv_b, pub_b = sealing.ensure_keypair("agent-b")
@@ -54,7 +55,7 @@ def test_two_agents_on_one_machine_get_different_keys():
 
 
 @pytest.mark.usefixtures("store")
-def test_one_agents_key_does_not_open_anothers_mail():
+def test_one_agents_key_does_not_open_anothers_mail() -> None:
     """The property the whole change exists for, asserted on real ciphertext
     rather than on filenames."""
     _priv_a, pub_a = sealing.ensure_keypair("agent-a")
@@ -68,7 +69,7 @@ def test_one_agents_key_does_not_open_anothers_mail():
 
 
 @pytest.mark.usefixtures("store")
-def test_an_agent_loads_only_its_own_keys():
+def test_an_agent_loads_only_its_own_keys() -> None:
     """THE SECOND HALF OF THE HOLE. `load_private_keys` used to glob the whole
     directory, so per-agent files alone would have fixed nothing."""
     priv_a, _pub_a = sealing.ensure_keypair("agent-a")
@@ -77,11 +78,13 @@ def test_an_agent_loads_only_its_own_keys():
     a_keys = sealing.load_private_keys("agent-a")
     b_keys = sealing.load_private_keys("agent-b")
 
-    assert priv_a in a_keys and priv_b not in a_keys
-    assert priv_b in b_keys and priv_a not in b_keys
+    assert priv_a in a_keys
+    assert priv_b not in a_keys
+    assert priv_b in b_keys
+    assert priv_a not in b_keys
 
 
-def test_a_retired_key_is_not_shared_across_agents(store):
+def test_a_retired_key_is_not_shared_across_agents(store: Path) -> None:
     """A rotation must not become a cross-agent disclosure: agent-b must not
     inherit agent-a's superseded key just by living in the same directory."""
     priv_a, _ = sealing.ensure_keypair("agent-a")
@@ -94,7 +97,7 @@ def test_a_retired_key_is_not_shared_across_agents(store):
 
 
 @pytest.mark.usefixtures("store")
-def test_a_key_with_no_owner_is_refused():
+def test_a_key_with_no_owner_is_refused() -> None:
     """A sealing key with no agent IS the shared key this design removed, so it
     must be impossible to ask for one rather than silently defaulting."""
     with pytest.raises(ValueError) as exc:
@@ -103,7 +106,7 @@ def test_a_key_with_no_owner_is_refused():
 
 
 @pytest.mark.usefixtures("store")
-def test_unbound_agent_loaders_return_none_not_value_error():
+def test_unbound_agent_loaders_return_none_not_value_error() -> None:
     """THE AUDIT FIX. key_path() still REFUSES a no-owner key (above), but the
     READ-side loaders must treat 'no acting agent' as 'this machine
     holds no key for it' — returning None/[] exactly like load_signing_key —
@@ -113,7 +116,7 @@ def test_unbound_agent_loaders_return_none_not_value_error():
     assert sealing.load_signing_key() is None
 
 
-def test_apply_seal_uses_the_explicit_agent(monkeypatch):
+def test_apply_seal_uses_the_explicit_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE AUDIT FIX (second half): _apply_seal must resolve the sealing key
     for the agent passed to send(..., agent=...), not the client's own bound
     agent. Before, an explicit agent= was ignored and the send resealed to the
@@ -124,7 +127,7 @@ def test_apply_seal_uses_the_explicit_agent(monkeypatch):
 
     seen: dict[str, str | None] = {}
 
-    def _fake_ensure(agent=None):
+    def _fake_ensure(agent: Any = None) -> Any:
         seen["agent"] = agent
         return real_priv, real_pub
 
@@ -142,7 +145,7 @@ def test_apply_seal_uses_the_explicit_agent(monkeypatch):
     assert out["sealed"] is True
 
 
-def test_apply_seal_requires_acting_agent_when_unbound(monkeypatch) -> None:
+def test_apply_seal_requires_acting_agent_when_unbound(monkeypatch: pytest.MonkeyPatch) -> None:
     """B1: an unbound client (no agent=, no AGENTBUS_AGENT) sealing to an
     ENCRYPTED workspace must raise a TYPED AgentBusError, not a raw ValueError
     from ensure_keypair — so an SDK caller catching AgentBusError can handle it."""
@@ -162,7 +165,7 @@ def test_apply_seal_requires_acting_agent_when_unbound(monkeypatch) -> None:
     assert "no acting agent" in str(exc.value)
 
 
-def test_seal_to_self_requires_acting_agent_when_unbound(monkeypatch) -> None:
+def test_seal_to_self_requires_acting_agent_when_unbound(monkeypatch: pytest.MonkeyPatch) -> None:
     """B2: same unbound-client guard on the draft path — _seal_to_self seals
     to the acting agent's OWN key, so with no acting agent it is a typed error,
     not a raw ValueError."""
@@ -176,17 +179,20 @@ def test_seal_to_self_requires_acting_agent_when_unbound(monkeypatch) -> None:
     assert "no acting agent" in str(exc.value)
 
 
-def test_the_agent_name_is_sanitised_into_the_filename(store):
+def test_the_agent_name_is_sanitised_into_the_filename(store: Path) -> None:
     """An agent name reaches a path. Anything that could traverse or collide
     must be neutralised, or a crafted name reads another agent's key."""
     p = sealing.key_path("../../etc/evil")
     # The invariant that matters: the file cannot leave the keys directory.
     assert p.resolve().parent == (store / "keys").resolve()
-    assert "/" not in p.name and ".." not in p.name
+    assert "/" not in p.name
+    assert ".." not in p.name
 
 
 @pytest.mark.usefixtures("store")
-def test_the_environment_supplies_the_agent_when_the_caller_does_not(monkeypatch):
+def test_the_environment_supplies_the_agent_when_the_caller_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Every CLI path should not have to thread it, but the fallback must be an
     explicit agent identity — never 'whatever key is lying around'."""
     monkeypatch.setenv("AGENTBUS_AGENT", "agent-env")

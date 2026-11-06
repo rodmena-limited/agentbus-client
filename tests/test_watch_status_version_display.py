@@ -24,8 +24,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli as cli_module
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _write_state(cfg_dir: Path, name: str, version: str) -> Path:
@@ -46,7 +50,7 @@ def _write_state(cfg_dir: Path, name: str, version: str) -> Path:
     return path
 
 
-def test_reads_plugin_monitor_state_file(tmp_path, monkeypatch):
+def test_reads_plugin_monitor_state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """THE BUG macbook found in 0.9.26. The plugin monitor names its
     state file `monitor-<agent>-<session-uuid>.json`. That is the
     PRODUCTION configuration; the previous glob missed it entirely."""
@@ -65,7 +69,7 @@ def test_reads_plugin_monitor_state_file(tmp_path, monkeypatch):
     )
 
 
-def test_reads_default_watch_state_file(tmp_path, monkeypatch):
+def test_reads_default_watch_state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The other naming scheme — used when no --state is passed."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     cfg = tmp_path / ".config" / "agentbus"
@@ -75,7 +79,9 @@ def test_reads_default_watch_state_file(tmp_path, monkeypatch):
     assert got == "0.9.24"
 
 
-def test_prefers_exact_state_key_when_caller_provides_it(tmp_path, monkeypatch):
+def test_prefers_exact_state_key_when_caller_provides_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """macbook's better suggestion: the caller already knows the state
     path, so use it. Exact beats a naming convention that can drift when
     someone invents a third prefix."""
@@ -89,7 +95,9 @@ def test_prefers_exact_state_key_when_caller_provides_it(tmp_path, monkeypatch):
     assert got == "0.9.26-CORRECT", "state_key was ignored; the glob fallback answered instead"
 
 
-def test_newest_by_mtime_wins_across_both_schemes(tmp_path, monkeypatch):
+def test_newest_by_mtime_wins_across_both_schemes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Two watchers, two schemes — the most recently written state file
     is the live one."""
     import os
@@ -108,7 +116,7 @@ def test_newest_by_mtime_wins_across_both_schemes(tmp_path, monkeypatch):
     assert got == "0.9.26-NEW"
 
 
-def test_returns_none_when_no_state_file(tmp_path, monkeypatch):
+def test_returns_none_when_no_state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """None is NOT a pass — the caller must render 'cannot confirm'
     rather than assume a match."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -116,7 +124,9 @@ def test_returns_none_when_no_state_file(tmp_path, monkeypatch):
     assert cli_module._read_running_client_version("test-agent", None) is None
 
 
-def test_corrupt_state_file_falls_through_gracefully(tmp_path, monkeypatch):
+def test_corrupt_state_file_falls_through_gracefully(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A half-written state file must not crash watch-status."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     cfg = tmp_path / ".config" / "agentbus"
@@ -128,7 +138,7 @@ def test_corrupt_state_file_falls_through_gracefully(tmp_path, monkeypatch):
     assert got is None
 
 
-def test_shares_doctors_implementation_not_a_copy():
+def test_shares_doctors_implementation_not_a_copy() -> None:
     """macbook's meta point, pinned as a test: the two commands that
     answer 'what version is the running watcher' must call ONE helper.
     Two copies is what produced two successive misses.
@@ -147,7 +157,9 @@ def test_shares_doctors_implementation_not_a_copy():
 # ------------------------------------------------------------- PID verification
 
 
-def test_stale_stamp_from_a_different_process_is_not_trusted(tmp_path, monkeypatch):
+def test_stale_stamp_from_a_different_process_is_not_trusted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """agentbus-ui-c760a1's edge case (thread 01M08ZWE0XCTPJG1R0ZBXP8K7P):
     `client_version` alone is "last writer's version", not "this watcher's
     version". A short-lived `agentbus watch --once` on a NEW cli stamps the
@@ -174,7 +186,7 @@ def test_stale_stamp_from_a_different_process_is_not_trusted(tmp_path, monkeypat
     )
 
 
-def test_matching_pid_is_trusted(tmp_path, monkeypatch):
+def test_matching_pid_is_trusted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE for the guard above. Without this, a helper that
     returned None unconditionally would satisfy the negative test and
     silently disable the whole feature."""
@@ -187,7 +199,9 @@ def test_matching_pid_is_trusted(tmp_path, monkeypatch):
     assert got == "0.9.28"
 
 
-def test_state_file_without_pid_still_reports_backwards_compat(tmp_path, monkeypatch):
+def test_state_file_without_pid_still_reports_backwards_compat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A watcher from before this release stamped no pid. Rather than
     refusing to report anything for every pre-0.9.28 watcher, fall back to
     reporting the version — the old behaviour, which is still better than
@@ -201,7 +215,7 @@ def test_state_file_without_pid_still_reports_backwards_compat(tmp_path, monkeyp
     assert got == "0.9.25"
 
 
-def test_watcher_stamps_its_own_pid(tmp_path):
+def test_watcher_stamps_its_own_pid(tmp_path: Path) -> None:
     """The write half of the contract: Watcher._save_cursor must record the
     PID so the read half above has something to verify against."""
     import os
@@ -213,7 +227,7 @@ def test_watcher_stamps_its_own_pid(tmp_path):
         base_url = "https://x"
         api_key = "k"
 
-        def inbox(self, *a, **kw):
+        def inbox(self, *a: Any, **kw: Any) -> list[Any]:
             return []
 
     state = tmp_path / "s.json"

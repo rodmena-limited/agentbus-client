@@ -17,12 +17,16 @@ ruling, 2026-08-21). The client posts to its own backend and stops there.
 
 from __future__ import annotations
 
-import argparse
 import sys
+from typing import TYPE_CHECKING
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from . import _common
 from ._common import _parse_duration, _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _render(row: dict) -> str:
@@ -92,7 +96,7 @@ def cmd_remind(args: argparse.Namespace) -> int:
 
     if getattr(args, "cancel", None):
         result = bus.cancel_remind(args.cancel)
-        _print(result, True) if args.json else print(f"cancelled {args.cancel}")
+        _print(result, as_json=True) if args.json else print(f"cancelled {args.cancel}")
         return 0
 
     text = _common._read_body(args.message)
@@ -130,7 +134,7 @@ def cmd_remind(args: argparse.Namespace) -> int:
         return 3
 
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
 
     who = args.target or "you"
@@ -191,7 +195,7 @@ def cmd_reminds(args: argparse.Namespace) -> int:
     if args.json:
         # --json is the machine surface and must not lose data to a display
         # choice: it returns whatever the server sent for the requested scope.
-        _print(shown, True)
+        _print(shown, as_json=True)
         return 0
 
     if not shown:

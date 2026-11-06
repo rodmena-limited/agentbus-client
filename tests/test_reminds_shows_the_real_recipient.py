@@ -19,37 +19,39 @@ null-is-unknown rule this repo applied to blocks (#48).
 
 from __future__ import annotations
 
+from typing import Any
+
 from agentbus_client.cli._remind import _render
 
 BASE = {"id": "01X", "due_at": "2026-09-01T09:00:00", "state": "scheduled"}
 
 
-def _row(**over):
+def _row(**over: Any) -> dict[str, Any]:
     return {**BASE, **over}
 
 
-def test_a_self_note_renders_as_you():
+def test_a_self_note_renders_as_you() -> None:
     out = _render(_row(target="agentbus-client-c70fbf", self_addressed=True))
     assert "(you)" in out
     # the agent's own long name is noise on the common case
     assert "agentbus-client-c70fbf" not in out
 
 
-def test_a_targeted_reminder_names_the_recipient():
+def test_a_targeted_reminder_names_the_recipient() -> None:
     """THE REPORTED BUG: this used to render '(you)'."""
     out = _render(_row(target="agentbus-ui-c760a1", self_addressed=False))
     assert "agentbus-ui-c760a1" in out
     assert "(you)" not in out
 
 
-def test_a_null_target_is_reported_unknown_not_you():
+def test_a_null_target_is_reported_unknown_not_you() -> None:
     """The `or` fallback's failure. Guessing the sender is the defect."""
     out = _render(_row(target=None, self_addressed=False))
     assert "(you)" not in out
     assert "gone" in out or "unknown" in out
 
 
-def test_self_addressed_wins_over_the_target_name():
+def test_self_addressed_wins_over_the_target_name() -> None:
     """The flag is authoritative; the client must not re-derive it by comparing
     `target` to its own identity — the server computes it precisely so the
     client does not put an identity lookup on every row."""
@@ -57,7 +59,7 @@ def test_self_addressed_wins_over_the_target_name():
     assert "(you)" in out
 
 
-def test_the_renderer_still_shows_when_and_state():
+def test_the_renderer_still_shows_when_and_state() -> None:
     """Known-positive: the line must not have lost its other content while the
     recipient logic changed."""
     out = _render(_row(target="peer", self_addressed=False, repeat="daily"))

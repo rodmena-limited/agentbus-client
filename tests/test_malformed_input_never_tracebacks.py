@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,7 +34,7 @@ def _cli(tmp_path: Path, *argv: str, **env: str) -> subprocess.CompletedProcess[
 
 
 @pytest.mark.parametrize(
-    "argv,exit_code,mentions",
+    ("argv", "exit_code", "mentions"),
     [
         (["tag", "team:x"], 3, "cannot reach AgentBus"),
         (["undeliverable", "--limit", "soonish"], 2, "--limit must be a whole number"),
@@ -43,21 +44,23 @@ def _cli(tmp_path: Path, *argv: str, **env: str) -> subprocess.CompletedProcess[
         (["--agent", "../operator", "whoami"], 2, "agent names use only"),
     ],
 )
-def test_malformed_input_is_a_clean_error(tmp_path, argv, exit_code, mentions):
+def test_malformed_input_is_a_clean_error(
+    tmp_path: Path, argv: list[str], exit_code: Any, mentions: Any
+) -> None:
     result = _cli(tmp_path, *argv, **UNREACHABLE)
     assert "Traceback" not in result.stderr, result.stderr
     assert result.returncode == exit_code, result.stderr
     assert mentions in result.stderr
 
 
-def test_a_malformed_env_agent_is_a_clean_error(tmp_path):
+def test_a_malformed_env_agent_is_a_clean_error(tmp_path: Path) -> None:
     result = _cli(tmp_path, "whoami", AGENTBUS_AGENT="\U0001f4a5", **UNREACHABLE)
     assert "Traceback" not in result.stderr, result.stderr
     assert result.returncode == 2
     assert "not an agent name" in result.stderr
 
 
-def test_a_valid_agent_name_is_still_accepted(tmp_path):
+def test_a_valid_agent_name_is_still_accepted(tmp_path: Path) -> None:
     result = _cli(tmp_path, "--agent", "build.er_01-x", "whoami", **UNREACHABLE)
     assert "agent names use only" not in result.stderr
     assert result.returncode == 3

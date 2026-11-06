@@ -23,8 +23,7 @@ import os
 import re
 import stat
 import time
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # ALWAYS the vendored copy, never a conditional import of the server package.
 #
@@ -44,6 +43,9 @@ from ._agefmt import (
     unseal,
 )
 from .identity import config_dir
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 __all__ = [
     "SEALED_MARKER",
@@ -76,11 +78,12 @@ def _agent_slug(agent: str | None) -> str:
     """
     name = agent or os.environ.get("AGENTBUS_AGENT")
     if not name:
-        raise ValueError(
+        msg = (
             "no acting agent: a sealing key belongs to ONE agent, so it cannot be "
             "created or read without knowing which. Pass agent=..., or set "
             "AGENTBUS_AGENT (`agentbus setup` writes it into the project)."
         )
+        raise ValueError(msg)
     # Separators become underscores, so nothing can traverse. `..` is then
     # collapsed too: it cannot escape the directory once `/` is gone, but a
     # filename containing `..` invites somebody to "fix" it later with a join
@@ -199,7 +202,8 @@ def _ensure_secret(path: Path, generate: Any) -> str:
         if create_secret_exclusive(path, candidate + "\n"):
             _harden(path)
             return candidate
-    raise OSError(f"could not create or read {path}: another writer never finished")
+    msg = f"could not create or read {path}: another writer never finished"
+    raise OSError(msg)
 
 
 def ensure_keypair(agent: str | None = None) -> tuple[str, str]:
@@ -312,11 +316,12 @@ def _open_with_each(attempt: Any, agent: str | None = None) -> Any:
         except CannotDecrypt as exc:
             last = exc
         except Exception as exc:
-            raise MalformedSealed(
+            msg = (
                 f"this payload is not readable as age v1 ({type(exc).__name__}: "
                 f"{exc}). It is damaged or was never sealed — a different key "
                 f"would not help."
-            ) from exc
+            )
+            raise MalformedSealed(msg) from exc
     raise CannotDecrypt(
         "no key on this machine opens this" if keys else "this machine holds no sealing key"
     ) from last

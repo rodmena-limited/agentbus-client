@@ -27,7 +27,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import sealing
+from agentbus_client import sealing
+
 from .errors import AgentBusError
 
 
@@ -147,10 +148,11 @@ class SyncMemoryMixin:
         if not todo and not unrecoverable:
             return {"resealed": [], "unrecoverable": [], "detail": "nothing sealed to re-seal"}
         if not acting:
-            raise AgentBusError(
+            msg = (
                 "cannot reseal: a sealing key belongs to ONE agent, so the client "
                 "needs agent=... or AGENTBUS_AGENT to know whose key to seal to."
             )
+            raise AgentBusError(msg)
         _private, own_public = sealing.ensure_keypair(acting)
         resealed = []
         for entry in todo:
@@ -206,10 +208,11 @@ class AsyncMemoryMixin:
         if not todo and not unrecoverable:
             return {"resealed": [], "unrecoverable": [], "detail": "nothing sealed to re-seal"}
         if not acting:
-            raise AgentBusError(
+            msg = (
                 "cannot reseal: a sealing key belongs to ONE agent, so the client "
                 "needs agent=... or AGENTBUS_AGENT to know whose key to seal to."
             )
+            raise AgentBusError(msg)
         _private, own_public = sealing.ensure_keypair(acting)
         resealed = []
         for entry in todo:

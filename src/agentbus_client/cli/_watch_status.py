@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from . import _common, _watch_runtime
 from ._common import _cfg_dir
@@ -17,6 +17,9 @@ from ._watch_runtime import (
     _watch_pidfile,
     _watch_pids,
 )
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _read_running_client_version(
@@ -75,7 +78,7 @@ def _read_running_client_version(
     # 2. FALLBACK: the ONE shared implementation, which globs both the
     #    `monitor-<agent>-*.json` (plugin) and `watch-*-<agent>.json`
     #    (default) naming schemes.
-    from .. import onboarding as _onboarding
+    from agentbus_client import onboarding as _onboarding
 
     return _onboarding._running_watcher_version(agent)
 
@@ -94,7 +97,11 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
     #
     # Printed BEFORE the RUNNING line, because a running watcher whose every
     # notify is failing is the case that most looks healthy.
-    from ..hooks.claude_code import _gate_degraded_file, _hook_state_dir, _notify_error_file
+    from agentbus_client.hooks.claude_code import (
+        _gate_degraded_file,
+        _hook_state_dir,
+        _notify_error_file,
+    )
 
     # THE FAILURE THE STATE FILE CANNOT REPORT IS THE MOST LIKELY ONE.
     #
@@ -169,7 +176,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
         # persisted per-run in the watcher's state file (`client_version`
         # field) and the CLI's own version is the alternative comparison
         # anchor.
-        from .. import __version__ as _cli_ver
+        from agentbus_client import __version__ as _cli_ver
 
         for st, pid in pids.items():
             watcher_ver = _read_running_client_version(agent, st, for_pid=pid)

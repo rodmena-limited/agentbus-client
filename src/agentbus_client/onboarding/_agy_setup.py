@@ -32,12 +32,13 @@ WHAT MAKES THIS HARNESS DIFFERENT, and why each difference changed a decision:
 
 from __future__ import annotations
 
-import argparse
 import json
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ..client import AgentBus
+from agentbus_client.client import AgentBus
+
 from ._agy_plugin import (
     PLUGIN_VERSION,
     PLUGIN_VERSION_FILENAME,
@@ -58,6 +59,9 @@ from ._paths import (
 )
 from ._provision import _provision_project_agent
 from ._signin import _sealing_publish_with_retry
+
+if TYPE_CHECKING:
+    import argparse
 
 # Their canonical filename; `agy` is an alias they publish in the same index.
 _SKILL_HARNESS = "antigravity"
@@ -271,7 +275,7 @@ def _setup_agy(args: argparse.Namespace) -> int:
     try:
         bus = AgentBus(base_url=base_url, agent=name)
         if bus._request("GET", "/v1/workspace/pubkeys").get("encrypted"):
-            from .. import sealing as _sealing
+            from agentbus_client import sealing as _sealing
 
             _private, public = _sealing.ensure_keypair(name)
             del _private

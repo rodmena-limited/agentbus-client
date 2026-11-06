@@ -21,17 +21,21 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+from typing import TYPE_CHECKING
+
 from agentbus_client import cli
 from agentbus_client.hooks import claude_code
 
+if TYPE_CHECKING:
+    import pytest
 
-def _ps_returning(output: str):
+
+def _ps_returning(output: str) -> Any:
     def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(stdout=output, returncode=0)
 
@@ -61,7 +65,8 @@ class TestScanWatchProcess:
 
     def test_ps_failure_means_none_not_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(*_args: object, **_kwargs: object) -> None:
-            raise OSError("no ps here")
+            msg = "no ps here"
+            raise OSError(msg)
 
         monkeypatch.setattr(subprocess, "run", boom)
         assert cli._scan_watch_process("red9-x") is None
@@ -102,7 +107,7 @@ class TestEnvAgentReversal:
         captured: dict = {}
 
         class _CapturingBus:
-            def __init__(self, api_key=None, agent=None, **_kw: object) -> None:
+            def __init__(self, api_key: Any = None, agent: Any = None, **_kw: object) -> None:
                 captured["api_key"] = api_key
                 captured["agent"] = agent
 
@@ -125,12 +130,13 @@ class TestEnvAgentReversal:
         """--agent outranks everything; the reversal must not even be consulted."""
 
         def explode(_env: str) -> str:
-            raise AssertionError("bleed check must not run for an explicit --agent")
+            msg = "bleed check must not run for an explicit --agent"
+            raise AssertionError(msg)
 
         captured: dict = {}
 
         class _CapturingBus:
-            def __init__(self, agent=None, **_kw: object) -> None:
+            def __init__(self, agent: Any = None, **_kw: object) -> None:
                 captured["agent"] = agent
 
         monkeypatch.setenv("AGENTBUS_AGENT", "main-agent")

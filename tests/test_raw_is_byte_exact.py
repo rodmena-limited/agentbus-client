@@ -24,8 +24,12 @@ import argparse
 import hashlib
 import io
 from contextlib import redirect_stderr
+from typing import TYPE_CHECKING
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    import pytest
 
 ARMOR = (
     "-----BEGIN AGE ENCRYPTED FILE-----\n"
@@ -64,10 +68,11 @@ class FakeBus:
         }
 
     def thread(self, thread_id: str) -> dict:
-        raise AssertionError("--raw must never fetch a thread")
+        msg = "--raw must never fetch a thread"
+        raise AssertionError(msg)
 
 
-def _raw_bytes(monkeypatch, body: str) -> bytes:
+def _raw_bytes(monkeypatch: pytest.MonkeyPatch, body: str) -> bytes:
     monkeypatch.setattr(cli._common, "_bus", lambda _args: FakeBus(body))
     args = argparse.Namespace(delivery_id="del_1", json=False, thread=False, raw=True, agent=None)
     stdout = _ByteStdout()
@@ -77,30 +82,34 @@ def _raw_bytes(monkeypatch, body: str) -> bytes:
     return stdout.collected()
 
 
-def test_raw_emits_the_stored_bytes_and_nothing_more(monkeypatch):
+def test_raw_emits_the_stored_bytes_and_nothing_more(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _raw_bytes(monkeypatch, ARMOR) == ARMOR.encode()
 
 
-def test_raw_does_not_append_a_newline(monkeypatch):
+def test_raw_does_not_append_a_newline(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE REGRESSION. One byte, and it is the byte that breaks the digest."""
     out = _raw_bytes(monkeypatch, ARMOR)
     assert not out.endswith(b"\n\n")
     assert len(out) == len(ARMOR.encode())
 
 
-def test_the_digest_of_raw_output_equals_the_digest_of_the_stored_body(monkeypatch):
+def test_the_digest_of_raw_output_equals_the_digest_of_the_stored_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The comparison `--raw` exists to make possible, and could not."""
     out = _raw_bytes(monkeypatch, ARMOR)
     assert hashlib.sha256(out).hexdigest() == hashlib.sha256(ARMOR.encode()).hexdigest()
 
 
-def test_a_body_that_does_not_end_in_a_newline_is_not_given_one(monkeypatch):
+def test_a_body_that_does_not_end_in_a_newline_is_not_given_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Known-positive for the other direction: nothing is added, ever."""
     out = _raw_bytes(monkeypatch, "no trailing newline here")
     assert out == b"no trailing newline here"
 
 
-def test_this_check_can_go_red(monkeypatch):
+def test_this_check_can_go_red(monkeypatch: pytest.MonkeyPatch) -> None:
     """The guard's own known-positive: an appended byte MUST fail the assertions
     above. A byte-exactness test that cannot see an extra byte is the reason the
     bug shipped."""

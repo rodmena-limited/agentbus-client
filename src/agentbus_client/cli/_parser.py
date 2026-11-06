@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import argparse
 import difflib
 import json
 import os
 import sys
-from collections.abc import Sequence
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-from ..client import AgentBusError, AuthError, QuotaExceeded, ServiceUnavailable
-from ..client.errors import TransportError
+from agentbus_client.client import AgentBusError, AuthError, QuotaExceeded, ServiceUnavailable
+from agentbus_client.client.errors import TransportError
+
 from . import (
     _cmds_block,
     _cmds_compose,
@@ -34,6 +34,10 @@ from . import (
 )
 from ._app import Root, Verb, VerbGroup, parse
 from ._common import InputError
+
+if TYPE_CHECKING:
+    import argparse
+    from collections.abc import Sequence
 
 # #50: what an operator TYPES, mapped to the verb that exists.
 #
@@ -135,7 +139,7 @@ def suggest(typed: str, choices: Sequence[str]) -> str | None:
 
 @lru_cache(maxsize=1)
 def build() -> Root:
-    from .. import __version__
+    from agentbus_client import __version__
 
     root = Root(suggest, __version__)
     for module in COMMAND_MODULES:
@@ -163,7 +167,7 @@ def build_parser() -> _Parser:
 
 
 def _base_url(args: argparse.Namespace) -> str:
-    from ..client.base import DEFAULT_BASE_URL
+    from agentbus_client.client.base import DEFAULT_BASE_URL
 
     return str(
         getattr(args, "base_url", None) or os.environ.get("AGENTBUS_BASE_URL") or DEFAULT_BASE_URL

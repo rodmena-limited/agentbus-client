@@ -17,7 +17,12 @@ success for something that had not happened.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from agentbus_client.cli._register import _print_persona_outcome
+
+if TYPE_CHECKING:
+    import pytest
 
 # The advisory the live server returns (backend 601008d), captured from the wire
 # rather than invented, so the parser is tested against the real string.
@@ -28,7 +33,7 @@ LIVE_ADVISORY = (
 )
 
 
-def test_the_servers_explanation_is_shown_to_the_user(capsys):
+def test_the_servers_explanation_is_shown_to_the_user(capsys: pytest.CaptureFixture[str]) -> None:
     """KNOWN-POSITIVE. If this cannot go green the absence checks below are
     worthless — a printer that renders nothing passes every "no output" test."""
     _print_persona_outcome(
@@ -39,20 +44,22 @@ def test_the_servers_explanation_is_shown_to_the_user(capsys):
     assert "admin-scope key" in out, "the reason must survive, not just the verdict"
 
 
-def test_silent_when_no_persona_was_requested(capsys):
+def test_silent_when_no_persona_was_requested(capsys: pytest.CaptureFixture[str]) -> None:
     """A caller who never asked must see nothing, or the notice becomes noise
     on every register and stops being read on the one that matters."""
     _print_persona_outcome({"agent": {"persona": None}}, None)
     assert capsys.readouterr().out == ""
 
 
-def test_silent_when_the_persona_actually_took(capsys):
+def test_silent_when_the_persona_actually_took(capsys: pytest.CaptureFixture[str]) -> None:
     """An admin key sets it successfully — saying nothing is correct there."""
     _print_persona_outcome({"agent": {"persona": "builder"}}, "builder")
     assert capsys.readouterr().out == ""
 
 
-def test_old_server_with_no_advisory_still_reports_the_drop(capsys):
+def test_old_server_with_no_advisory_still_reports_the_drop(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """FORWARD-COMPATIBILITY, and the branch most likely to rot unnoticed.
 
     A server predating backend 601008d returns no `persona_ignored` at all. The
@@ -67,7 +74,7 @@ def test_old_server_with_no_advisory_still_reports_the_drop(capsys):
     assert "ADMIN" in out.upper(), "and why it did not take"
 
 
-def test_the_flag_still_reaches_the_wire():
+def test_the_flag_still_reaches_the_wire() -> None:
     """The CLI was never the bug — assert that, so a future 'fix' does not
     'repair' the send path that was already correct."""
     import inspect
@@ -79,7 +86,7 @@ def test_the_flag_still_reaches_the_wire():
     assert 'payload["persona"] = persona' in source
 
 
-def test_register_wires_the_reporter_into_its_output():
+def test_register_wires_the_reporter_into_its_output() -> None:
     """The helper must actually be CALLED. A correct printer nobody invokes is
     the dead-exemption defect in another costume."""
     import inspect
@@ -116,7 +123,7 @@ def _setup_report(result: dict, requested: str | None) -> list[str]:
     return report
 
 
-def test_setup_panel_reports_a_dropped_persona():
+def test_setup_panel_reports_a_dropped_persona() -> None:
     """The exact case the operator hit: a clean panel hiding one failed flag."""
     lines = _setup_report(
         {"persona_ignored": LIVE_ADVISORY, "agent": {"persona": None}}, "test-engineer"
@@ -124,21 +131,21 @@ def test_setup_panel_reports_a_dropped_persona():
     assert any("PERSONA NOT SET" in line for line in lines)
 
 
-def test_setup_panel_is_silent_when_no_persona_requested():
+def test_setup_panel_is_silent_when_no_persona_requested() -> None:
     assert _setup_report({"agent": {"persona": None}}, None) == []
 
 
-def test_setup_panel_confirms_a_persona_that_took():
+def test_setup_panel_confirms_a_persona_that_took() -> None:
     lines = _setup_report({"agent": {"persona": "backend"}}, "backend")
     assert lines == ["persona: backend"]
 
 
-def test_setup_panel_falls_back_when_the_server_is_old():
+def test_setup_panel_falls_back_when_the_server_is_old() -> None:
     lines = _setup_report({"agent": {"persona": None}}, "backend")
     assert any("ADMIN-scope" in line for line in lines)
 
 
-def test_BOTH_register_and_setup_paths_report_it():
+def test_BOTH_register_and_setup_paths_report_it() -> None:
     """THE REGRESSION GUARD FOR THE MISS ITSELF.
 
     There are exactly two call sites that pass persona to register(). The first

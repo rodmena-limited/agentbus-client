@@ -21,24 +21,32 @@ versions, so `doctor` now does — and the interesting assertions here are not
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, NoReturn
+
 from agentbus_client.onboarding import _doctor_version as dv
 
+if TYPE_CHECKING:
+    import pytest
 
-def _fake_pypi(monkeypatch, version, detail="ok"):
+
+def _fake_pypi(monkeypatch: pytest.MonkeyPatch, version: Any, detail: str = "ok") -> None:
     monkeypatch.setattr(dv, "latest_on_pypi", lambda timeout=4.0: (version, detail))
 
 
 # ------------------------------------------------------------------- stale
 
 
-def test_a_behind_build_is_stale(monkeypatch):
+def test_a_behind_build_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_pypi(monkeypatch, "0.9.68")
     state, detail = dv.cli_freshness("0.9.67")
     assert state == "stale"
-    assert "0.9.67" in detail and "0.9.68" in detail
+    assert "0.9.67" in detail
+    assert "0.9.68" in detail
 
 
-def test_the_remedy_does_not_stake_everything_on_one_command(monkeypatch):
+def test_the_remedy_does_not_stake_everything_on_one_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """NAMING A COMMAND WAS THE WRONG SHAPE, and a peer proved it.
 
     The first version of this advice said "run `uv tool install ...@latest`".
@@ -65,7 +73,7 @@ def test_the_remedy_does_not_stake_everything_on_one_command(monkeypatch):
     )
 
 
-def test_a_stale_build_says_WHICH_copy_is_stale(monkeypatch):
+def test_a_stale_build_says_WHICH_copy_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     """A peer had two installs and the stale one was not the binary on PATH.
     'You are out of date' without naming the copy sends people to upgrade the
     wrong one."""
@@ -79,20 +87,20 @@ def test_a_stale_build_says_WHICH_copy_is_stale(monkeypatch):
 # ----------------------------------------------------------------- current
 
 
-def test_the_latest_build_is_current(monkeypatch):
+def test_the_latest_build_is_current(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE. Without this, a function that answered "stale" for every
     input would satisfy every staleness assertion above."""
     _fake_pypi(monkeypatch, "0.9.68")
     assert dv.cli_freshness("0.9.68")[0] == "current"
 
 
-def test_a_build_ahead_of_pypi_is_not_reported_stale(monkeypatch):
+def test_a_build_ahead_of_pypi_is_not_reported_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     """The release machine runs the new version before PyPI has it."""
     _fake_pypi(monkeypatch, "0.9.68")
     assert dv.cli_freshness("0.9.69")[0] == "current"
 
 
-def test_component_order_not_string_order(monkeypatch):
+def test_component_order_not_string_order(monkeypatch: pytest.MonkeyPatch) -> None:
     """`"0.9.9" > "0.9.68"` is TRUE as strings and false as versions.
 
     A string comparison would have called 0.9.68 stale against 0.9.9, told
@@ -108,7 +116,7 @@ def test_component_order_not_string_order(monkeypatch):
 # ---------------------------------------------------- cannot check != current
 
 
-def test_an_unreachable_pypi_is_unknown_never_current(monkeypatch):
+def test_an_unreachable_pypi_is_unknown_never_current(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE ONE THAT MATTERS. Offline is the path nobody runs, and reporting
     "current" from it is a false all-clear."""
     _fake_pypi(monkeypatch, None, "could not reach PyPI (timed out)")
@@ -117,18 +125,19 @@ def test_an_unreachable_pypi_is_unknown_never_current(monkeypatch):
     assert "NOT the same as being up to date" in detail
 
 
-def test_an_unparseable_version_is_unknown_not_stale(monkeypatch):
+def test_an_unparseable_version_is_unknown_not_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_pypi(monkeypatch, "not-a-version")
     assert dv.cli_freshness("0.9.68")[0] == "unknown"
     _fake_pypi(monkeypatch, "0.9.68")
     assert dv.cli_freshness("weird-build")[0] == "unknown"
 
 
-def test_latest_on_pypi_never_raises(monkeypatch):
+def test_latest_on_pypi_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """doctor is a diagnostic; a network error must not make it explode."""
 
-    def _boom(*_a, **_k):
-        raise OSError("network is unreachable")
+    def _boom(*_a: Any, **_k: Any) -> NoReturn:
+        msg = "network is unreachable"
+        raise OSError(msg)
 
     monkeypatch.setattr(dv.urllib.request, "urlopen", _boom)
     version, detail = dv.latest_on_pypi(timeout=0.1)
@@ -139,15 +148,16 @@ def test_latest_on_pypi_never_raises(monkeypatch):
 # ------------------------------------------------------------------ source
 
 
-def test_a_source_checkout_is_never_nagged(monkeypatch):
-    def _fail(*_a, **_k):
-        raise AssertionError("a source build must not even ask PyPI")
+def test_a_source_checkout_is_never_nagged(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fail(*_a: Any, **_k: Any) -> NoReturn:
+        msg = "a source build must not even ask PyPI"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(dv, "latest_on_pypi", _fail)
     assert dv.cli_freshness("0.0.0+source")[0] == "source"
 
 
-def test_a_build_that_reports_nothing_is_unknown():
+def test_a_build_that_reports_nothing_is_unknown() -> None:
     assert dv.cli_freshness(None)[0] == "unknown"
     assert dv.cli_freshness("unknown")[0] == "unknown"
 
@@ -155,7 +165,7 @@ def test_a_build_that_reports_nothing_is_unknown():
 # ------------------------------------------------------- doctor uses it
 
 
-def test_the_doctor_command_actually_calls_the_check():
+def test_the_doctor_command_actually_calls_the_check() -> None:
     """Otherwise every assertion here tests a function nobody runs.
 
     THIS ALREADY CAUGHT ONE REAL MISTAKE. The check was first wired into
@@ -209,7 +219,9 @@ def test_the_doctor_command_actually_calls_the_check():
 # ------------------------------------------------- ahead of a lagging index
 
 
-def test_being_ahead_of_pypis_index_is_not_reported_as_being_the_latest(monkeypatch):
+def test_being_ahead_of_pypis_index_is_not_reported_as_being_the_latest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """PyPI's JSON API lags its own simple index by minutes.
 
     A peer installed 0.9.73 with pip while /pypi/.../json still reported 0.9.72,
@@ -224,7 +236,7 @@ def test_being_ahead_of_pypis_index_is_not_reported_as_being_the_latest(monkeypa
     assert "0.9.72" in detail, "the report must name what PyPI actually said"
 
 
-def test_an_exact_match_still_reads_as_the_latest(monkeypatch):
+def test_an_exact_match_still_reads_as_the_latest(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE for the branch above: the ordinary case must not acquire
     the ahead-of-index wording."""
     _fake_pypi(monkeypatch, "0.9.73")
@@ -234,7 +246,7 @@ def test_an_exact_match_still_reads_as_the_latest(monkeypatch):
     assert "is the latest on PyPI" in detail
 
 
-def test_the_remedy_names_the_pip_cache(monkeypatch):
+def test_the_remedy_names_the_pip_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """`pip install -U` no-ops silently from a cached index that predates the
     release — exit 0, nothing printed. Reported by a peer who hit exactly that
     and needed --no-cache-dir. "Run it again" is not a remedy when the index is

@@ -8,7 +8,8 @@ import threading as _threading
 import uuid
 from typing import Any
 
-from .. import sealing
+from agentbus_client import sealing
+
 from .errors import AgentBusError, AuthError
 from .models import _SEAL_INFLATION_FACTOR, _server_max_attachment_bytes
 
@@ -65,7 +66,7 @@ class _Base:
                 # SEV-1-B: an agent-scoped construction NEVER borrows operator.env;
                 # a missing bound key is a real "no credential for this identity"
                 # error, not a reason to escalate to the workspace-wide key.
-                raise AuthError(
+                msg = (
                     f"no API key for agent '{resolved_agent}'. Looked for one in: the "
                     f"call itself, $AGENTBUS_API_KEY, and ~/.config/agentbus/keys/"
                     f"{resolved_agent}.env — all empty. This client REFUSES to fall "
@@ -76,7 +77,8 @@ class _Base:
                     "keys/ path, or construct AgentBus() without `agent=` to use the "
                     "operator credential explicitly."
                 )
-            raise AuthError(
+                raise AuthError(msg)
+            msg = (
                 "no API key. Looked for one in: the call itself, $AGENTBUS_API_KEY, "
                 "and ~/.config/agentbus/operator.env — all empty. Run `agentbus signin "
                 "<api-key>` to create the operator credential. Registering a NEW "
@@ -85,6 +87,7 @@ class _Base:
                 "NOTE: an agent-BOUND key cannot register a new agent, however high "
                 "its scope — binding, not scope, is what blocks it."
             )
+            raise AuthError(msg)
         self.base_url = (
             base_url or os.environ.get("AGENTBUS_BASE_URL") or DEFAULT_BASE_URL
         ).rstrip("/")
@@ -164,7 +167,7 @@ class _Base:
         which every read surface labels as tampering. An unsigned reply is
         merely unattested; a wrongly-signed one accuses its own sender.
         """
-        from .. import _signing, sealing
+        from agentbus_client import _signing, sealing
 
         # #220: THIS AGENT's key, not the machine's. A shared signing key made
         # two agents on one box indistinguishable to the bus.
@@ -226,7 +229,7 @@ class _Base:
         comply. One rule, two surfaces, implemented once: the same shape #155 was
         written about.
         """
-        from .. import sealing
+        from agentbus_client import sealing
 
         if not resolved.get("encrypted"):
             return payload
@@ -264,11 +267,12 @@ class _Base:
         # must fail TYPED so an SDK caller catching AgentBusError sees it.
         acting = agent or self.agent
         if not acting:
-            raise AgentBusError(
+            msg = (
                 "cannot seal: this workspace is encrypted but no acting agent is "
                 "set. A sealing key belongs to ONE agent, so the client needs "
                 "agent=... or AGENTBUS_AGENT to know whose key to seal to."
             )
+            raise AgentBusError(msg)
 
         # EVERY key of every recipient, not one each. An agent may be on
         # several machines (AGENTBUS_DEVICE_ID is the documented way a
@@ -282,10 +286,11 @@ class _Base:
         if own_public not in keys:
             keys.append(own_public)
         if not keys:
-            raise AgentBusError(
+            msg = (
                 "cannot seal: no public keys resolved for this send, so the "
                 "message would be readable by nobody"
             )
+            raise AgentBusError(msg)
         body = payload.get("text") or payload.get("html") or ""
         sealed = dict(payload)
         sealed["text"] = sealing.seal_for(body, keys)
@@ -316,7 +321,7 @@ class _Base:
             # fit, so reject instantly. The post-seal exact check below stays
             # as the backstop for the borderline band.
             if int(len(raw) * _SEAL_INFLATION_FACTOR) > _server_max_attachment_bytes():
-                raise AgentBusError(
+                msg = (
                     f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw; "
                     f"on this ENCRYPTED workspace that inflates to roughly "
                     f"{int(len(raw) * _SEAL_INFLATION_FACTOR):,} wire bytes "
@@ -325,13 +330,14 @@ class _Base:
                     "file or use a smaller attachment — the effective encrypted "
                     "limit is ~5.5 MiB raw, well under the documented 10 MiB."
                 )
+                raise AgentBusError(msg)
             armored = sealing.seal_for_bytes(raw, keys)
             wire = _b64.b64encode(armored).decode()
             # POST-SEAL EXACT CHECK (F7 follow-up). The server sees exactly
             # `wire`; verify it fits. This is the authoritative backstop — the
             # pre-seal estimate above is the fast reject, this is the exact one.
             if len(wire) > _server_max_attachment_bytes():
-                raise AgentBusError(
+                msg = (
                     f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw, "
                     f"but on this ENCRYPTED workspace sealing inflates it to "
                     f"{len(wire):,} wire bytes, which exceeds the server's "
@@ -339,6 +345,7 @@ class _Base:
                     "use a smaller attachment — the effective encrypted limit is "
                     "well under the documented 10 MiB."
                 )
+                raise AgentBusError(msg)
             resealed.append(
                 {
                     **item,
@@ -364,7 +371,7 @@ class _Base:
         delegated to `AgentBus.unseal_message` — a name its module never imported —
         so every AsyncAgentBus.read()/thread() raised NameError.
         """
-        from .. import sealing
+        from agentbus_client import sealing
 
         who = agent or self.agent
         body = message.get("text_body") or message.get("text") or ""

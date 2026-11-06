@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
+from typing import TYPE_CHECKING
 
 from agentbus_client.onboarding import _credentials
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _write_global_opencode(home: Path, name: str, text: str) -> None:

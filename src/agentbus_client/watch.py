@@ -15,24 +15,16 @@ transient error, because a watcher that dies quietly is worse than none at all.
 
 from __future__ import annotations
 
-import contextlib
-import json
-import os
 import random
-import shlex
-import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 # Split into sibling modules (review #23, file-size cap); every name is re-exported
 # here so `watch.<name>` keeps resolving. Tests patch helpers on the defining module.
-from . import _watch_common, _watch_handlers
 from ._watch_common import (
     STREAM_HEALTHY_SECONDS,
     STREAM_KEEPALIVE_SECONDS,
@@ -40,7 +32,6 @@ from ._watch_common import (
     STREAM_RECONCILE_SECONDS,
     DeadWakeSocket,
     WatchTerminated,
-    _client_version,
     _dead_wake_socket_reason,
 )
 from ._watch_drain import WatcherDrainMixin
@@ -51,6 +42,33 @@ from ._watch_handlers import (
 )
 from ._watch_state import WatcherStateMixin
 from .client import AgentBus, AgentBusError, AuthError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+__all__ = [
+    "EXIT_DEAD_WAKE_SOCKET",
+    "RECONNECT_BACKOFF",
+    "STREAM_HEALTHY_SECONDS",
+    "STREAM_KEEPALIVE_SECONDS",
+    "STREAM_READ_DEADLINE",
+    "STREAM_RECONCILE_SECONDS",
+    "AgentBus",
+    "AgentBusError",
+    "AuthError",
+    "DeadWakeSocket",
+    "WatchTerminated",
+    "Watcher",
+    "WatcherDrainMixin",
+    "WatcherStateMixin",
+    "append_file",
+    "httpx",
+    "notify_command",
+    "print_line",
+    "random",
+]
+
 
 RECONNECT_BACKOFF = (1, 2, 5, 10, 30, 60)
 

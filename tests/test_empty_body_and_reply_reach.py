@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 
 from agentbus_client import cli
 from agentbus_client.client import AgentBus, AsyncAgentBus, EmptyBodyError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 BASE = "https://bus.empty.test"
 
@@ -85,14 +87,18 @@ class _ReplyBus:
         self._fail = fail
         self.replies: list[dict[str, Any]] = []
 
-    def reply_recipients(self, message_id: str, *, reply_all: bool = False, agent: Any = None):
+    def reply_recipients(
+        self, message_id: str, *, reply_all: bool = False, agent: Any = None
+    ) -> dict[str, Any]:
         if self._fail:
-            raise RuntimeError("resolver down")
+            msg = "resolver down"
+            raise RuntimeError(msg)
         return {"to": list(self._sets[reply_all]), "cc": []}
 
     def reply(self, message_id: str, text: str, **kw: Any) -> dict[str, Any]:
         if not (text or "").strip() and not kw.get("attachments") and not kw.get("allow_empty"):
-            raise EmptyBodyError("refusing to send an empty message")
+            msg = "refusing to send an empty message"
+            raise EmptyBodyError(msg)
         self.replies.append({"text": text, **kw})
         targets = self._sets[bool(kw.get("reply_all"))]
         return {"id": "r-1", "recipients": targets}

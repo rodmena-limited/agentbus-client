@@ -3,8 +3,12 @@ from __future__ import annotations
 import io
 import sys
 import time
+from typing import TYPE_CHECKING, Any
 
-import pytest
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 
 class _Bus:
@@ -16,14 +20,14 @@ class _Bus:
         return []
 
 
-def _watcher(tmp_path):  # type: ignore[no-untyped-def]
+def _watcher(tmp_path: Path) -> Any:  # type: ignore[no-untyped-def]
     from agentbus_client import watch as watch_module
 
     return watch_module, watch_module.Watcher(_Bus(), agent="a", state_path=tmp_path / "s.json")
 
 
 def test_backoff_announces_on_the_stderr_current_at_call_time(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     watch_module, w = _watcher(tmp_path)
     monkeypatch.setattr(time, "sleep", lambda s: None)
@@ -34,7 +38,7 @@ def test_backoff_announces_on_the_stderr_current_at_call_time(
     assert "agentbus watch: stream dropped (test); retrying in 1.0s" in replacement.getvalue()
 
 
-def test_an_explicit_stream_still_wins(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_explicit_stream_still_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     watch_module, w = _watcher(tmp_path)
     monkeypatch.setattr(time, "sleep", lambda s: None)
     monkeypatch.setattr(watch_module.random, "uniform", lambda lo, hi: 0.0)

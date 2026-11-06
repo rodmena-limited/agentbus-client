@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import Any, NoReturn
 
 import pytest
 
@@ -164,11 +165,11 @@ def test_release_probe_frees_the_slot() -> None:
     assert breaker.admit() is False
 
 
-def _bus_with(monkeypatch: pytest.MonkeyPatch, request) -> AsyncAgentBus:
+def _bus_with(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> AsyncAgentBus:
     bus = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
 
     class _Stub:
-        async def request(self, *a, **k):
+        async def request(self, *a: Any, **k: Any) -> Any:
             return await request(*a, **k)
 
         async def aclose(self) -> None:
@@ -194,7 +195,7 @@ def test_cancelled_probe_through_the_client_does_not_wedge(
     monkeypatch.setattr(resilience, "_ASYNC_CIRCUIT_BREAKER", breaker)
     gate = {"hang": True, "calls": 0}
 
-    async def _request(*_a, **_k):
+    async def _request(*_a: Any, **_k: Any) -> Any:
         gate["calls"] += 1
         if gate["hang"]:
             await asyncio.sleep(30)
@@ -230,9 +231,10 @@ def test_open_async_breaker_fails_fast_through_the_client(
     monkeypatch.setenv("AGENTBUS_SDK_CB_FAILURE_LIMIT", "2")
     calls: list[int] = []
 
-    async def _request(*_a, **_k):
+    async def _request(*_a: Any, **_k: Any) -> NoReturn:
         calls.append(1)
-        raise httpx.ConnectError("down")
+        msg = "down"
+        raise httpx.ConnectError(msg)
 
     bus = _bus_with(monkeypatch, _request)
 

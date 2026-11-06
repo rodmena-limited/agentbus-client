@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -76,7 +77,7 @@ def _expected(case: dict) -> str:
     return json.dumps({k: v for k, v in case.items() if k != "argv"}, sort_keys=True)
 
 
-def test_the_oracle_is_the_argparse_release_and_covers_every_verb():
+def test_the_oracle_is_the_argparse_release_and_covers_every_verb() -> None:
     assert ORACLE["captured_from"]["version"] == "0.9.94"
     assert ORACLE["captured_from"]["git"].startswith("cbaae48")
     parsed = [c for c in CASES if "namespace" in c]
@@ -85,7 +86,7 @@ def test_the_oracle_is_the_argparse_release_and_covers_every_verb():
     assert verbs_parsed == VERBS
 
 
-def test_the_only_deltas_are_the_documented_ones():
+def test_the_only_deltas_are_the_documented_ones() -> None:
     kinds = Counter(delta(c["argv"]) for c in CASES)
     assert set(kinds) <= {None, "abbreviation", "no-verb"}
     assert kinds["no-verb"] == 2
@@ -94,7 +95,9 @@ def test_the_only_deltas_are_the_documented_ones():
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: " ".join(c["argv"]) or "<bare>")
-def test_the_command_line_parses_exactly_as_0_9_94_did(case, capsys):
+def test_the_command_line_parses_exactly_as_0_9_94_did(
+    case: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     got = _observe(case["argv"])
     kind = delta(case["argv"])
     if kind == "abbreviation":

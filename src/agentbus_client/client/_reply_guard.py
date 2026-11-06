@@ -36,11 +36,14 @@ def _refuse_self_reply(
     to = list(resolved.get("to") or [])
     cc = list(resolved.get("cc") or [])
     if to == [acting] and not cc:
-        raise SelfReplyError(
+        msg = (
             f"reply to {message_id} would reach only YOU ({acting}): that id is a "
             "message you sent, so 'answer the sender' means yourself. Reply to the "
             "other party's message id instead, or pass allow_self=True / --to-self "
-            "if a note to yourself is what you meant.",
+            "if a note to yourself is what you meant."
+        )
+        raise SelfReplyError(
+            msg,
             message_id=message_id,
             acting=acting,
             body={"to": to, "cc": cc},

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import click
 
-from .. import onboarding as _onboarding
+from agentbus_client import onboarding as _onboarding
+
 from ._app import VerbGroup, argument, verb
 
 

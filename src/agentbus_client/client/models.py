@@ -139,19 +139,21 @@ def _ack_window_seconds(ack_window: Any, *, default_when_set: bool) -> int | Non
     if isinstance(ack_window, _dt.timedelta):
         seconds = int(ack_window.total_seconds())
     elif isinstance(ack_window, bool):  # bool is an int subclass; refuse it
-        raise ValueError("ack_window must be a timedelta or seconds, not a bool")
+        msg = "ack_window must be a timedelta or seconds, not a bool"
+        raise ValueError(msg)
     elif isinstance(ack_window, int):
         seconds = ack_window
     else:
-        raise ValueError(
-            f"ack_window must be a datetime.timedelta or int seconds, got {type(ack_window).__name__}"
-        )
+        msg = f"ack_window must be a datetime.timedelta or int seconds, got {type(ack_window).__name__}"
+        raise ValueError(msg)
     if seconds <= 0:
-        raise ValueError("ack_window must be positive")
+        msg = "ack_window must be positive"
+        raise ValueError(msg)
     if seconds > _ACK_WINDOW_MAX_SECONDS:
-        raise ValueError(
+        msg = (
             f"ack_window of {seconds}s exceeds the server cap of "
             f"{_ACK_WINDOW_MAX_SECONDS}s ({_ACK_WINDOW_MAX_SECONDS // 3600}h / 7 days); "
             "after that the sender should just re-send if it still matters"
         )
+        raise ValueError(msg)
     return seconds

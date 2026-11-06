@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stderr, redirect_stdout
+from typing import Any
 
 import pytest
 
@@ -30,25 +31,25 @@ from agentbus_client.cli import _block
 
 
 class _Bus:
-    def __init__(self, rows=None, result=None):
+    def __init__(self, rows: Any = None, result: Any = None) -> None:
         self.rows = rows or []
         self.result = result or {}
         self.calls: list[tuple] = []
 
-    def block(self, name, *, reason=None, for_=None, agent=None):
+    def block(self, name: str, *, reason: Any = None, for_: Any = None, agent: Any = None) -> Any:
         self.calls.append(("block", name, reason, for_))
         return self.result
 
-    def unblock(self, name, *, agent=None):
+    def unblock(self, name: str, *, agent: Any = None) -> Any:
         self.calls.append(("unblock", name))
         return self.result
 
-    def blocks(self, *, agent=None):
+    def blocks(self, *, agent: Any = None) -> Any:
         self.calls.append(("blocks",))
         return self.rows
 
 
-def _run(monkeypatch, fn, bus, **flags):
+def _run(monkeypatch: pytest.MonkeyPatch, fn: Any, bus: Any, **flags: Any) -> Any:
     monkeypatch.setattr(_block._common, "_bus", lambda _a: bus)
     args = argparse.Namespace(
         name=flags.get("name"),
@@ -63,7 +64,7 @@ def _run(monkeypatch, fn, bus, **flags):
     return code, out.getvalue(), err.getvalue()
 
 
-def test_blocking_a_peer_calls_the_server(monkeypatch):
+def test_blocking_a_peer_calls_the_server(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _Bus(result={"agent": "spammer"})
     code, out, _ = _run(monkeypatch, _block.cmd_block, bus, name="spammer", agent="me")
     assert code == 0
@@ -71,7 +72,7 @@ def test_blocking_a_peer_calls_the_server(monkeypatch):
     assert "spammer" in out
 
 
-def test_self_block_is_refused_before_any_server_call(monkeypatch):
+def test_self_block_is_refused_before_any_server_call(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE GUARD. `remind` is self-addressed, so this would break the scheduler."""
     bus = _Bus()
     code, _out, err = _run(monkeypatch, _block.cmd_block, bus, name="me", agent="me")
@@ -80,7 +81,7 @@ def test_self_block_is_refused_before_any_server_call(monkeypatch):
     assert "yourself" in err
 
 
-def test_blocking_someone_else_is_not_refused(monkeypatch):
+def test_blocking_someone_else_is_not_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """Known-negative: the self-check must be able to NOT fire, or it would
     block every call and 'refuses self-block' would pass vacuously."""
     bus = _Bus(result={"agent": "peer"})
@@ -90,21 +91,21 @@ def test_blocking_someone_else_is_not_refused(monkeypatch):
     assert bus.calls[0][0] == "block"
 
 
-def test_a_duration_is_passed_through(monkeypatch):
+def test_a_duration_is_passed_through(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _Bus(result={"agent": "zombie", "expires_at": "2026-09-01T00:00:00Z"})
     _code, out, _ = _run(monkeypatch, _block.cmd_block, bus, name="zombie", for_="2h", agent="me")
     assert bus.calls[0][3] == "2h"
     assert "expires" in out
 
 
-def test_a_permanent_block_says_it_is_permanent(monkeypatch):
+def test_a_permanent_block_says_it_is_permanent(monkeypatch: pytest.MonkeyPatch) -> None:
     """An unbounded block is the one that rots — it must not read as neutral."""
     bus = _Bus(result={"agent": "x"})
     _code, out, _ = _run(monkeypatch, _block.cmd_block, bus, name="x", agent="me")
     assert "never" in out
 
 
-def test_the_listing_reports_the_suppressed_count(monkeypatch):
+def test_the_listing_reports_the_suppressed_count(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without the count, 'blocking a live peer' and 'they went quiet' are the
     same observation — and the mail is refused, not stored, so nothing else
     records it."""
@@ -115,19 +116,19 @@ def test_the_listing_reports_the_suppressed_count(monkeypatch):
     assert "loop" in out
 
 
-def test_no_blocks_says_everyone_can_reach_you(monkeypatch):
+def test_no_blocks_says_everyone_can_reach_you(monkeypatch: pytest.MonkeyPatch) -> None:
     _code, out, _ = _run(monkeypatch, _block.cmd_blocks, _Bus(rows=[]))
     assert "no blocks" in out
 
 
-def test_unblock_reports_what_was_missed(monkeypatch):
+def test_unblock_reports_what_was_missed(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = _Bus(result={"suppressed_count": 7})
     code, out, _ = _run(monkeypatch, _block.cmd_unblock, bus, name="peer")
     assert code == 0
     assert "7" in out
 
 
-def test_json_mode_emits_the_raw_result(monkeypatch):
+def test_json_mode_emits_the_raw_result(monkeypatch: pytest.MonkeyPatch) -> None:
     import json
 
     bus = _Bus(rows=[{"agent": "a", "suppressed_count": 1}])
@@ -136,13 +137,13 @@ def test_json_mode_emits_the_raw_result(monkeypatch):
 
 
 @pytest.mark.parametrize("verb", ["block", "unblock", "blocks"])
-def test_the_verbs_are_registered(verb):
+def test_the_verbs_are_registered(verb: Any) -> None:
     from agentbus_client.cli._parser import verbs
 
     assert verb in verbs()
 
 
-def test_the_sync_and_async_sdks_agree():
+def test_the_sync_and_async_sdks_agree() -> None:
     """This pair has drifted before — phonebook(label=) landed on one twin only,
     and async `read` once skipped unsealing entirely."""
     import inspect
@@ -168,7 +169,7 @@ def test_the_sync_and_async_sdks_agree():
 
 
 @pytest.mark.parametrize("good", ["2h", "90m", "3d", "45"])
-def test_a_real_duration_reaches_the_server(monkeypatch, good):
+def test_a_real_duration_reaches_the_server(monkeypatch: pytest.MonkeyPatch, good: Any) -> None:
     """KNOWN-POSITIVE. Without it, 'rejects bad durations' would also pass in a
     world where the flag rejected every value."""
     bus = _Bus(result={"agent": "peer"})
@@ -178,7 +179,9 @@ def test_a_real_duration_reaches_the_server(monkeypatch, good):
 
 
 @pytest.mark.parametrize("bad", ["tomorrow", "2 hours", "next tuesday", "soon"])
-def test_a_typo_is_refused_before_any_server_call(monkeypatch, bad):
+def test_a_typo_is_refused_before_any_server_call(
+    monkeypatch: pytest.MonkeyPatch, bad: Any
+) -> None:
     bus = _Bus()
     code, _out, err = _run(monkeypatch, _block.cmd_block, bus, name="peer", for_=bad, agent="me")
     assert code == 2
@@ -195,7 +198,9 @@ def test_a_typo_is_refused_before_any_server_call(monkeypatch, bad):
 # live one makes the reader do date arithmetic to find out they are unprotected.
 
 
-def test_lapsed_blocks_are_reported_separately_from_active_ones(monkeypatch):
+def test_lapsed_blocks_are_reported_separately_from_active_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     bus = _Bus(
         rows=[
             {"agent": "live-one", "suppressed_count": 9, "active": True},
@@ -208,7 +213,7 @@ def test_lapsed_blocks_are_reported_separately_from_active_ones(monkeypatch):
     assert "can reach you again" in out
 
 
-def test_all_active_says_nothing_about_expiry(monkeypatch):
+def test_all_active_says_nothing_about_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-NEGATIVE: the EXPIRED section must be able to stay absent, or the
     warning is noise that gets ignored by the time it matters."""
     bus = _Bus(rows=[{"agent": "live-one", "suppressed_count": 1, "active": True}])
@@ -216,7 +221,9 @@ def test_all_active_says_nothing_about_expiry(monkeypatch):
     assert "EXPIRED" not in out
 
 
-def test_a_row_without_the_active_field_is_treated_as_active(monkeypatch):
+def test_a_row_without_the_active_field_is_treated_as_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Forward/backward compatibility: an older server omitting `active` must
     not have every block silently rendered as expired — that would tell the
     reader they are unprotected when they are."""

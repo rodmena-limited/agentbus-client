@@ -37,8 +37,11 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SHOW_RE = re.compile(r"agentbus show ([A-Za-z0-9_-]+)")
 

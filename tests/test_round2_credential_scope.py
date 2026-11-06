@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 
 from agentbus_client.client import sync_client
 from agentbus_client.onboarding import _credentials
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 FLAG = {
     "send": "  — FINDING: reachable by inheritance; a send-scope key in an inherited slot "
@@ -145,7 +148,8 @@ def test_server_refusals_are_reported_honestly(
 
 def test_a_dead_bus_is_unreachable(monkeypatch: pytest.MonkeyPatch, bus: FakeBus) -> None:
     def _refuse(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("refused", request=request)
+        msg = "refused"
+        raise httpx.ConnectError(msg, request=request)
 
     monkeypatch.setattr(bus, "handler", _refuse)
     assert _credentials._scope_of_bearer("Bearer ab_sk_x", BASE) == "unreachable (error)"

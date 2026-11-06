@@ -91,40 +91,72 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RUF"]
-ignore = ["E501"]  # line-length already enforced above
+# Every exception below is justified in SPECS/0089-strict-lint-and-types.md.
+select = ["ALL"]
+ignore = [
+    "COM812",
+    "CPY001",
+    "D",
+    "PERF203",
+    "PLC0415",
+    "S603",
+    "S607",
+    "TRY003",
+]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
+
+[tool.ruff.lint.flake8-self]
+extend-ignore-names = [
+    "_agent_for",
+    "_agent_from_worktree",
+    "_agent_slug",
+    "_bus",
+    "_dispatch",
+    "_identity_claim_path",
+    "_key_for_agent",
+    "_keys_dir",
+    "_ledger_path",
+    "_project_claude_dir",
+    "_read_body",
+    "_read_declared_agent",
+    "_register_atexit",
+    "_repo_root",
+    "_request",
+    "_resolve_agent_name",
+    "_running_watcher_version",
+    "_watch_runtime_dir",
+    "_worktree_identity_bleed",
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
 
 [tool.mypy]
-# Matches requires-python. 3.9 was dropped in 0.9.99 (#69): every fixed release
-# of anyio, click, pytest and python-dotenv requires >=3.10.
 python_version = "3.10"
-strict_optional = true
-warn_unused_ignores = true
-# src is checked STRICTLY with nothing disabled. tests/ is checked too, but in
-# a separate CI step with the fake-related codes named explicitly — mypy cannot
-# express a per-module override here, because its patterns must be
-# fully-qualified module names and tests/ is not a package. Splitting the
-# invocation says out loud which relaxations apply to which tree, instead of
-# hiding a blanket exclusion in config.
-files = ["src"]
-
+strict = true
+files = ["src", "tests", "scripts", "audit"]
+mypy_path = ["src", "audit/evaluations"]
+explicit_package_bases = true
 
 [tool.ruff.lint.per-file-ignores]
-# Tests insert <repo>/src on sys.path BEFORE importing the package under test,
-# so module-level imports legitimately follow executable code. Contorting them
-# to satisfy E402 would mean importing the INSTALLED client instead of this
-# checkout — the exact "which artifact am I testing" trap this suite exists to
-# catch.
-"tests/*.py" = ["E402"]
-# Re-export modules: every import IS the API surface (review #23 file-size split).
-"src/agentbus_client/cli/__init__.py" = ["F401", "F403"]
-"src/agentbus_client/onboarding/__init__.py" = ["F401", "F403"]
-"src/agentbus_client/hooks/claude_code.py" = ["F401"]
-"src/agentbus_client/watch.py" = ["F401"]
-"src/agentbus_client/client/__init__.py" = ["F401"]
+"tests/**" = ["ANN401", "ARG", "E402", "PLR2004", "S101", "SLF001"]
+"audit/**" = ["INP001", "T201"]
+"scripts/**" = ["INP001", "T201"]
+"src/agentbus_client/_watch_*.py" = ["T201"]
+"src/agentbus_client/cli/**" = ["T201"]
+"src/agentbus_client/client/async_*.py" = ["A002", "PLR0913"]
+"src/agentbus_client/client/errors.py" = ["N818"]
+"src/agentbus_client/client/sync_*.py" = ["A002", "PLR0913"]
+"src/agentbus_client/hooks/**" = ["T201"]
+"src/agentbus_client/qr.py" = ["T201"]
+"src/agentbus_client/rewake.py" = ["T201"]
+"src/agentbus_client/ui.py" = ["T201"]
+"src/agentbus_client/watch.py" = ["T201"]
 
 [tool.mutmut]
 source_paths = ["src"]

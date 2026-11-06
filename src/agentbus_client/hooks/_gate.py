@@ -48,7 +48,6 @@ the bus is unreachable is worse than one that says nothing.
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import os
@@ -56,11 +55,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import _identity
 from ._identity import _resolve_agent
 from ._state import _gate_degraded_file, _scrub, clear_gate_degraded, record_gate_degraded
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _bus_reachable(base: str, timeout: float) -> tuple[bool, str]:
@@ -363,9 +365,8 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
             with urllib.request.urlopen(request, timeout=_GATE_TIMEOUT) as response:
                 parsed = json.loads(response.read().decode())
             if not isinstance(parsed, dict):
-                raise ValueError(
-                    f"guard answered with a JSON {type(parsed).__name__}, not an object"
-                )
+                msg = f"guard answered with a JSON {type(parsed).__name__}, not an object"
+                raise ValueError(msg)
             body = parsed
             break
         except urllib.error.HTTPError as exc:

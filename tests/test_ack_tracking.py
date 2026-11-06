@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from typing import Any, NoReturn
 from unittest.mock import patch
 
 import pytest
@@ -25,11 +26,11 @@ from agentbus_client.client import AgentBus, AsyncAgentBus, _ack_window_seconds
 # --------------------------------------------------------------- SDK
 
 
-def test_sdk_send_require_ack_adds_fields():
+def test_sdk_send_require_ack_adds_fields() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     captured: dict = {}
 
-    def fake_request(method, path, json=None, **kw):
+    def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
         return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
@@ -41,11 +42,11 @@ def test_sdk_send_require_ack_adds_fields():
     assert captured.get("ack_window_seconds") == 24 * 3600
 
 
-def test_sdk_send_require_ack_respects_explicit_window():
+def test_sdk_send_require_ack_respects_explicit_window() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     captured: dict = {}
 
-    def fake_request(method, path, json=None, **kw):
+    def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
         return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
@@ -55,13 +56,13 @@ def test_sdk_send_require_ack_respects_explicit_window():
     assert captured.get("ack_window_seconds") == 2 * 3600
 
 
-def test_sdk_send_omit_require_ack_leaves_payload_clean():
+def test_sdk_send_omit_require_ack_leaves_payload_clean() -> None:
     """Absence is not empty string. Without --require-ack, no require_ack
     or ack_window_seconds in the payload — old servers never see them."""
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     captured: dict = {}
 
-    def fake_request(method, path, json=None, **kw):
+    def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
         return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
@@ -72,7 +73,7 @@ def test_sdk_send_omit_require_ack_leaves_payload_clean():
     assert "ack_window_seconds" not in captured
 
 
-def test_sdk_send_ack_window_capped_at_168h():
+def test_sdk_send_ack_window_capped_at_168h() -> None:
     """The 168h server cap is enforced client-side so a caller gets a fast
     local error instead of a round-trip 422."""
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
@@ -80,7 +81,7 @@ def test_sdk_send_ack_window_capped_at_168h():
         bus.send(["a"], "s", "b", require_ack=True, ack_window=dt.timedelta(days=8))
 
 
-def test_sdk_send_rejects_zero_or_negative_window():
+def test_sdk_send_rejects_zero_or_negative_window() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     with pytest.raises(ValueError, match="positive"):
         bus.send(["a"], "s", "b", require_ack=True, ack_window=dt.timedelta(seconds=0))
@@ -88,26 +89,26 @@ def test_sdk_send_rejects_zero_or_negative_window():
         bus.send(["a"], "s", "b", require_ack=True, ack_window=-60)
 
 
-def test_sdk_send_rejects_bool_as_window():
+def test_sdk_send_rejects_bool_as_window() -> None:
     """bool is an int subclass; accepting it would let True==1s pass."""
     with pytest.raises(ValueError, match="not a bool"):
         _ack_window_seconds(True, default_when_set=True)
 
 
-def test_ack_window_seconds_helper_direct():
+def test_ack_window_seconds_helper_direct() -> None:
     assert _ack_window_seconds(None, default_when_set=True) == 24 * 3600
     assert _ack_window_seconds(None, default_when_set=False) is None
     assert _ack_window_seconds(3600, default_when_set=True) == 3600
     assert _ack_window_seconds(dt.timedelta(minutes=90), default_when_set=True) == 5400
 
 
-async def test_async_send_require_ack_parity():
+async def test_async_send_require_ack_parity() -> None:
     """Async must have parity — the drift that bit `phonebook(label=)`
     and `derived_from` before."""
     bus = AsyncAgentBus(api_key="ab_sk_test_test", agent="me")
     captured: dict = {}
 
-    async def fake_request(method, path, json=None, **kw):
+    async def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
         return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
@@ -121,7 +122,7 @@ async def test_async_send_require_ack_parity():
 # ---------------------------------------------------------------- CLI duration parse
 
 
-def test_parse_duration():
+def test_parse_duration() -> None:
     import datetime as _dt
 
     assert cli_module._parse_duration("90m") == _dt.timedelta(minutes=90)
@@ -130,7 +131,7 @@ def test_parse_duration():
     assert cli_module._parse_duration("3600") == _dt.timedelta(seconds=3600)
 
 
-def test_parse_duration_invalid_raises_clear_error():
+def test_parse_duration_invalid_raises_clear_error() -> None:
     with pytest.raises(ValueError, match="invalid duration"):
         cli_module._parse_duration("banana")
     with pytest.raises(ValueError, match="invalid duration"):
@@ -140,7 +141,7 @@ def test_parse_duration_invalid_raises_clear_error():
 # ---------------------------------------------------------------- CLI send
 
 
-def _send_args(**over):
+def _send_args(**over: Any) -> argparse.Namespace:
     base = {
         "to": ["a"],
         "cc": None,
@@ -161,13 +162,15 @@ def _send_args(**over):
     return argparse.Namespace(**base)
 
 
-def test_cli_send_require_ack_passes_through(monkeypatch, capsys):
+def test_cli_send_require_ack_passes_through(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     captured: dict = {}
 
     class _Bus:
         agent = "me"
 
-        def send(self, to, **kw):
+        def send(self, to: Any, **kw: Any) -> dict[str, Any]:
             captured.update(kw)
             return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
@@ -181,7 +184,7 @@ def test_cli_send_require_ack_passes_through(monkeypatch, capsys):
     assert captured.get("ack_window") == dt.timedelta(hours=2)
 
 
-def test_cli_send_no_require_ack_is_clean(monkeypatch):
+def test_cli_send_no_require_ack_is_clean(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without --require-ack the CLI passes require_ack=False and
     ack_window=None. The SDK then omits both from the payload (proven by
     test_sdk_send_omit_require_ack_leaves_payload_clean), so old servers
@@ -189,7 +192,7 @@ def test_cli_send_no_require_ack_is_clean(monkeypatch):
     captured: dict = {}
 
     class _Bus:
-        def send(self, to, **kw):
+        def send(self, to: Any, **kw: Any) -> dict[str, Any]:
             captured.update(kw)
             return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
@@ -201,11 +204,13 @@ def test_cli_send_no_require_ack_is_clean(monkeypatch):
     assert captured.get("ack_window") is None
 
 
-def test_cli_send_batch_require_ack_per_item(monkeypatch, capsys):
+def test_cli_send_batch_require_ack_per_item(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     captured: list[dict] = []
 
     class _Bus:
-        def send(self, to, **kw):
+        def send(self, to: Any, **kw: Any) -> dict[str, Any]:
             captured.append(kw)
             return {"id": "01M", "delivery_count": 1, "thread_id": "01T", "cc": []}
 
@@ -229,7 +234,7 @@ def test_cli_send_batch_require_ack_per_item(monkeypatch, capsys):
     assert captured[1].get("ack_window") == dt.timedelta(minutes=90)
 
 
-def _args_(**over):
+def _args_(**over: Any) -> argparse.Namespace:
     base = {"agent": None, "json": False, "stop_on_error": False}
     base.update(over)
     return argparse.Namespace(**base)
@@ -238,7 +243,7 @@ def _args_(**over):
 # ---------------------------------------------------------------- reminders verb
 
 
-def _rem_args(**over):
+def _rem_args(**over: Any) -> argparse.Namespace:
     base = {"owed": False, "agent": None, "json": False}
     base.update(over)
     return argparse.Namespace(**base)
@@ -247,18 +252,18 @@ def _rem_args(**over):
 class _RemBus:
     """Deterministic reminders bus. `rows` returned by the requested view."""
 
-    def __init__(self, owing=None, owed=None):
+    def __init__(self, owing: Any = None, owed: Any = None) -> None:
         self._owing = owing or []
         self._owed = owed or []
 
-    def reminders_owing(self):
+    def reminders_owing(self) -> Any:
         return self._owing
 
-    def reminders_owed(self):
+    def reminders_owed(self) -> Any:
         return self._owed
 
 
-def _render(fn, args):
+def _render(fn: Any, args: Any) -> Any:
     import contextlib
     import io
 
@@ -268,7 +273,7 @@ def _render(fn, args):
     return buf.getvalue()
 
 
-def test_reminders_owing_renders_sender_view(monkeypatch):
+def test_reminders_owing_renders_sender_view(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [
         {
             "delivery_id": "01D1",
@@ -289,7 +294,7 @@ def test_reminders_owing_renders_sender_view(monkeypatch):
     assert "attempts=2" in out
 
 
-def test_reminders_owed_shows_sender(monkeypatch):
+def test_reminders_owed_shows_sender(monkeypatch: pytest.MonkeyPatch) -> None:
     import contextlib
     import io
 
@@ -307,10 +312,10 @@ def test_reminders_owed_shows_sender(monkeypatch):
     ]
 
     class _B:
-        def reminders_owed(self):
+        def reminders_owed(self) -> Any:
             return rows
 
-        def reminders_owing(self):
+        def reminders_owing(self) -> list[Any]:
             return []
 
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
@@ -323,7 +328,7 @@ def test_reminders_owed_shows_sender(monkeypatch):
     assert "rerun with these flags" in out
 
 
-def test_reminders_json_output(monkeypatch):
+def test_reminders_json_output(monkeypatch: pytest.MonkeyPatch) -> None:
     import contextlib
     import io
     import json as _json
@@ -342,10 +347,10 @@ def test_reminders_json_output(monkeypatch):
     ]
 
     class _B:
-        def reminders_owed(self):
+        def reminders_owed(self) -> Any:
             return rows
 
-        def reminders_owing(self):
+        def reminders_owing(self) -> list[Any]:
             return []
 
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
@@ -357,12 +362,15 @@ def test_reminders_json_output(monkeypatch):
     assert data["owed"][0]["subject"] == "sub"
 
 
-def test_reminders_404_graceful(monkeypatch, capsys):
+def test_reminders_404_graceful(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     from agentbus_client.client import AgentBusError
 
     class _B:
-        def reminders_owing(self):
-            raise AgentBusError("not found", status=404, code="not_found")
+        def reminders_owing(self) -> NoReturn:
+            msg = "not found"
+            raise AgentBusError(msg, status=404, code="not_found")
 
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _B())
     rc = cli_module.cmd_reminders(_rem_args(owed=False))
@@ -370,7 +378,7 @@ def test_reminders_404_graceful(monkeypatch, capsys):
     assert "not enabled on this server yet" in capsys.readouterr().err
 
 
-def test_reminders_sdk_methods_hit_right_endpoints():
+def test_reminders_sdk_methods_hit_right_endpoints() -> None:
     from agentbus_client.client import AgentBus
 
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")

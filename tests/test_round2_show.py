@@ -3,16 +3,18 @@ from __future__ import annotations
 import io
 import json
 import sys
-
-import pytest
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
 from agentbus_client.client import NotFoundError
 
+if TYPE_CHECKING:
+    import pytest
+
 BODY = "héllo wörld — ünïcode\nline two\n"
 
 
-def _delivery(**over) -> dict:
+def _delivery(**over: Any) -> dict:
     base = {
         "message_id": "msg_1",
         "thread_id": "th_1",
@@ -39,13 +41,14 @@ class _Bus:
         self.missing = missing
         self.calls: list[tuple] = []
 
-    def read(self, *args, **kwargs):
+    def read(self, *args: Any, **kwargs: Any) -> Any:
         self.calls.append(("read", args, kwargs))
         if self.missing:
-            raise NotFoundError("no such delivery")
+            msg = "no such delivery"
+            raise NotFoundError(msg)
         return self.delivery
 
-    def thread(self, *args, **kwargs):
+    def thread(self, *args: Any, **kwargs: Any) -> Any:
         self.calls.append(("thread", args, kwargs))
         return self.thread_result
 
@@ -53,7 +56,7 @@ class _Bus:
 def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> list:
     given: list = []
 
-    def _factory(args):
+    def _factory(args: Any) -> Any:
         given.append(args)
         return bus
 
@@ -61,7 +64,9 @@ def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> list:
     return given
 
 
-def test_raw_writes_utf8_bytes_even_on_a_latin1_stdout(monkeypatch, capsys) -> None:
+def test_raw_writes_utf8_bytes_even_on_a_latin1_stdout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus(_delivery())
     given = _install(monkeypatch, bus)
     raw = io.BytesIO()
@@ -74,7 +79,9 @@ def test_raw_writes_utf8_bytes_even_on_a_latin1_stdout(monkeypatch, capsys) -> N
     assert capsys.readouterr().err == ""
 
 
-def test_raw_unsealed_warns_on_stderr_only(monkeypatch, capsys) -> None:
+def test_raw_unsealed_warns_on_stderr_only(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _install(monkeypatch, _Bus(_delivery(sealed=False, text_body="plain é")))
     raw = io.BytesIO()
     monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="latin-1"))
@@ -84,7 +91,9 @@ def test_raw_unsealed_warns_on_stderr_only(monkeypatch, capsys) -> None:
     assert "is NOT sealed" in capsys.readouterr().err
 
 
-def test_raw_json_prints_the_delivery(monkeypatch, capsys) -> None:
+def test_raw_json_prints_the_delivery(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     delivery = _delivery()
     _install(monkeypatch, _Bus(delivery))
     assert cli.main(["show", "01DEL", "--raw", "--json"]) == 0
@@ -92,7 +101,9 @@ def test_raw_json_prints_the_delivery(monkeypatch, capsys) -> None:
     assert out == json.dumps(delivery, indent=2, default=str) + "\n"
 
 
-def test_raw_without_body_exits_one(monkeypatch, capsys) -> None:
+def test_raw_without_body_exits_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _install(monkeypatch, _Bus(_delivery(text_body=None)))
     assert cli.main(["show", "01DEL", "--raw"]) == 1
     captured = capsys.readouterr()
@@ -100,7 +111,9 @@ def test_raw_without_body_exits_one(monkeypatch, capsys) -> None:
     assert captured.err == "this delivery has no stored text body\n"
 
 
-def test_plain_json_prints_the_delivery(monkeypatch, capsys) -> None:
+def test_plain_json_prints_the_delivery(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     delivery = _delivery(payload={"total": 3})
     bus = _Bus(delivery)
     _install(monkeypatch, bus)
@@ -111,7 +124,9 @@ def test_plain_json_prints_the_delivery(monkeypatch, capsys) -> None:
     assert bus.calls == [("read", ("01DEL",), {"raw": False})]
 
 
-def test_thread_json_prints_the_thread(monkeypatch, capsys) -> None:
+def test_thread_json_prints_the_thread(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     thread = {"thread_id": "th_1", "messages": [{"id": "m1", "subject": "s"}]}
     bus = _Bus(_delivery(), thread=thread)
     _install(monkeypatch, bus)
@@ -121,7 +136,9 @@ def test_thread_json_prints_the_thread(monkeypatch, capsys) -> None:
     assert bus.calls == [("read", ("01DEL",), {"raw": False}), ("thread", ("th_1",), {})]
 
 
-def test_thread_id_fallback_json(monkeypatch, capsys) -> None:
+def test_thread_id_fallback_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     thread = {"thread_id": "01THR", "messages": []}
     bus = _Bus(_delivery(), thread=thread, missing=True)
     _install(monkeypatch, bus)
@@ -132,7 +149,9 @@ def test_thread_id_fallback_json(monkeypatch, capsys) -> None:
     assert bus.calls[1] == ("thread", ("01THR",), {})
 
 
-def test_envelope_lines(monkeypatch, capsys) -> None:
+def test_envelope_lines(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     delivery = _delivery(
         auth_verdicts={"dkim": "pass"},
         payload={"total": 3},
@@ -158,7 +177,9 @@ def test_envelope_lines(monkeypatch, capsys) -> None:
     assert "reply to everyone:     agentbus reply 01DEL --all -b '...'" in lines
 
 
-def test_cc_reader_and_address_fallback(monkeypatch, capsys) -> None:
+def test_cc_reader_and_address_fallback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     delivery = _delivery(
         sender_display="",
         your_role="cc",
@@ -178,7 +199,9 @@ def test_cc_reader_and_address_fallback(monkeypatch, capsys) -> None:
     assert not any(line.startswith("Auth:") for line in lines)
 
 
-def test_payload_without_ref_and_no_payload(monkeypatch, capsys) -> None:
+def test_payload_without_ref_and_no_payload(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _install(monkeypatch, _Bus(_delivery(payload=[1, "two"])))
     assert cli.main(["show", "01DEL"]) == 0
     lines = capsys.readouterr().out.splitlines()

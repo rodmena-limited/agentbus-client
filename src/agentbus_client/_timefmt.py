@@ -26,7 +26,8 @@ def _duration_seconds(value: Any) -> int | None:
     if isinstance(value, _dt.timedelta):
         return int(value.total_seconds())
     if isinstance(value, bool):  # bool is an int subclass; refuse it explicitly
-        raise ValueError(f"invalid duration: {value!r}")
+        msg = f"invalid duration: {value!r}"
+        raise ValueError(msg)
     if isinstance(value, int):
         return value
     from .cli._common import _parse_duration
@@ -53,7 +54,8 @@ def _as_instant(value: Any) -> str | None:
     if isinstance(value, _dt.datetime):
         moment = value.astimezone(_dt.timezone.utc) if value.tzinfo else value.astimezone()
         return moment.astimezone(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
-    raise ValueError(f"expected a datetime or ISO-8601 string, got {type(value).__name__}")
+    msg = f"expected a datetime or ISO-8601 string, got {type(value).__name__}"
+    raise ValueError(msg)
 
 
 def _expiry_instant(expire: Any, delay: Any = None, at: Any = None) -> str | None:

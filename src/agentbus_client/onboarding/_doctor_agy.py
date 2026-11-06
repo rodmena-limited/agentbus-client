@@ -70,7 +70,7 @@ def _binary_from(command: str) -> str:
     for token in command.split():
         if "=" not in token.split("/")[-1] or token.startswith("/"):
             return token
-    return command.split()[-1]
+    return command.rsplit(maxsplit=1)[-1]
 
 
 def doctor_wake_agy(agent: str, root: Path) -> int:
@@ -107,7 +107,7 @@ def doctor_wake_agy(agent: str, root: Path) -> int:
     # caught the real failure: an inherited `AGENTBUS_AGENT` made the hook act as
     # a DIFFERENT agent, poll that agent's inbox, and report no mail while this
     # project's own mail sat unread. Nothing errored; every other check was green.
-    from ..hooks import _antigravity
+    from agentbus_client.hooks import _antigravity, _identity
 
     resolved = _antigravity._agent_for({"workspacePaths": [str(root)]})
     # COMPARE AGAINST THE CHECKOUT'S OWN DECLARATION, not against whatever name
@@ -117,7 +117,7 @@ def doctor_wake_agy(agent: str, root: Path) -> int:
     # launched agy. Comparing the two would flag the hook as wrong every time an
     # operator ran doctor from a shell carrying another agent's identity — which
     # is exactly what the first version of this check did, on its first run.
-    declared = _antigravity._read_declared_agent(root)
+    declared = _identity._read_declared_agent(root)
     if resolved is None:
         failures.append(
             "the hook resolves NO agent for this checkout, so it will always do "

@@ -31,6 +31,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+from typing_extensions import Self
+
 import agentbus_client.hooks.claude_code as hk
 
 
@@ -43,10 +45,10 @@ class _Resp:
     def read(self) -> bytes:
         return json.dumps(self._payload).encode()
 
-    def __enter__(self) -> _Resp:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *a: Any) -> None:
+    def __exit__(self, *a: object) -> None:
         pass
 
 
@@ -152,7 +154,8 @@ def test_unreachable_bus_allows_with_warning(monkeypatch: pytest.MonkeyPatch) ->
     """Bus down / transport error: no verdict, so the session proceeds."""
 
     def boom(*_a: Any, **_k: Any) -> _Resp:
-        raise ConnectionError("connection refused")
+        msg = "connection refused"
+        raise ConnectionError(msg)
 
     monkeypatch.setattr(hk.urllib.request, "urlopen", boom)
     result, _ = _capture(monkeypatch, AGENTBUS_API_KEY="ab_sk_ok", AGENTBUS_AGENT="wired-agent")
@@ -171,16 +174,19 @@ def test_dead_network_allows_fast_and_opens_the_circuit(
 
     def never(*_a: Any, **_k: Any) -> _Resp:
         calls["urlopen"] += 1
-        raise AssertionError("urlopen must not be attempted when the bus is unreachable")
+        msg = "urlopen must not be attempted when the bus is unreachable"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(hk.urllib.request, "urlopen", never)
     _REACHABLE["value"] = (False, "TimeoutError: timed out")
     try:
         first, _ = _capture(monkeypatch, AGENTBUS_API_KEY="ab_sk_ok", AGENTBUS_AGENT="wired-agent")
         assert _decision(first) == "allow"
-        assert "UNVETTED" in _reason(first) and "unreachable" in _reason(first)
+        assert "UNVETTED" in _reason(first)
+        assert "unreachable" in _reason(first)
         state = json.loads(hk._gate_degraded_file("wired-agent").read_text())
-        assert state["reason"] == "connect_failure" and state["count"] == 1
+        assert state["reason"] == "connect_failure"
+        assert state["count"] == 1
         # Second call: the circuit is open on the FIRST connect failure, so the
         # hook answers from the state file without even dialling.
         _REACHABLE["value"] = (True, "")

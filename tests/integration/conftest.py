@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -39,7 +40,7 @@ def _operator_key() -> str | None:
 _HERE = Path(__file__).parent.resolve()
 
 
-def _is_integration(item) -> bool:
+def _is_integration(item: Any) -> bool:
     """Only OUR items.
 
     `pytest_collection_modifyitems` is a GLOBAL hook: a conftest in a
@@ -55,7 +56,7 @@ def _is_integration(item) -> bool:
         return False
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: Any, items: Any) -> None:
     """Skip with a REASON, never silently.
 
     A suite that quietly collects nothing looks identical to one that passed,
@@ -83,7 +84,7 @@ def operator_key() -> str:
 
 
 @pytest.fixture
-def workspace(tmp_path, monkeypatch):
+def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """A throwaway project directory with its own config home.
 
     Points AGENTBUS config at tmp_path so a test can never write to, or read

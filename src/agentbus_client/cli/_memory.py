@@ -20,13 +20,16 @@ here before they were rules:
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from ._common import _bus, _print, _read_body
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _render(result: dict[str, Any]) -> None:
@@ -90,7 +93,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
                 return 2
             result = bus.memory_add(text, agent=args.agent)
             if args.json:
-                _print(result, True)
+                _print(result, as_json=True)
             else:
                 print(
                     f"remembered as seq {result['seq']} "
@@ -103,7 +106,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
         if action == "fetch":
             result = bus.memory_fetch(agent=args.agent)
             if args.json:
-                _print(result, True)
+                _print(result, as_json=True)
             else:
                 _render(result)
             return 0
@@ -111,7 +114,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
         if action == "rm":
             result = bus.memory_delete(args.seq, agent=args.agent)
             if args.json:
-                _print(result, True)
+                _print(result, as_json=True)
             else:
                 print(
                     f"removed seq {args.seq} "
@@ -124,7 +127,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
             result = bus.memory_truncate(first=args.first, agent=args.agent)
             removed = result.get("removed", [])
             if args.json:
-                _print(result, True)
+                _print(result, as_json=True)
             else:
                 # WHAT WAS ACTUALLY REMOVED, not what was asked for. `--first 10`
                 # against a store of 3 removes 3, and a caller told "10" carries
@@ -140,7 +143,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
         if action == "reseal":
             result = bus.memory_reseal(agent=args.agent)
             if args.json:
-                _print(result, True)
+                _print(result, as_json=True)
                 return 0
             resealed = result.get("resealed", [])
             stuck = result.get("unrecoverable", [])

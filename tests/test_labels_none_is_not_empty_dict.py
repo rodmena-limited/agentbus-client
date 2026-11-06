@@ -24,6 +24,8 @@ asserted rather than assumed.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agentbus_client.client import AgentBus, AsyncAgentBus
@@ -32,16 +34,16 @@ from agentbus_client.client import AgentBus, AsyncAgentBus
 class _Spy:
     """Captures the register payload without touching the network."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.body = None
 
-    def __call__(self, method, path, **kw):
+    def __call__(self, method: Any, path: Any, **kw: Any) -> dict[str, Any]:
         if "register" in path:
             self.body = kw.get("json")
         return {"agent": {"name": "a", "labels": {}}, "address": "a@b", "rooms": []}
 
 
-def _payload(**kwargs):
+def _payload(**kwargs: Any) -> Any:
     bus = AgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
     spy = _Spy()
     bus._request = spy
@@ -49,34 +51,35 @@ def _payload(**kwargs):
     return spy.body
 
 
-def test_omitting_labels_omits_the_key_entirely():
+def test_omitting_labels_omits_the_key_entirely() -> None:
     """The silent case. `labels` absent means "I did not ask about labels"."""
     assert "labels" not in _payload()
 
 
-def test_an_explicit_empty_dict_is_still_sent():
+def test_an_explicit_empty_dict_is_still_sent() -> None:
     """The clear attempt. It must reach the server so the advisory can fire —
     dropping it would trade noise for silence, which is the same bug."""
     body = _payload(labels={})
-    assert "labels" in body and body["labels"] == {}
+    assert "labels" in body
+    assert body["labels"] == {}
 
 
-def test_real_labels_are_sent_unchanged():
+def test_real_labels_are_sent_unchanged() -> None:
     assert _payload(labels={"team": "core"})["labels"] == {"team": "core"}
 
 
-def test_none_and_empty_dict_are_not_the_same_request():
+def test_none_and_empty_dict_are_not_the_same_request() -> None:
     """The whole point, stated as one assertion."""
     assert _payload() != _payload(labels={})
 
 
 @pytest.mark.asyncio
-async def test_the_async_twin_behaves_identically():
+async def test_the_async_twin_behaves_identically() -> None:
     """Parity, asserted rather than assumed — this pair has drifted before."""
     bus = AsyncAgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
     captured = {}
 
-    async def spy(method, path, **kw):
+    async def spy(method: Any, path: Any, **kw: Any) -> dict[str, Any]:
         if "register" in path:
             captured["body"] = kw.get("json")
         return {"agent": {"name": "a", "labels": {}}, "address": "a@b", "rooms": []}
@@ -88,7 +91,7 @@ async def test_the_async_twin_behaves_identically():
     assert captured["body"]["labels"] == {}
 
 
-def test_neither_surface_coerces_none_to_an_empty_dict():
+def test_neither_surface_coerces_none_to_an_empty_dict() -> None:
     """Regression guard on the exact expression that caused this.
 
     `labels or {}` is the bug: it cannot distinguish None from {} because both

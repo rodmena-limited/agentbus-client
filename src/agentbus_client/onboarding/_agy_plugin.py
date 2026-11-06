@@ -29,14 +29,16 @@ config this client touches: our entries are recognized by their own content
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ._paths import (
     _MARKER_HOOK,
     AGY_WAKE_HOOK_TIMEOUT_SEC,
     AGY_WAKE_WINDOW_SEC,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Our hook names in the shared `hooks.json`. Namespaced with the `agentbus-`
 # prefix so a foreign hook called "wake" cannot collide with ours.
@@ -214,7 +216,9 @@ def load_hooks(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise SystemExit(f"refusing to touch {path}: it is not valid JSON ({exc})") from None
+        msg = f"refusing to touch {path}: it is not valid JSON ({exc})"
+        raise SystemExit(msg) from None
     if not isinstance(data, dict):
-        raise SystemExit(f"refusing to touch {path}: expected a JSON object")
+        msg = f"refusing to touch {path}: expected a JSON object"
+        raise SystemExit(msg)
     return data

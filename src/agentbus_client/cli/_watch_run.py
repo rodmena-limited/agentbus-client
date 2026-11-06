@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import os
 import subprocess
 import sys
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError, AuthError
+from agentbus_client.client import AgentBusError, AuthError
+
 from . import _common
 from ._common import _cfg_dir
 from ._watch_runtime import _watch_logfile, _watch_pid, _watch_pidfile
+
+if TYPE_CHECKING:
+    import argparse
+    from collections.abc import Callable
 
 
 def cmd_watch(args: argparse.Namespace) -> int:
@@ -25,8 +28,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
     """
     from pathlib import Path
 
-    from .._coalesce import Coalescer
-    from ..watch import Watcher, append_file, notify_command, print_line
+    from agentbus_client._coalesce import Coalescer
+    from agentbus_client.watch import Watcher, append_file, notify_command, print_line
 
     bus = _common._bus(args)
     agent = _common.require_acting_agent(args, bus)
@@ -231,7 +234,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     # against the exact interpreter the watcher runs out of. Same reason the
     # state file records client_version — surfaces make the failure mode
     # discoverable at the FIRST place someone would look.
-    from .. import __version__ as _client_ver
+    from agentbus_client import __version__ as _client_ver
 
     print(
         f"agentbus watch {_client_ver}: {agent} on {bus.base_url} (state: {state})",
@@ -257,11 +260,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
     import signal as _signal
     import threading as _threading
 
-    from ..watch import EXIT_DEAD_WAKE_SOCKET, WatchTerminated
-    from ..watch import DeadWakeSocket as _DeadWakeSocket
+    from agentbus_client.watch import (
+        EXIT_DEAD_WAKE_SOCKET,
+        DeadWakeSocket as _DeadWakeSocket,
+        WatchTerminated,
+    )
 
     def _on_sigterm(_signum: int, _frame: Any) -> None:
-        raise WatchTerminated()
+        raise WatchTerminated
 
     previous_handler: Any = None
     if _threading.current_thread() is _threading.main_thread():

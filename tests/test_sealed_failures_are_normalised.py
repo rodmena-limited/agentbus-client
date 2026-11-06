@@ -41,7 +41,7 @@ sys.path.insert(0, str(REPO / "src"))
 from agentbus_client import sealing
 
 
-@pytest.fixture()
+@pytest.fixture
 def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(sealing, "config_dir", lambda: tmp_path)
     # ensure_keypair() with no explicit agent falls back to $AGENTBUS_AGENT (a
@@ -173,7 +173,8 @@ def test_a_malformed_error_from_below_is_not_retried_against_every_key() -> None
 
     def _damaged(key: str) -> None:
         attempts.append(key)
-        raise sealing.MalformedSealed("damaged, raised by the primitive")
+        msg = "damaged, raised by the primitive"
+        raise sealing.MalformedSealed(msg)
 
     with pytest.raises(sealing.MalformedSealed):
         sealing._open_with_each(_damaged)

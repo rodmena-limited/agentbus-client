@@ -19,11 +19,15 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
 from agentbus_client import cli
 from agentbus_client.client import AgentBusError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _Bus:
@@ -32,18 +36,19 @@ class _Bus:
 
     agent = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.registered: list[tuple] = []
 
-    def register(self, name, **kw):
+    def register(self, name: str, **kw: Any) -> dict[str, Any]:
         self.registered.append((name, kw.get("role")))
         return {"agent": {"name": name or "server-invented-name"}, "address": "a@b", "rooms": []}
 
-    def whoami(self):
-        raise AgentBusError("retired", code="agent_retired", status=409)
+    def whoami(self) -> NoReturn:
+        msg = "retired"
+        raise AgentBusError(msg, code="agent_retired", status=409)
 
 
-def _args(**over):
+def _args(**over: Any) -> argparse.Namespace:
     base = {
         "name": None,
         "role": None,
@@ -63,7 +68,9 @@ def _args(**over):
     return argparse.Namespace(**base)
 
 
-def test_a_bare_register_in_a_wired_project_reuses_its_identity(monkeypatch, tmp_path):
+def test_a_bare_register_in_a_wired_project_reuses_its_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """THE REGRESSION: it used to mint a stranger and refuse afterwards."""
     bus = _Bus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
@@ -81,7 +88,7 @@ def test_a_bare_register_in_a_wired_project_reuses_its_identity(monkeypatch, tmp
     assert "already declares" in buf.getvalue()
 
 
-def test_an_explicit_name_is_still_honoured(monkeypatch):
+def test_an_explicit_name_is_still_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE TWIN. Registering a SECOND agent in a wired project is a
     legitimate act; the fix must not make it impossible."""
     bus = _Bus()
@@ -94,7 +101,7 @@ def test_an_explicit_name_is_still_honoured(monkeypatch):
     assert bus.registered[0][0] == "deliberate-second"
 
 
-def test_a_role_is_still_honoured(monkeypatch):
+def test_a_role_is_still_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
     """The other twin: --role means 'derive one', not 'reuse whatever is here'."""
     bus = _Bus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
@@ -106,7 +113,7 @@ def test_a_role_is_still_honoured(monkeypatch):
     assert bus.registered[0] == (None, "datashard")
 
 
-def test_whoami_reports_a_retired_agent_instead_of_dying(monkeypatch):
+def test_whoami_reports_a_retired_agent_instead_of_dying(monkeypatch: pytest.MonkeyPatch) -> None:
     """The diagnostic must work at the moment something IS wrong."""
     bus = _Bus()
     bus.agent = "auditor-be8047"
@@ -121,20 +128,23 @@ def test_whoami_reports_a_retired_agent_instead_of_dying(monkeypatch):
     assert "reversible" in out or "NOT deletion" in out
 
 
-def test_whoami_still_raises_on_other_errors(monkeypatch):
+def test_whoami_still_raises_on_other_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE TWIN: only `agent_retired` is swallowed. A 401 must not be
     reported as a healthy retired agent."""
 
     class _Dead(_Bus):
-        def whoami(self):
-            raise AgentBusError("nope", code="unauthenticated", status=401)
+        def whoami(self) -> NoReturn:
+            msg = "nope"
+            raise AgentBusError(msg, code="unauthenticated", status=401)
 
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _Dead())
     with pytest.raises(AgentBusError):
         cli.cmd_whoami(_args())
 
 
-def test_setup_says_when_a_declared_name_overrode_your_role(monkeypatch):
+def test_setup_says_when_a_declared_name_overrode_your_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The other half of the loop: `--role datashard` in a checkout that declares
     `auditor-be8047` did nothing, silently. A declared NAME outranks a role, and
     the 0.9.88 note only covered the case where no name was resolved at all."""
@@ -147,26 +157,26 @@ def test_setup_says_when_a_declared_name_overrode_your_role(monkeypatch):
     class _B:
         agent = None
 
-        def register(self, name, **kw):
+        def register(self, name: str, **kw: Any) -> dict[str, Any]:
             return {
                 "agent": {"name": "auditor-be8047", "device_hash": "x"},
                 "address": "auditor-be8047@mail.test",
                 "rooms": [],
             }
 
-        def phonebook(self, **kw):
+        def phonebook(self, **kw: Any) -> list[Any]:
             return []
 
-        def whoami(self):
+        def whoami(self) -> dict[str, Any]:
             return {"agent": {"name": "auditor-be8047"}, "workspace": {"slug": "w"}}
 
-        def close(self):
+        def close(self) -> None:
             pass
 
-        def __enter__(self):
+        def __enter__(self) -> Any:
             return self
 
-        def __exit__(self, *a):
+        def __exit__(self, *a: Any) -> bool:
             return False
 
     monkeypatch.setattr(_provision, "AgentBus", lambda **kw: _B())

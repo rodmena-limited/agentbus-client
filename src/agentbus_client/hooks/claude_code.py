@@ -49,32 +49,18 @@ the bus is unreachable is worse than one that says nothing.
 from __future__ import annotations
 
 import argparse
-import contextlib
-import json
-import os
-import re
-import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
-from pathlib import Path
-from typing import Any
 
 # Split into sibling modules (review #23, file-size cap); every name is re-exported
 # here so `claude_code.<name>` keeps resolving. Tests patch helpers on the defining module.
-from . import _gate, _identity, _inject, _session, _state, _turn
+from . import _gate, _identity, _session
 from ._gate import (
-    _bus_reachable,
     pre_tool_use,
 )
 from ._identity import (
-    _REPO_ROOT_CACHE,
     _adopt_credential_for,
-    _agent_from_project_settings,
-    _agent_from_worktree,
-    _read_declared_agent,
-    _repo_root,
     _resolve_agent,
     _worktree_identity_bleed,
 )
@@ -82,38 +68,60 @@ from ._inject import (
     inject,
 )
 from ._session import (
-    _greet_with_qr,
     _identity_claim_path,
     _identity_held_live,
-    _is_self_send,
     _warn_if_env_overrides_this_checkout,
     _warn_if_identity_shared,
     session_start,
 )
 from ._state import (
-    _HARNESS_NOTIFICATION_MARKERS,
-    _SECRET_RE,
     EXIT_MISCONFIGURED,
     EXIT_NOT_WIRED,
     _gate_degraded_file,
     _hook_state_dir,
-    _hook_warn,
-    _is_harness_notification,
     _notify_error_file,
-    _scrub,
     _wake_file,
-    _warn_if_shadow_queue,
     clear_gate_degraded,
     clear_notify_failure,
     record_gate_degraded,
     record_notify_failure,
 )
 from ._turn import (
-    _session_id_from_stdin,
     notify,
     pending,
     session_end,
 )
+
+__all__ = [
+    "EXIT_MISCONFIGURED",
+    "EXIT_NOT_WIRED",
+    "_adopt_credential_for",
+    "_gate",
+    "_gate_degraded_file",
+    "_hook_state_dir",
+    "_identity",
+    "_identity_claim_path",
+    "_identity_held_live",
+    "_notify_error_file",
+    "_resolve_agent",
+    "_session",
+    "_wake_file",
+    "_warn_if_env_overrides_this_checkout",
+    "_warn_if_identity_shared",
+    "_worktree_identity_bleed",
+    "clear_gate_degraded",
+    "clear_notify_failure",
+    "inject",
+    "main",
+    "notify",
+    "pending",
+    "pre_tool_use",
+    "record_gate_degraded",
+    "record_notify_failure",
+    "session_end",
+    "session_start",
+    "urllib",
+]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -181,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("monitor")
 
     def _monitor(_a: argparse.Namespace) -> int:
-        from ..rewake import monitor as _m
+        from agentbus_client.rewake import monitor as _m
 
         rc: int = _m(_a)
         return rc

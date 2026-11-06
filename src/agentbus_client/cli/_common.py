@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import os
@@ -10,10 +9,13 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBus, AgentBusError
-from ..client.errors import TransportError
+from agentbus_client.client import AgentBus, AgentBusError
+from agentbus_client.client.errors import TransportError
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _parse_duration(value: str) -> Any:
@@ -29,14 +31,16 @@ def _parse_duration(value: str) -> Any:
     import re as _re
 
     if value is None:
-        raise InputError("empty duration")
+        msg = "empty duration"
+        raise InputError(msg)
     v = str(value).strip().lower()
     m = _re.fullmatch(r"(\d+)(s|m|h|d)?", v)
     if not m:
-        raise InputError(
+        msg = (
             f"invalid duration '{value}' — use seconds, or <number><unit> "
             "where unit is s/m/h/d (e.g. 90m, 2h, 3d, 3600)"
         )
+        raise InputError(msg)
     num = int(m.group(1))
     unit = m.group(2) or "s"
     seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit] * num
@@ -58,10 +62,11 @@ def _read_body(value: str | None) -> str | None:
         with open(value[1:], encoding="utf-8") as handle:
             return handle.read()
     if os.path.isfile(value) and len(value) < 4096 and "\n" not in value:
-        raise SystemExit(
+        msg = (
             f"refusing to send the literal path '{value}'. "
             f"Use '@{value}' to send the file's contents."
         )
+        raise SystemExit(msg)
     return value
 
 
@@ -88,13 +93,12 @@ AGENT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 
 def checked_agent_name(name: str) -> str:
     if not AGENT_NAME.match(name):
-        raise InputError(
-            f"--agent {name!r}: agent names use only letters, digits, '.', '_' and '-'"
-        )
+        msg = f"--agent {name!r}: agent names use only letters, digits, '.', '_' and '-'"
+        raise InputError(msg)
     return name
 
 
-def _print(data: Any, as_json: bool) -> None:
+def _print(data: Any, *, as_json: bool) -> None:
     if as_json:
         print(json.dumps(data, indent=2, default=str))
         return
@@ -125,11 +129,12 @@ def _resolve_env_agent() -> str | None:
     if not env_agent:
         return None
     if not AGENT_NAME.match(env_agent):
-        raise InputError(
+        msg = (
             f"$AGENTBUS_AGENT is {env_agent!r}, which is not an agent name "
             "(letters, digits, '.', '_' and '-' only)"
         )
-    from ..hooks import _identity as _hook_identity
+        raise InputError(msg)
+    from agentbus_client.hooks import _identity as _hook_identity
 
     own = _hook_identity._worktree_identity_bleed(env_agent)
     if own:
@@ -154,7 +159,7 @@ def acting_agent(
         if env_agent:
             return env_agent
         if not (getattr(args, "api_key", None) or os.environ.get("AGENTBUS_API_KEY")):
-            from ..onboarding._identity import _session_identity
+            from agentbus_client.onboarding._identity import _session_identity
 
             declared = _session_identity()
             if declared or not network:
@@ -205,7 +210,7 @@ def _key_for_agent(agent: str) -> str | None:
     on the env-reversal path — exactly the code that consumes a hostile
     checkout's declared identity.
     """
-    from .. import sealing
+    from agentbus_client import sealing
 
     with contextlib.suppress(OSError, ValueError):
         key_file = Path.home() / ".config" / "agentbus" / "keys" / sealing.bound_env_filename(agent)
@@ -238,18 +243,19 @@ def _bus(args: argparse.Namespace) -> AgentBus:
             api_key = own_key
     if not api_key:
         # signin stored it once; every verb honours that, not just setup.
-        from ..onboarding import resolve_credentials
+        from agentbus_client.onboarding import resolve_credentials
 
         stored_key, stored_agent = resolve_credentials(preferred_agent=agent)
         if stored_key:
             api_key = stored_key
             agent = agent or stored_agent
         else:
-            from ..onboarding import explain_refusal
+            from agentbus_client.onboarding import explain_refusal
 
             why = explain_refusal(agent)
             if why:
-                raise SystemExit(f"error: {why}")
+                msg = f"error: {why}"
+                raise SystemExit(msg)
     return AgentBus(api_key=api_key, base_url=args.base_url, agent=agent)
 
 
@@ -261,14 +267,14 @@ def _print_qr(payload: str) -> bool:
     `inbox` and hook invocation would have paid it for a feature almost nobody
     calls. It is imported here, inside the one command that needs it.
     """
-    from ..qr import render
+    from agentbus_client.qr import render
 
     return render(payload)
 
 
 def _cfg_dir() -> Path:
     """The one config dir. See onboarding._config_dir for why this is central."""
-    from ..identity import config_dir
+    from agentbus_client.identity import config_dir
 
     return config_dir()
 
@@ -294,7 +300,7 @@ def _as_message_id(bus: AgentBus, ident: str) -> str:
 
 
 def _client_version() -> str:
-    from .. import __version__
+    from agentbus_client import __version__
 
     return str(__version__)
 

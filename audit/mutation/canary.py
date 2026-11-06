@@ -42,7 +42,8 @@ def _scratch(selection: list[str], extra: dict[str, str]) -> pathlib.Path:
     pyproject = (ROOT / "pyproject.toml").read_text()
     head, sep, _ = pyproject.partition("[tool.mutmut]")
     if not sep:
-        raise SystemExit("HARNESS-FAILED: pyproject.toml has no [tool.mutmut] section")
+        msg = "HARNESS-FAILED: pyproject.toml has no [tool.mutmut] section"
+        raise SystemExit(msg)
     (work / "pyproject.toml").write_text(head + _mutmut_section(selection))
     for rel, body in extra.items():
         (work / rel).write_text(body)

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import base64
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from agentbus_client.client import AgentBusError, SelfReplyError
 from agentbus_client.client._reply_guard import _refuse_self_reply
 from agentbus_client.client.attachments import _encode_attachments
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 DETAIL = (
     "reply to msg_1 would reach only YOU (me): that id is a "

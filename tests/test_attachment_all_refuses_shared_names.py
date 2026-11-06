@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _Bus:

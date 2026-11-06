@@ -9,20 +9,27 @@ arrived.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import pytest
 
 from agentbus_client import client as client_module
 from agentbus_client.client import AgentBusError
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
-def _write(path, size: int) -> None:
+
+def _write(path: Any, size: int) -> None:
     """A file of `size` bytes without reading it into Python RAM."""
     with open(path, "wb") as f:
         f.seek(size - 1)
         f.write(b"\0")
 
 
-def test_default_10_mib_server_cap_refuses_11_mib_file(tmp_path, monkeypatch) -> None:
+def test_default_10_mib_server_cap_refuses_11_mib_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", raising=False)
     monkeypatch.delenv("AGENTBUS_MAX_ATTACHMENT_BYTES", raising=False)
     big = tmp_path / "xxl.bin"
@@ -41,7 +48,7 @@ def test_default_10_mib_server_cap_refuses_11_mib_file(tmp_path, monkeypatch) ->
     assert "AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES" in msg
 
 
-def test_file_under_server_cap_is_encoded(tmp_path, monkeypatch) -> None:
+def test_file_under_server_cap_is_encoded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", raising=False)
     small = tmp_path / "small.txt"
     small.write_bytes(b"hi")
@@ -51,7 +58,9 @@ def test_file_under_server_cap_is_encoded(tmp_path, monkeypatch) -> None:
     assert out[0]["filename"] == "small.txt"
 
 
-def test_env_override_raises_the_server_cap(tmp_path, monkeypatch) -> None:
+def test_env_override_raises_the_server_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """If an operator's server was reconfigured up, the client must not block
     them with a stale hardcoded value."""
     monkeypatch.setenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", str(25 * 1024 * 1024))
@@ -64,7 +73,9 @@ def test_env_override_raises_the_server_cap(tmp_path, monkeypatch) -> None:
     assert out[0]["filename"] == "mid.bin"
 
 
-def test_server_cap_wins_over_client_ram_cap_when_smaller(tmp_path, monkeypatch) -> None:
+def test_server_cap_wins_over_client_ram_cap_when_smaller(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The server cap fires FIRST when both would refuse — the error message
     the user sees is the one that matches the actual reason the send would
     have failed against the server."""

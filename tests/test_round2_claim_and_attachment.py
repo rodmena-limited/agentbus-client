@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import httpx
 import pytest
@@ -9,12 +10,15 @@ import pytest
 from agentbus_client import sealing
 from agentbus_client.client import AgentBus, AgentBusError, TransportError
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 BASE = "https://bus.round2.test"
 READER = "reader-a-1"
 
 
 class Recorder:
-    def __init__(self, responder) -> None:
+    def __init__(self, responder: Any) -> None:
         self.responder = responder
         self.requests: list[httpx.Request] = []
 
@@ -30,7 +34,7 @@ def _client(recorder: Recorder, agent: str | None = READER) -> AgentBus:
     return bus
 
 
-def _json(payload, status=200):
+def _json(payload: Any, status: int = 200) -> Any:
     return lambda request: httpx.Response(status, json=payload)
 
 
@@ -58,7 +62,7 @@ def test_get_claim_acts_as_the_explicit_agent() -> None:
 
 
 @pytest.mark.parametrize("malformed", [[], ["claim"], "text", 7])
-def test_get_claim_marks_a_non_object_response_malformed(malformed) -> None:
+def test_get_claim_marks_a_non_object_response_malformed(malformed: Any) -> None:
     recorder = Recorder(_json(malformed))
     assert _client(recorder).get_claim("msg-77") == {"claim": None, "note": "malformed"}
     assert len(recorder.requests) == 1
@@ -103,7 +107,7 @@ def test_record_verdict_sends_only_the_result_when_nothing_was_observed() -> Non
 
 
 @pytest.mark.parametrize(
-    "field,value",
+    ("field", "value"),
     [
         ("observed_exit", 3),
         ("observed_output", "boom"),
@@ -111,7 +115,7 @@ def test_record_verdict_sends_only_the_result_when_nothing_was_observed() -> Non
         ("env_note", "freebsd"),
     ],
 )
-def test_record_verdict_sends_each_observation_alone(field, value) -> None:
+def test_record_verdict_sends_each_observation_alone(field: Any, value: Any) -> None:
     recorder = Recorder(_json({"verdict_id": "v-44", "result": "reproduced"}))
     _client(recorder).record_verdict("msg-77", result="reproduced", **{field: value})
     assert json.loads(recorder.requests[0].content) == {"result": "reproduced", field: value}
@@ -136,7 +140,7 @@ def test_record_verdict_surfaces_a_refusal() -> None:
         _client(recorder).record_verdict("msg-77", result="reproduced")
 
 
-def _bytes(content: bytes, status=200):
+def _bytes(content: bytes, status: int = 200) -> Any:
     return lambda request: httpx.Response(status, content=content)
 
 
@@ -176,13 +180,15 @@ class CountingStream(httpx.SyncByteStream):
         self.count = count
         self.served = 0
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         for _ in range(self.count):
             self.served += 1
             yield self.chunk
 
 
-def test_the_cap_trips_while_streaming_before_the_body_is_read(monkeypatch) -> None:
+def test_the_cap_trips_while_streaming_before_the_body_is_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("AGENTBUS_MAX_ATTACHMENT_BYTES", "100000")
     stream = CountingStream(b"z" * 16 * 1024, 64)
     recorder = Recorder(lambda request: httpx.Response(200, stream=stream))
@@ -193,7 +199,7 @@ def test_the_cap_trips_while_streaming_before_the_body_is_read(monkeypatch) -> N
     assert stream.served < 64
 
 
-def test_the_cap_counts_bytes_across_chunks(monkeypatch) -> None:
+def test_the_cap_counts_bytes_across_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTBUS_MAX_ATTACHMENT_BYTES", "100000")
     recorder = Recorder(_bytes(b"q" * 200_000))
     with pytest.raises(AgentBusError) as exc:
@@ -201,7 +207,9 @@ def test_the_cap_counts_bytes_across_chunks(monkeypatch) -> None:
     assert "150,000 byte cap" in str(exc.value)
 
 
-def test_a_body_of_exactly_the_cap_is_accepted_and_one_more_byte_is_not(monkeypatch) -> None:
+def test_a_body_of_exactly_the_cap_is_accepted_and_one_more_byte_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("AGENTBUS_MAX_ATTACHMENT_BYTES", "100000")
     exact = b"e" * 150_000
     assert _client(Recorder(_bytes(exact))).attachment("dlv-9") == exact
@@ -209,7 +217,9 @@ def test_a_body_of_exactly_the_cap_is_accepted_and_one_more_byte_is_not(monkeypa
         _client(Recorder(_bytes(exact + b"!"))).attachment("dlv-9")
 
 
-def test_the_default_cap_is_one_and_a_half_times_fifty_megabytes(monkeypatch) -> None:
+def test_the_default_cap_is_one_and_a_half_times_fifty_megabytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("AGENTBUS_MAX_ATTACHMENT_BYTES", raising=False)
     stream = CountingStream(b"d" * (1024 * 1024), 200)
     recorder = Recorder(lambda request: httpx.Response(200, stream=stream))
@@ -227,8 +237,9 @@ def test_an_attachment_error_status_raises() -> None:
 
 
 def test_a_transport_failure_is_a_typed_transport_error() -> None:
-    def refuse(request):
-        raise httpx.ConnectError("connection refused", request=request)
+    def refuse(request: pytest.FixtureRequest) -> NoReturn:
+        msg = "connection refused"
+        raise httpx.ConnectError(msg, request=request)
 
     with pytest.raises(TransportError):
         _client(Recorder(refuse)).attachment("dlv-9")

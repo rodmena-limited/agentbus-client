@@ -17,6 +17,7 @@ for in the last day:
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 import pytest
 
@@ -27,32 +28,32 @@ from agentbus_client.cli._parser import build_parser, verbs
 
 
 @pytest.mark.parametrize(
-    "given,seconds",
+    ("given", "seconds"),
     [("90m", 5400), ("2h", 7200), ("3d", 259200), ("45", 45), (3600, 3600)],
 )
-def test_durations_coerce_to_seconds(given, seconds):
+def test_durations_coerce_to_seconds(given: Any, seconds: Any) -> None:
     assert _duration_seconds(given) == seconds
 
 
-def test_timedelta_passes_through():
+def test_timedelta_passes_through() -> None:
     assert _duration_seconds(dt.timedelta(hours=2)) == 7200
 
 
-def test_none_stays_none_so_callers_can_splat_it():
+def test_none_stays_none_so_callers_can_splat_it() -> None:
     """None must survive, or every caller needs a branch to decide whether the
     key belongs in the payload at all."""
     assert _duration_seconds(None) is None
     assert _as_instant(None) is None
 
 
-def test_bool_is_refused_even_though_it_is_an_int():
+def test_bool_is_refused_even_though_it_is_an_int() -> None:
     """`--delay True` is a bug, not a 1-second delay. bool subclasses int, so
     without this it would silently mean one second."""
     with pytest.raises(ValueError):
         _duration_seconds(True)
 
 
-def test_nonsense_duration_is_refused_locally():
+def test_nonsense_duration_is_refused_locally() -> None:
     """Caught here, not as a confusing server 422."""
     with pytest.raises(ValueError):
         _duration_seconds("tuesday")
@@ -61,12 +62,12 @@ def test_nonsense_duration_is_refused_locally():
 # ------------------------------------------------------------------- instants
 
 
-def test_aware_datetime_converts_to_utc():
+def test_aware_datetime_converts_to_utc() -> None:
     moment = dt.datetime(2026, 8, 21, 9, 0, tzinfo=dt.timezone(dt.timedelta(hours=2)))
     assert _as_instant(moment) == "2026-08-21T07:00:00Z"
 
 
-def test_subsecond_precision_survives():
+def test_subsecond_precision_survives() -> None:
     """RunFlow honours fire_at exactly; truncating it fires EARLY into a
     not-yet-due row, which reads as a green run that accomplished nothing.
     Their mail-api incident was exactly this."""
@@ -74,7 +75,7 @@ def test_subsecond_precision_survives():
     assert "25.822" in _as_instant(moment)
 
 
-def test_a_datetime_is_never_sent_as_a_bare_local_string():
+def test_a_datetime_is_never_sent_as_a_bare_local_string() -> None:
     """A naive datetime must be resolved against the local zone and converted,
     not shipped as-is for a server in another zone to read as UTC. An
     off-by-hours reminder looks like flakiness, not like a defect."""
@@ -82,7 +83,7 @@ def test_a_datetime_is_never_sent_as_a_bare_local_string():
     assert _as_instant(naive).endswith("Z")
 
 
-def test_a_wrong_type_is_refused_rather_than_stringified():
+def test_a_wrong_type_is_refused_rather_than_stringified() -> None:
     with pytest.raises(ValueError):
         _as_instant(12345)
 
@@ -90,15 +91,15 @@ def test_a_wrong_type_is_refused_rather_than_stringified():
 # ----------------------------------------------------------------- the parser
 
 
-def _parse(*argv):
+def _parse(*argv: Any) -> Any:
     return build_parser().parse_args(["remind", *argv])
 
 
-def test_target_is_optional_because_self_notes_are_the_common_case():
+def test_target_is_optional_because_self_notes_are_the_common_case() -> None:
     assert _parse("-m", "x", "--delay", "2h").target is None
 
 
-def test_every_documented_flag_is_accepted():
+def test_every_documented_flag_is_accepted() -> None:
     args = _parse(
         "-m",
         "ship it",
@@ -115,12 +116,15 @@ def test_every_documented_flag_is_accepted():
         "--timezone",
         "Europe/London",
     )
-    assert args.target == "alice" and args.delay == "2h" and args.expire == "3d"
-    assert args.repeat == "daily" and args.repeat_until == "2026-12-01"
+    assert args.target == "alice"
+    assert args.delay == "2h"
+    assert args.expire == "3d"
+    assert args.repeat == "daily"
+    assert args.repeat_until == "2026-12-01"
     assert args.timezone == "Europe/London"
 
 
-def test_remind_and_reminders_are_different_commands():
+def test_remind_and_reminders_are_different_commands() -> None:
     """`reminders` is ack-CHASING (#265): it nags about messages already
     delivered. `remind` schedules one not yet sent. Similar words, opposite
     directions, and conflating them would make both harder to reason about."""
@@ -131,17 +135,17 @@ def test_remind_and_reminders_are_different_commands():
 
 
 class _Spy:
-    def __init__(self, sealed_marker="-----BEGIN AGE ENCRYPTED FILE-----"):
+    def __init__(self, sealed_marker: str = "-----BEGIN AGE ENCRYPTED FILE-----") -> None:
         self.body = None
         self.marker = sealed_marker
 
-    def __call__(self, method, path, **kw):
+    def __call__(self, method: Any, path: Any, **kw: Any) -> dict[str, Any]:
         if path == "/v1/reminders":
             self.body = kw.get("json")
         return {"id": "01M0X", "due_at": "2026-08-21T09:00:00Z"}
 
 
-def _bus_with_spy():
+def _bus_with_spy() -> Any:
     from agentbus_client.client import AgentBus
 
     bus = AgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
@@ -150,13 +154,13 @@ def _bus_with_spy():
     return bus, spy
 
 
-def test_a_self_note_seals_to_self_not_to_a_recipient():
+def test_a_self_note_seals_to_self_not_to_a_recipient() -> None:
     """Author and recipient are the same agent, so `_seal_to_self` is right —
     and `_seal_if_needed` would have no recipient to resolve against."""
     bus, _spy = _bus_with_spy()
     called = {}
 
-    def fake_seal_to_self(body, agent):
+    def fake_seal_to_self(body: str, agent: str) -> Any:
         called["self"] = True
         return body  # must return the BODY; `x or body` returns True here
 
@@ -165,14 +169,14 @@ def test_a_self_note_seals_to_self_not_to_a_recipient():
     assert called.get("self"), "a self-note must seal to the author's own key"
 
 
-def test_a_targeted_reminder_seals_to_THAT_agent():
+def test_a_targeted_reminder_seals_to_THAT_agent() -> None:
     """Sealing a targeted reminder to SELF would deliver something the recipient
     cannot open — data loss wearing security's clothes, and it would only be
     discovered when the reminder came due."""
     bus, _spy = _bus_with_spy()
     seen = {}
 
-    def fake_seal(body, agent, **kw):
+    def fake_seal(body: str, agent: str, **kw: Any) -> Any:
         seen["resolve"] = kw.get("resolve_body")
         return body, None
 
@@ -181,7 +185,7 @@ def test_a_targeted_reminder_seals_to_THAT_agent():
     assert seen["resolve"]["to"] == ["alice"]
 
 
-def test_the_payload_carries_the_schedule_not_a_local_clock_guess():
+def test_the_payload_carries_the_schedule_not_a_local_clock_guess() -> None:
     bus, spy = _bus_with_spy()
     bus._seal_to_self = lambda body, agent: body
     bus.remind("note", delay="2h", expire="3d", repeat="daily")
@@ -194,7 +198,7 @@ def test_the_payload_carries_the_schedule_not_a_local_clock_guess():
     assert spy.body["expires_at"].endswith("Z")
 
 
-def test_absent_options_are_omitted_rather_than_sent_as_null():
+def test_absent_options_are_omitted_rather_than_sent_as_null() -> None:
     """Sending `repeat: null` on every reminder makes a plain one-shot
     indistinguishable from a recurrence someone cleared — the same shape as the
     labels:{} defect fixed in 0.9.46."""
@@ -208,7 +212,7 @@ def test_absent_options_are_omitted_rather_than_sent_as_null():
 # -------------------------------------------------------------- twin parity
 
 
-def test_the_async_twin_has_the_same_signature():
+def test_the_async_twin_has_the_same_signature() -> None:
     """Asserted, not assumed. This pair has drifted on smaller details."""
     import inspect
 
@@ -220,14 +224,14 @@ def test_the_async_twin_has_the_same_signature():
 
 
 @pytest.mark.parametrize("verb", ["remind", "reminds", "cancel_remind"])
-def test_both_surfaces_carry_every_verb(verb):
+def test_both_surfaces_carry_every_verb(verb: Any) -> None:
     from agentbus_client.client import AgentBus, AsyncAgentBus
 
     assert callable(getattr(AgentBus, verb, None))
     assert callable(getattr(AsyncAgentBus, verb, None))
 
 
-def test_the_client_never_calls_the_scheduler():
+def test_the_client_never_calls_the_scheduler() -> None:
     """Operator ruling: one platform credential, held server-side, never on a
     user's machine. The client posts to its own backend and stops there.
 
@@ -263,7 +267,7 @@ def test_the_client_never_calls_the_scheduler():
 # I proposed before asking.
 
 
-def test_delay_and_at_are_refused_together():
+def test_delay_and_at_are_refused_together() -> None:
     """The server 422s the pair; catching it here names the conflict rather
     than relaying a status code."""
     bus, _spy = _bus_with_spy()
@@ -272,7 +276,7 @@ def test_delay_and_at_are_refused_together():
         bus.remind("note", delay="2h", at="2026-08-21T09:00:00Z")
 
 
-def test_delay_is_sent_as_seconds_for_the_server_to_resolve():
+def test_delay_is_sent_as_seconds_for_the_server_to_resolve() -> None:
     """SERVER-SIDE RESOLUTION WINS, deliberately. A laptop 40s fast would
     otherwise fire everything 40s early and nobody would ever diagnose it."""
     bus, spy = _bus_with_spy()
@@ -282,7 +286,7 @@ def test_delay_is_sent_as_seconds_for_the_server_to_resolve():
     assert "due_at" not in spy.body, "the client must not resolve the instant itself"
 
 
-def test_an_absolute_at_is_sent_as_due_at():
+def test_an_absolute_at_is_sent_as_due_at() -> None:
     """Only for a genuinely absolute instant the user typed."""
     bus, spy = _bus_with_spy()
     bus._seal_to_self = lambda body, agent: body
@@ -291,7 +295,7 @@ def test_an_absolute_at_is_sent_as_due_at():
     assert "delay_seconds" not in spy.body
 
 
-def test_an_absolute_expiry_date_passes_through_unconverted():
+def test_an_absolute_expiry_date_passes_through_unconverted() -> None:
     """`--expire 3d` is a duration; `--expire 2026-12-01` is already an
     instant. Both spellings are accepted and must not be confused."""
     from agentbus_client._timefmt import _expiry_instant
@@ -300,7 +304,7 @@ def test_an_absolute_expiry_date_passes_through_unconverted():
     assert _expiry_instant("3d").endswith("Z")
 
 
-def test_timezone_is_never_defaulted_by_the_client():
+def test_timezone_is_never_defaulted_by_the_client() -> None:
     """The server defaults to UTC and SAYS SO. A client guessing the local zone
     would make the same reminder mean different things on two machines."""
     bus, spy = _bus_with_spy()
@@ -309,7 +313,7 @@ def test_timezone_is_never_defaulted_by_the_client():
     assert "timezone" not in spy.body
 
 
-def test_repeat_until_is_refused_because_the_server_forbids_it():
+def test_repeat_until_is_refused_because_the_server_forbids_it() -> None:
     """VERIFIED AGAINST THE SERVED SCHEMA, not against my proposal.
 
     The agreed contract included `repeat_until`; the SERVED RemindRequest does
@@ -331,7 +335,7 @@ def test_repeat_until_is_refused_because_the_server_forbids_it():
         bus.remind("note", repeat="daily", repeat_until="2026-12-01")
 
 
-def test_the_payload_carries_only_fields_the_server_accepts():
+def test_the_payload_carries_only_fields_the_server_accepts() -> None:
     """The whole payload, checked against the SERVED RemindRequest field set.
 
     A field the server forbids fails the entire create, so this asserts the
@@ -355,7 +359,7 @@ def test_the_payload_carries_only_fields_the_server_accepts():
     assert set(spy.body) <= served, f"sends fields the server forbids: {set(spy.body) - served}"
 
 
-def test_a_targeted_reminder_does_not_send_fields_the_route_forbids():
+def test_a_targeted_reminder_does_not_send_fields_the_route_forbids() -> None:
     """REGRESSION: `--target` was broken while a self-note worked.
 
     `_apply_seal` sets `html=None` because it was written for POST /v1/messages,
@@ -377,7 +381,7 @@ def test_a_targeted_reminder_does_not_send_fields_the_route_forbids():
     spy = _Spy()
     bus._request = spy
 
-    def seal_like_the_send_route(body, agent, **kw):
+    def seal_like_the_send_route(body: str, agent: str, **kw: Any) -> Any:
         out = dict(body)
         out["html"] = None  # what _apply_seal really does
         out["sealed"] = True

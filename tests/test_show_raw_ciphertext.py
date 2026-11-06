@@ -20,8 +20,12 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stderr, redirect_stdout
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    import pytest
 
 ARMOR = "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3Yx\n-----END AGE ENCRYPTED FILE-----"
 
@@ -49,10 +53,11 @@ class FakeBus:
         }
 
     def thread(self, thread_id: str) -> dict:  # pragma: no cover - guard path
-        raise AssertionError("--raw must never fetch a thread")
+        msg = "--raw must never fetch a thread"
+        raise AssertionError(msg)
 
 
-def _run(monkeypatch, bus, **flags):
+def _run(monkeypatch: pytest.MonkeyPatch, bus: Any, **flags: Any) -> Any:
     monkeypatch.setattr(cli._common, "_bus", lambda _args: bus)
     args = argparse.Namespace(
         delivery_id="del_1",
@@ -67,17 +72,18 @@ def _run(monkeypatch, bus, **flags):
     return code, out.getvalue(), err.getvalue()
 
 
-def test_raw_emits_only_the_armor_so_it_pipes_to_age(monkeypatch):
+def test_raw_emits_only_the_armor_so_it_pipes_to_age(monkeypatch: pytest.MonkeyPatch) -> None:
     """stdout must be pipeable verbatim into `age -d` — no headers, no banner."""
     bus = FakeBus(sealed=True)
     code, out, _ = _run(monkeypatch, bus, raw=True)
     assert code == 0
     assert out == ARMOR, "byte-exact: .strip() here would hide an appended newline (#65)"
     # The headers `show` normally prints would corrupt the pipe.
-    assert "Subject:" not in out and "From:" not in out
+    assert "Subject:" not in out
+    assert "From:" not in out
 
 
-def test_raw_actually_skips_the_unseal(monkeypatch):
+def test_raw_actually_skips_the_unseal(monkeypatch: pytest.MonkeyPatch) -> None:
     """The point of the flag: the SDK is told NOT to decrypt.
 
     Asserting on the stored bytes alone would pass even if the client decrypted
@@ -88,7 +94,7 @@ def test_raw_actually_skips_the_unseal(monkeypatch):
     assert bus.raw_calls == [True]
 
 
-def test_without_raw_the_body_is_still_unsealed(monkeypatch):
+def test_without_raw_the_body_is_still_unsealed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Known-positive control: the default path must NOT regress to ciphertext."""
     bus = FakeBus(sealed=True)
     code, out, _ = _run(monkeypatch, bus, raw=False)
@@ -98,7 +104,7 @@ def test_without_raw_the_body_is_still_unsealed(monkeypatch):
     assert "BEGIN AGE" not in out
 
 
-def test_unsealed_delivery_says_so_on_stderr(monkeypatch):
+def test_unsealed_delivery_says_so_on_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
     """Plaintext under --raw must be labelled, or it reads as a decryption."""
     bus = FakeBus(sealed=False)
     code, out, err = _run(monkeypatch, bus, raw=True)
@@ -108,27 +114,31 @@ def test_unsealed_delivery_says_so_on_stderr(monkeypatch):
     assert "NOT sealed" not in out
 
 
-def test_sealed_delivery_gets_no_spurious_warning(monkeypatch):
+def test_sealed_delivery_gets_no_spurious_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """Known-negative for the warning: it must be able to stay silent."""
     _, _, err = _run(monkeypatch, FakeBus(sealed=True), raw=True)
     assert "NOT sealed" not in err
 
 
-def test_raw_with_thread_is_refused_not_silently_ignored(monkeypatch):
+def test_raw_with_thread_is_refused_not_silently_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     code, _, err = _run(monkeypatch, FakeBus(), raw=True, thread=True)
     assert code == 2
-    assert "--raw" in err and "--thread" in err
+    assert "--raw" in err
+    assert "--thread" in err
 
 
-def test_flag_conflict_is_reported_before_credentials_are_needed(monkeypatch):
+def test_flag_conflict_is_reported_before_credentials_are_needed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A flag mistake must not surface as a credential error.
 
     _bus() raising here stands in for an unconfigured machine; the conflict is
     the user's actual mistake and must be what they are told about.
     """
 
-    def _explode(_args):
-        raise SystemExit("no API key configured")
+    def _explode(_args: Any) -> NoReturn:
+        msg = "no API key configured"
+        raise SystemExit(msg)
 
     monkeypatch.setattr(cli._common, "_bus", _explode)
     args = argparse.Namespace(delivery_id="del_1", json=False, thread=True, raw=True, agent=None)

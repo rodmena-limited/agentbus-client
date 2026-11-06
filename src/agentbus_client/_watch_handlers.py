@@ -20,9 +20,11 @@ import os
 import shlex
 import subprocess
 import sys
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 RECONNECT_BACKOFF = (1, 2, 5, 10, 30, 60)
 

@@ -24,17 +24,21 @@ import io
 import json
 import sys
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client.hooks import _antigravity
 from agentbus_client.onboarding import _paths
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
-def _agent_seen(payload: dict, monkeypatch) -> str | None:
+
+def _agent_seen(payload: dict, monkeypatch: pytest.MonkeyPatch) -> str | None:
     """Run the Stop hook and report which agent it polled as."""
     seen: list[str] = []
-    import agentbus_client.rewake as rewake
+    from agentbus_client import rewake
 
     monkeypatch.setattr(
         rewake, "poll_for_fresh_mail", lambda agent, **k: seen.append(agent) or None
@@ -46,7 +50,7 @@ def _agent_seen(payload: dict, monkeypatch) -> str | None:
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     repo = tmp_path / "repo"
     (repo / ".agentbus").mkdir(parents=True)
     (repo / ".agentbus" / "agent").write_text("alpha\n")
@@ -62,12 +66,16 @@ def repo(tmp_path, monkeypatch):
     return repo
 
 
-def test_identity_comes_from_workspace_paths_not_cwd(repo, monkeypatch):
+def test_identity_comes_from_workspace_paths_not_cwd(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE REGRESSION: cwd knows nothing; the payload knows the workspace."""
     assert _agent_seen({"workspacePaths": [str(repo)]}, monkeypatch) == "alpha"
 
 
-def test_the_workspace_outranks_an_inherited_env_var(repo, monkeypatch):
+def test_the_workspace_outranks_an_inherited_env_var(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE FIELD INCIDENT, minutes after the first real wiring.
 
     An operator launched `agy` from a shell where ANOTHER agent's session had
@@ -84,7 +92,9 @@ def test_the_workspace_outranks_an_inherited_env_var(repo, monkeypatch):
     assert _agent_seen({"workspacePaths": [str(repo)]}, monkeypatch) == "alpha"
 
 
-def test_an_empty_workspace_list_no_ops_instead_of_guessing(repo, monkeypatch):
+def test_an_empty_workspace_list_no_ops_instead_of_guessing(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """MEASURED: `agy -p` sends "workspacePaths": []. With no workspace the hook
     cannot know its project — cwd is the machine-wide plugin dir, nothing in the
     environment names the project, and conversationId does not map back to one.
@@ -98,7 +108,9 @@ def test_an_empty_workspace_list_no_ops_instead_of_guessing(repo, monkeypatch):
     assert _agent_seen({"workspacePaths": [], "conversationId": "x"}, monkeypatch) is None
 
 
-def test_env_is_still_used_for_a_hook_with_no_payload_at_all(tmp_path, monkeypatch):
+def test_env_is_still_used_for_a_hook_with_no_payload_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """KNOWN-POSITIVE TWIN: the environment is not ignored, it is refused only
     when agy gave us a payload we could not resolve. A manual invocation with no
     payload still honours it."""
@@ -120,13 +132,17 @@ def test_env_is_still_used_for_a_hook_with_no_payload_at_all(tmp_path, monkeypat
         {"workspacePaths": "not-a-list"},
     ],
 )
-def test_a_junk_workspace_is_ignored_not_trusted(repo, monkeypatch, bad):
+def test_a_junk_workspace_is_ignored_not_trusted(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, bad: Any
+) -> None:
     """A wrong workspace is worse than none: it would resolve identity against
     the wrong tree. Absent is honest."""
     assert _agent_seen(bad, monkeypatch) is None
 
 
-def test_a_hostile_declared_agent_cannot_reach_the_operator_key(tmp_path, monkeypatch):
+def test_a_hostile_declared_agent_cannot_reach_the_operator_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """REG-8b, on the new call site.
 
     `.agentbus/agent` is attacker-controllable, and this lane feeds that name
@@ -145,7 +161,9 @@ def test_a_hostile_declared_agent_cannot_reach_the_operator_key(tmp_path, monkey
     )
 
 
-def test_a_legitimate_agent_does_get_its_key(tmp_path, monkeypatch):
+def test_a_legitimate_agent_does_get_its_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """KNOWN-POSITIVE TWIN. Without this, the traversal test above passes just
     as well against a function that can never adopt anything at all."""
     cfg = tmp_path / "cfg"

@@ -19,6 +19,8 @@ which is the exact defect SPEC 186 exists to prevent.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agentbus_client.cli._parser import build_parser, verbs
@@ -117,7 +119,7 @@ def _surface_has(capability: str, surface: str) -> bool:
 
 @pytest.mark.parametrize("capability", sorted(CAPABILITIES))
 @pytest.mark.parametrize("surface", SURFACES)
-def test_every_capability_reaches_every_surface(capability, surface):
+def test_every_capability_reaches_every_surface(capability: Any, surface: Any) -> None:
     """The matrix. A missing cell fails the build unless EXEMPTIONS explains it."""
     if (capability, surface) in EXEMPTIONS:
         pytest.skip(f"exempt: {EXEMPTIONS[(capability, surface)]}")
@@ -135,20 +137,21 @@ def test_every_capability_reaches_every_surface(capability, surface):
 # honesty tests is a check that cannot go red.
 
 
-def test_a_probe_that_appears_nowhere_matches_nothing():
+def test_a_probe_that_appears_nowhere_matches_nothing() -> None:
     """A probe must not be able to pass by matching everything."""
     assert "zzz-no-such-subcommand" not in _commands()
     assert not _sdk_has("zzz_no_such_method")
 
 
-def test_the_matrix_mechanism_can_tell_present_from_absent():
+def test_the_matrix_mechanism_can_tell_present_from_absent() -> None:
     """Known-positive AND known-negative for `_surface_has` itself.
 
     If the lookup were wired to something that always returned True, every row
     above would pass while asserting nothing. Both directions are checked, since
     only the negative can catch that.
     """
-    assert _surface_has("bus_send", "CLI") and _surface_has("bus_send", "SDK")
+    assert _surface_has("bus_send", "CLI")
+    assert _surface_has("bus_send", "SDK")
     # bus_heartbeat is absent from the CLI (the exempt cell) and PRESENT on the
     # SDK, so this one capability exercises the mechanism in both directions.
     assert not _surface_has("bus_heartbeat", "CLI")
@@ -158,7 +161,7 @@ def test_the_matrix_mechanism_can_tell_present_from_absent():
     )
 
 
-def test_no_exemption_names_a_capability_that_no_longer_exists():
+def test_no_exemption_names_a_capability_that_no_longer_exists() -> None:
     """An exemption must not outlive its subject.
 
     Precisely how SPEC 186's guard rotted: the artifact moved, the record
@@ -168,7 +171,7 @@ def test_no_exemption_names_a_capability_that_no_longer_exists():
     assert not stale, f"EXEMPTIONS names capabilities that no longer exist: {stale}"
 
 
-def test_every_exemption_is_actually_REACHED_by_the_matrix():
+def test_every_exemption_is_actually_REACHED_by_the_matrix() -> None:
     """An exemption must be EVALUATED, not merely well-formed.
 
     The stale-exemption test above asks whether an exemption names a live
@@ -192,13 +195,13 @@ def test_every_exemption_is_actually_REACHED_by_the_matrix():
     )
 
 
-def test_no_exemption_is_reasonless():
+def test_no_exemption_is_reasonless() -> None:
     """'Exempt because it was easier' cannot pass as a reason."""
     empty = [key for key, reason in EXEMPTIONS.items() if not (reason or "").strip()]
     assert not empty, f"exemptions with no reason: {empty}"
 
 
-def test_the_heartbeat_exemption_is_asserted_in_the_direction_that_can_fail():
+def test_the_heartbeat_exemption_is_asserted_in_the_direction_that_can_fail() -> None:
     """If someone adds `agentbus heartbeat`, the exemption has become a lie.
 
     An exemption asserted only as "absent" is half a test: it stays green both
@@ -211,13 +214,13 @@ def test_the_heartbeat_exemption_is_asserted_in_the_direction_that_can_fail():
 # ---------------------------------------------------------------- F3: the twin
 
 
-def test_approval_verb_reaches_an_id_this_process_did_not_create():
+def test_approval_verb_reaches_an_id_this_process_did_not_create() -> None:
     """The whole point of F3: `approve --wait` can only wait on its own id."""
     args = build_parser().parse_args(["approval", "01M0PEER", "--wait", "60"])
     assert args.approval_id == "01M0PEER"
 
 
-def test_denial_and_no_answer_do_not_share_an_exit_code():
+def test_denial_and_no_answer_do_not_share_an_exit_code() -> None:
     """The distinction the old `0 if approved else 1` could not express.
 
     Duplicated deliberately from test_approval_status_verb.py: there it guards
@@ -235,7 +238,7 @@ def test_denial_and_no_answer_do_not_share_an_exit_code():
 
 
 @pytest.mark.parametrize("verb", ["send", "reply", "forward", "draft", "show", "inbox", "thread"])
-def test_the_cli_carries_every_verb_mcp_cannot_serve_on_an_encrypted_workspace(verb):
+def test_the_cli_carries_every_verb_mcp_cannot_serve_on_an_encrypted_workspace(verb: Any) -> None:
     """F1, both directions.
 
     MCP holds no private key, so on an encrypted workspace it can neither seal
@@ -250,7 +253,7 @@ def test_the_cli_carries_every_verb_mcp_cannot_serve_on_an_encrypted_workspace(v
     assert verb in _commands()
 
 
-def test_the_client_can_unseal_which_is_the_capability_mcp_structurally_lacks():
+def test_the_client_can_unseal_which_is_the_capability_mcp_structurally_lacks() -> None:
     """The asymmetry in F1 is not a missing feature, it is a key location.
 
     If `unseal_message` ever leaves the client, the CLI stops being the answer
@@ -267,7 +270,7 @@ def test_the_client_can_unseal_which_is_the_capability_mcp_structurally_lacks():
 @pytest.mark.parametrize(
     "verb", ["setup", "signin", "keys", "watch", "service", "doctor", "identity", "join"]
 )
-def test_machine_local_verbs_are_cli_only_by_nature(verb):
+def test_machine_local_verbs_are_cli_only_by_nature(verb: Any) -> None:
     """These touch THIS machine — a key file, a supervisor, a config directory.
 
     A remote MCP server cannot serve them at all, so their absence from MCP is

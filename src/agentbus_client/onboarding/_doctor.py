@@ -22,16 +22,17 @@ hosts, in one night:
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import os
 import re
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ..client import AgentBus, AgentBusError
-from ..identity import config_dir as identity_config_dir
+from agentbus_client.client import AgentBus, AgentBusError
+from agentbus_client.identity import config_dir as identity_config_dir
+
 from ._identity import _agent_key, _resolve_agent_name
 from ._paths import (
     _MARKER_HOOK,
@@ -43,6 +44,9 @@ from ._paths import (
     _plugin_provides_wake,
     _say,
 )
+
+if TYPE_CHECKING:
+    import argparse
 
 # ---------------------------------------------------------------- doctor --wake
 
@@ -113,7 +117,7 @@ def _installed_version() -> str | None:
     """What is installed on disk — deliberately a different question from what a
     running process loaded, which is the whole point of the comparison below."""
     try:
-        from .. import __version__
+        from agentbus_client import __version__
 
         return str(__version__)
     except Exception:
@@ -372,7 +376,7 @@ def doctor_wake(args: argparse.Namespace) -> int:
         # left alone.
         import tempfile
 
-        from .. import rewake as _rewake
+        from agentbus_client import rewake as _rewake
 
         # ASK THE RE-WAKER WHERE ITS LEDGER IS — do not rebuild the path here.
         #

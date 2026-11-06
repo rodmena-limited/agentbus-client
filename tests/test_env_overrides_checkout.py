@@ -31,7 +31,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+from typing import TYPE_CHECKING
+
 from agentbus_client.hooks import claude_code
+
+if TYPE_CHECKING:
+    import pytest
 
 PARENT = "agentbus-279ca7"
 OWN = "agentbus-frontend-5e9d03"
@@ -48,7 +53,9 @@ def _wire(root: Path, agent: str, *, via_settings: bool = False) -> None:
         (root / ".agentbus" / "agent").write_text(agent + "\n")
 
 
-def test_conflict_is_reported_with_both_names(tmp_path, capsys, monkeypatch):
+def test_conflict_is_reported_with_both_names(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The #127 fix: name what the checkout says, what won, and the remedy."""
     _wire(tmp_path, OWN)
     monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
@@ -65,7 +72,9 @@ def test_conflict_is_reported_with_both_names(tmp_path, capsys, monkeypatch):
     assert "Do NOT register a new agent" in out
 
 
-def test_no_warning_when_checkout_and_env_agree(tmp_path, capsys, monkeypatch):
+def test_no_warning_when_checkout_and_env_agree(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The normal wired session. Firing here would be noise on every startup."""
     _wire(tmp_path, PARENT)
     monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
@@ -76,7 +85,9 @@ def test_no_warning_when_checkout_and_env_agree(tmp_path, capsys, monkeypatch):
     assert capsys.readouterr().out == ""
 
 
-def test_no_warning_in_an_unwired_checkout(tmp_path, capsys, monkeypatch):
+def test_no_warning_in_an_unwired_checkout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Nothing declared here, so nothing was overridden."""
     monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("AGENTBUS_AGENT", PARENT)
@@ -86,7 +97,9 @@ def test_no_warning_in_an_unwired_checkout(tmp_path, capsys, monkeypatch):
     assert capsys.readouterr().out == ""
 
 
-def test_settings_local_json_is_also_honoured(tmp_path, capsys, monkeypatch):
+def test_settings_local_json_is_also_honoured(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The Claude-Code mirror is a declaration site too — .agentbus/agent is not
     the only file a checkout can be wired through."""
     _wire(tmp_path, OWN, via_settings=True)
@@ -98,7 +111,9 @@ def test_settings_local_json_is_also_honoured(tmp_path, capsys, monkeypatch):
     assert OWN in capsys.readouterr().out
 
 
-def test_silent_when_the_env_var_did_not_win(tmp_path, capsys, monkeypatch):
+def test_silent_when_the_env_var_did_not_win(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Resolution did not come from the environment, so there is no override to
     report — guards against warning on a value that lost."""
     _wire(tmp_path, OWN)
@@ -111,7 +126,9 @@ def test_silent_when_the_env_var_did_not_win(tmp_path, capsys, monkeypatch):
     assert capsys.readouterr().out == ""
 
 
-def test_silent_when_no_env_var_is_set(tmp_path, capsys, monkeypatch):
+def test_silent_when_no_env_var_is_set(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     _wire(tmp_path, OWN)
     monkeypatch.setattr(claude_code._identity, "_repo_root", lambda: tmp_path)
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)

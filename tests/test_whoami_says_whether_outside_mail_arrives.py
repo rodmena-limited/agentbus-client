@@ -15,6 +15,7 @@ no line at all — the same convention as persona — rather than a guess.
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 import pytest
 
@@ -28,11 +29,16 @@ LIVE_REFUSED = {
 }
 
 
-def _whoami(monkeypatch, capsys, workspace: dict, qr: bool = False) -> str:
+def _whoami(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    workspace: dict,
+    qr: bool = False,
+) -> str:
     class _Bus:
         agent = "me"
 
-        def whoami(self, agent=None):
+        def whoami(self, agent: Any = None) -> dict[str, Any]:
             return {
                 "workspace": {"slug": "ws", **workspace},
                 "agent": {"name": "me"},
@@ -48,7 +54,9 @@ def _whoami(monkeypatch, capsys, workspace: dict, qr: bool = False) -> str:
     return capsys.readouterr().out
 
 
-def test_a_refusing_workspace_says_so_next_to_the_address(monkeypatch, capsys):
+def test_a_refusing_workspace_says_so_next_to_the_address(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     out = _whoami(monkeypatch, capsys, {"external_mail": LIVE_REFUSED})
     assert "external:  REFUSED — this workspace is encrypted" in out
     assert "refused mail is retained on the undeliverable surface, never bounced" in out
@@ -64,12 +72,16 @@ def test_a_refusing_workspace_says_so_next_to_the_address(monkeypatch, capsys):
         ({"accepts": "nobody", "refusal_reason": "something_new"}, "REFUSED — something_new"),
     ],
 )
-def test_each_policy_renders_as_itself(monkeypatch, capsys, policy, expected):
+def test_each_policy_renders_as_itself(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], policy: Any, expected: Any
+) -> None:
     assert expected in _whoami(monkeypatch, capsys, {"external_mail": policy})
 
 
 @pytest.mark.parametrize("policy", [None, {}, {"accepts": None}, {"accepts": "later-value"}])
-def test_an_unknown_policy_is_unknown_not_open(monkeypatch, capsys, policy):
+def test_an_unknown_policy_is_unknown_not_open(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], policy: Any
+) -> None:
     """null means the server could not say. Rendering nothing — or 'open' — would
     be the 09-24 trap again."""
     out = _whoami(monkeypatch, capsys, {"external_mail": policy})
@@ -77,19 +89,25 @@ def test_an_unknown_policy_is_unknown_not_open(monkeypatch, capsys, policy):
     assert "anyone can mail" not in out
 
 
-def test_an_older_server_that_sends_no_field_gets_no_line(monkeypatch, capsys):
+def test_an_older_server_that_sends_no_field_gets_no_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Known-negative, and the persona convention: absent field, no guess."""
     out = _whoami(monkeypatch, capsys, {})
     assert "external:" not in out
 
 
-def test_the_qr_caption_does_not_invite_mail_that_will_be_refused(monkeypatch, capsys):
+def test_the_qr_caption_does_not_invite_mail_that_will_be_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     out = _whoami(monkeypatch, capsys, {"external_mail": LIVE_REFUSED}, qr=True)
     assert "scan to mail me directly" not in out
     assert "mail from outside is REFUSED here" in out
 
 
-def test_the_qr_caption_is_unchanged_where_outside_mail_is_accepted(monkeypatch, capsys):
+def test_the_qr_caption_is_unchanged_where_outside_mail_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Known-positive for the test above: the old caption still appears where true."""
     out = _whoami(monkeypatch, capsys, {"external_mail": {"accepts": "anyone"}}, qr=True)
     assert "scan to mail me directly" in out

@@ -22,7 +22,7 @@ else:
 
 
 def _declared() -> str:
-    m = re.search(r'^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M)
+    m = re.search(r'^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.MULTILINE)
     assert m, "no version in pyproject.toml"
     return m.group(1)
 
@@ -35,12 +35,12 @@ def _locked() -> str | None:
     return None
 
 
-def test_the_lock_contains_this_project():
+def test_the_lock_contains_this_project() -> None:
     """KNOWN-POSITIVE: if the lookup found nothing, the comparison below would be
     None != version — a failure for the wrong reason, or, written carelessly, a
     silent pass."""
     assert _locked() is not None
 
 
-def test_the_locked_version_matches_the_declared_one():
+def test_the_locked_version_matches_the_declared_one() -> None:
     assert _locked() == _declared(), "bumped the version without re-running `uv lock`"

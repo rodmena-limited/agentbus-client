@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -14,6 +13,8 @@ from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from collections.abc import Sequence
+
     from ._mixin_base import AsyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
     _MixinBase = object
@@ -282,7 +283,8 @@ class AsyncMessagingMixin(_MixinBase):
         """
         target = agent or self.agent
         if not target:
-            raise AgentBusError("which agent? pass agent= or bind the client")
+            msg = "which agent? pass agent= or bind the client"
+            raise AgentBusError(msg)
         if state is None:
             result: dict[str, Any] = await self._request(
                 "GET", f"/v1/agents/{target}/availability", agent=target
@@ -356,7 +358,7 @@ class AsyncMessagingMixin(_MixinBase):
         resolve round-trip is the only I/O, hence `async def`), including
         the B2 unbound-client guard.
         """
-        from .. import sealing
+        from agentbus_client import sealing
 
         try:
             resolved = await self._request(
@@ -373,11 +375,12 @@ class AsyncMessagingMixin(_MixinBase):
             return payload
         acting = agent or self.agent
         if not acting:
-            raise AgentBusError(
+            msg = (
                 "cannot seal: this workspace is encrypted but no acting agent "
                 "is set. A sealing key belongs to ONE agent, so the client "
                 "needs agent=... or AGENTBUS_AGENT to know whose key to seal to."
             )
+            raise AgentBusError(msg)
         _private, own_public = sealing.ensure_keypair(acting)
         sealed = dict(payload)
         sealed["text"] = sealing.seal_for(payload["text"], [own_public])

@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-from .base import _SEAL_INFLATION_FACTOR
 from .errors import AgentBusError
-from .models import _max_attachment_bytes, _server_max_attachment_bytes
+from .models import _SEAL_INFLATION_FACTOR, _max_attachment_bytes, _server_max_attachment_bytes
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
@@ -26,7 +28,8 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
         try:
             size = os.stat(path).st_size
         except OSError as exc:
-            raise AgentBusError(f"cannot read attachment '{path}': {exc}") from exc
+            msg = f"cannot read attachment '{path}': {exc}"
+            raise AgentBusError(msg) from exc
         if size > server_limit:
             # ENCRYPTION CONTEXT BELONGS HERE TOO, AND USED NOT TO BE.
             #
@@ -46,7 +49,7 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
             # resolved), so the note is phrased conditionally rather than
             # asserting an encryption state we cannot see from this function.
             effective = int(server_limit / _SEAL_INFLATION_FACTOR)
-            raise AgentBusError(
+            msg = (
                 f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
                 f"AgentBus server rejects attachments over {server_limit:,} bytes "
                 f"(~{server_limit // (1024 * 1024)} MiB). Failing fast here — "
@@ -59,8 +62,9 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
                 f"raw file that fits is ~{effective:,} bytes "
                 f"(~{effective // (1024 * 1024)} MiB), not {server_limit // (1024 * 1024)} MiB."
             )
+            raise AgentBusError(msg)
         if size > limit:
-            raise AgentBusError(
+            msg = (
                 f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
                 f"client cap is {limit:,} bytes (~{limit // (1024 * 1024)} MB). "
                 "The client buffers the whole file in RAM, then again as base64, "
@@ -70,6 +74,7 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
                 "has the RAM budget, or split the file. A streaming upload API "
                 "is planned."
             )
+            raise AgentBusError(msg)
         with open(path, "rb") as handle:
             data = handle.read()
         guessed, _ = mimetypes.guess_type(path)

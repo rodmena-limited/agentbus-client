@@ -17,7 +17,8 @@ def _refuse_empty_body(
         return
     if (text or "").strip() or (html or "").strip():
         return
-    raise EmptyBodyError(
+    msg = (
         "refusing to send an empty message: the body is empty or only whitespace and "
         "nothing is attached. Pass allow_empty=True (CLI: --allow-empty) to send it anyway."
     )
+    raise EmptyBodyError(msg)

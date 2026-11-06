@@ -14,11 +14,15 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    import pytest
 
 # --------------------------------------------------------------------- F8
 
@@ -31,20 +35,20 @@ METAS = [
 
 
 class _MultiBus:
-    def __init__(self, metas=None, datas=None):
+    def __init__(self, metas: Any = None, datas: Any = None) -> None:
         self._metas = metas if metas is not None else METAS
         self._datas = datas if datas is not None else PAYLOADS
         self.calls: list[tuple[str, int]] = []
 
-    def read(self, _delivery_id, raw: bool = False):
+    def read(self, _delivery_id: Any, raw: bool = False) -> dict[str, Any]:
         return {"attachments": self._metas}
 
-    def attachment(self, delivery_id, index):
+    def attachment(self, delivery_id: str, index: Any) -> Any:
         self.calls.append((delivery_id, index))
         return self._datas[index]
 
 
-def _attach_args(**over):
+def _attach_args(**over: Any) -> argparse.Namespace:
     base = {
         "delivery_id": "01ALL",
         "index": 0,
@@ -58,7 +62,9 @@ def _attach_args(**over):
     return argparse.Namespace(**base)
 
 
-def test_all_flag_fetches_every_attachment(tmp_path, monkeypatch, capsys):
+def test_all_flag_fetches_every_attachment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     bus = _MultiBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
@@ -76,7 +82,9 @@ def test_all_flag_fetches_every_attachment(tmp_path, monkeypatch, capsys):
     assert "3 attachment(s) written" in capsys.readouterr().out
 
 
-def test_all_refuses_when_any_target_already_exists(tmp_path, monkeypatch, capsys):
+def test_all_refuses_when_any_target_already_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Never a partial write of half the set."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "b.bin").write_bytes(b"local file")
@@ -94,7 +102,9 @@ def test_all_refuses_when_any_target_already_exists(tmp_path, monkeypatch, capsy
     assert "refusing to overwrite" in err
 
 
-def test_all_with_force_overwrites_every_conflict(tmp_path, monkeypatch):
+def test_all_with_force_overwrites_every_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "a.bin").write_bytes(b"old")
     (tmp_path / "c.bin").write_bytes(b"old")
@@ -106,7 +116,9 @@ def test_all_with_force_overwrites_every_conflict(tmp_path, monkeypatch):
     assert (tmp_path / "c.bin").read_bytes() == PAYLOADS[2]
 
 
-def test_all_refuses_output_flag_because_they_are_mutually_exclusive(tmp_path, monkeypatch, capsys):
+def test_all_refuses_output_flag_because_they_are_mutually_exclusive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _MultiBus())
 
@@ -114,7 +126,9 @@ def test_all_refuses_output_flag_because_they_are_mutually_exclusive(tmp_path, m
     assert "-o" in capsys.readouterr().err
 
 
-def test_all_refuses_stdout_because_bytes_would_interleave(tmp_path, monkeypatch, capsys):
+def test_all_refuses_stdout_because_bytes_would_interleave(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _MultiBus())
 
@@ -125,21 +139,23 @@ def test_all_refuses_stdout_because_bytes_would_interleave(tmp_path, monkeypatch
 # --------------------------------------------------------------------- F14
 
 
-def _verify_args(**over):
+def _verify_args(**over: Any) -> argparse.Namespace:
     base = {"delivery_id": "01V", "json": False, "agent": None}
     base.update(over)
     return argparse.Namespace(**base)
 
 
 class _VerifyBus:
-    def __init__(self, result):
+    def __init__(self, result: Any) -> None:
         self._result = result
 
-    def verify(self, _delivery_id):
+    def verify(self, _delivery_id: Any) -> Any:
         return self._result
 
 
-def test_unsigned_verdict_does_not_repeat_the_word(monkeypatch, capsys):
+def test_unsigned_verdict_does_not_repeat_the_word(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(
         cli._common,
         "_bus",
@@ -161,7 +177,9 @@ def test_unsigned_verdict_does_not_repeat_the_word(monkeypatch, capsys):
     assert "UNSIGNED — no signature attached to verify" in out
 
 
-def test_cannot_verify_still_carries_the_reason(monkeypatch, capsys):
+def test_cannot_verify_still_carries_the_reason(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Regression: the CANNOT VERIFY branch used the same headline+reason
     pattern; make sure it still names why the tool could not check."""
     monkeypatch.setattr(
@@ -186,20 +204,22 @@ def test_cannot_verify_still_carries_the_reason(monkeypatch, capsys):
 
 
 class _ShowBus:
-    def __init__(self, delivery):
+    def __init__(self, delivery: Any) -> None:
         self._delivery = delivery
 
-    def read(self, _delivery_id, raw: bool = False):
+    def read(self, _delivery_id: Any, raw: bool = False) -> Any:
         return self._delivery
 
 
-def _show_args(**over):
+def _show_args(**over: Any) -> argparse.Namespace:
     base = {"delivery_id": "01S", "json": False, "thread": False, "agent": None}
     base.update(over)
     return argparse.Namespace(**base)
 
 
-def test_show_labels_attachment_size_as_on_wire(monkeypatch, capsys):
+def test_show_labels_attachment_size_as_on_wire(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     delivery = {
         "sender_display": "peer",
         "sender_address": "peer@example",
@@ -225,15 +245,15 @@ def test_show_labels_attachment_size_as_on_wire(monkeypatch, capsys):
 
 
 class _SendBus:
-    def __init__(self, response):
+    def __init__(self, response: Any) -> None:
         self._response = response
         self.agent = "test-agent"
 
-    def send(self, *args, **kwargs):
+    def send(self, *args: Any, **kwargs: Any) -> Any:
         return self._response
 
 
-def _send_args(**over):
+def _send_args(**over: Any) -> argparse.Namespace:
     base = {
         "to": ["someone"],
         "cc": None,
@@ -252,7 +272,9 @@ def _send_args(**over):
     return argparse.Namespace(**base)
 
 
-def test_fire_and_forget_json_is_never_empty(monkeypatch, capsys):
+def test_fire_and_forget_json_is_never_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A jq consumer must never crash on {}."""
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _SendBus({}))
     monkeypatch.setattr(cli._common, "_read_body", lambda body: body or "")
@@ -264,7 +286,9 @@ def test_fire_and_forget_json_is_never_empty(monkeypatch, capsys):
     assert data.get("guarantee") == "fire_and_forget"
 
 
-def test_fire_and_forget_json_preserves_real_server_fields(monkeypatch, capsys):
+def test_fire_and_forget_json_preserves_real_server_fields(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A newer server returns {guarantee, stored, live_subscribers, ...}. The
     normaliser must PRESERVE those fields, not replace them."""
     server_body = {
@@ -286,7 +310,9 @@ def test_fire_and_forget_json_preserves_real_server_fields(monkeypatch, capsys):
     assert data["stored"] is False
 
 
-def test_durable_send_is_unchanged(monkeypatch, capsys):
+def test_durable_send_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Guarantee=durable (or None) must not get the fire_and_forget status
     marker glued on."""
     monkeypatch.setattr(
@@ -310,7 +336,9 @@ def test_durable_send_is_unchanged(monkeypatch, capsys):
     assert "guarantee" not in data
 
 
-def test_fire_and_forget_text_summary_does_not_keyerror(monkeypatch, capsys):
+def test_fire_and_forget_text_summary_does_not_keyerror(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The non-JSON receipt used to read `result['id']`, `['delivery_count']`,
     `['thread_id']` — all absent on fire_and_forget."""
     monkeypatch.setattr(cli._common, "_bus", lambda _a: _SendBus({"reached": 3}))

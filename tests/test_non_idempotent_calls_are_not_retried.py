@@ -17,24 +17,29 @@ an idempotency key for it, which makes the server's dedup layer see one write.
 
 from __future__ import annotations
 
+from typing import Any, NoReturn
+
 import pytest
 
 from agentbus_client.client import AgentBus
 from agentbus_client.client.errors import AgentBusError
 
 
-def _client_counting_attempts(status: int):
+def _client_counting_attempts(status: int) -> Any:
     bus = AgentBus(api_key="ab_sk_x", base_url="http://localhost")
     calls: list[str] = []
 
-    def _boom(*_a, **_k):
+    def _boom(*_a: Any, **_k: Any) -> NoReturn:
         calls.append("attempt")
-        raise AgentBusError("server exploded", code="internal_error", status=status)
+        msg = "server exploded"
+        raise AgentBusError(msg, code="internal_error", status=status)
 
     return bus, calls, _boom
 
 
-def test_a_mutating_call_without_an_idempotency_key_is_tried_once(monkeypatch):
+def test_a_mutating_call_without_an_idempotency_key_is_tried_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """THE REGRESSION. Four attempts is four chances to half-create an identity."""
     bus, calls, boom = _client_counting_attempts(500)
     monkeypatch.setattr(bus, "_send_once", boom, raising=False)
@@ -45,7 +50,9 @@ def test_a_mutating_call_without_an_idempotency_key_is_tried_once(monkeypatch):
     assert len(calls) == 1, f"a non-idempotent POST was attempted {len(calls)} times"
 
 
-def test_a_read_is_still_retried_so_the_fix_did_not_disable_resilience(monkeypatch):
+def test_a_read_is_still_retried_so_the_fix_did_not_disable_resilience(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """KNOWN-NEGATIVE, and the one that matters.
 
     Without this, "attempted once" would pass in a world where retry had been
@@ -60,7 +67,7 @@ def test_a_read_is_still_retried_so_the_fix_did_not_disable_resilience(monkeypat
     assert len(calls) > 1, "a GET is safe to repeat and must still be retried"
 
 
-def test_a_4xx_is_never_retried_on_either_method(monkeypatch):
+def test_a_4xx_is_never_retried_on_either_method(monkeypatch: pytest.MonkeyPatch) -> None:
     """A definitive refusal is not transient; repeating it only wastes quota."""
     for method, path in (("GET", "/v1/inbox"), ("POST", "/v1/agents/register")):
         bus, calls, boom = _client_counting_attempts(403)

@@ -12,19 +12,23 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import agentbus_client.cli as cli_module
 from agentbus_client import onboarding
 
+if TYPE_CHECKING:
+    import pytest
+
 
 class _Resp:
-    def __init__(self, status_code: int, text: str):
+    def __init__(self, status_code: int, text: str) -> None:
         self.status_code = status_code
         self.text = text
 
 
-def _args(**over):
+def _args(**over: Any) -> argparse.Namespace:
     base = {"agent": None, "json": False}
     base.update(over)
     return argparse.Namespace(**base)
@@ -33,7 +37,9 @@ def _args(**over):
 # --------------------------------------------------------------- helper
 
 
-def test_refresh_installs_fresh_when_no_skill_present(tmp_path, monkeypatch):
+def test_refresh_installs_fresh_when_no_skill_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     served = "# served skill body\n" + "x" * 1000
 
@@ -47,7 +53,9 @@ def test_refresh_installs_fresh_when_no_skill_present(tmp_path, monkeypatch):
     assert "fresh install" in detail
 
 
-def test_refresh_reports_current_when_installed_matches_served(tmp_path, monkeypatch):
+def test_refresh_reports_current_when_installed_matches_served(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     served = "# served skill body\n" + "y" * 1000
     skill = tmp_path / ".claude" / "skills" / "agentbus" / "SKILL.md"
@@ -61,7 +69,9 @@ def test_refresh_reports_current_when_installed_matches_served(tmp_path, monkeyp
     assert "already matches" in detail
 
 
-def test_refresh_backs_up_existing_before_overwriting(tmp_path, monkeypatch):
+def test_refresh_backs_up_existing_before_overwriting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     old = "# old body\n" + "a" * 1000
     served = "# served body — NEW\n" + "b" * 1000
@@ -80,7 +90,7 @@ def test_refresh_backs_up_existing_before_overwriting(tmp_path, monkeypatch):
     assert "SKILL.md.bak" in detail
 
 
-def test_refresh_refuses_small_body(tmp_path, monkeypatch):
+def test_refresh_refuses_small_body(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Reject a truncated body — the D4 install-guard reasoning: a nearly-
     empty file is worse than no file, because it advertises freshness."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -90,7 +100,9 @@ def test_refresh_refuses_small_body(tmp_path, monkeypatch):
     assert "refusing to install" in detail
 
 
-def test_refresh_reports_unreachable_on_non_200(tmp_path, monkeypatch):
+def test_refresh_reports_unreachable_on_non_200(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     with patch("httpx.get", return_value=_Resp(502, "bad gateway")):
         state, detail = onboarding.refresh_skill(base_url="https://x")
@@ -98,7 +110,9 @@ def test_refresh_reports_unreachable_on_non_200(tmp_path, monkeypatch):
     assert "502" in detail
 
 
-def test_refresh_reports_unreachable_on_transport_error(tmp_path, monkeypatch):
+def test_refresh_reports_unreachable_on_transport_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import httpx
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -111,7 +125,9 @@ def test_refresh_reports_unreachable_on_transport_error(tmp_path, monkeypatch):
 # --------------------------------------------------------------- CLI verb
 
 
-def test_cli_refresh_skill_exits_zero_on_updated(tmp_path, monkeypatch, capsys):
+def test_cli_refresh_skill_exits_zero_on_updated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The subcommand does NOT need an acting agent — that's the whole point
     (setup couldn't run for the reporter's agent, refresh-skill can)."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -123,7 +139,9 @@ def test_cli_refresh_skill_exits_zero_on_updated(tmp_path, monkeypatch, capsys):
     assert "INSTALLED" in out or "UPDATED" in out
 
 
-def test_cli_refresh_skill_exits_nonzero_on_unreachable(tmp_path, monkeypatch, capsys):
+def test_cli_refresh_skill_exits_nonzero_on_unreachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A stale skill on a broken network must not silently be reported as
     healthy — the doctor recipe that led here would then be lying too."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -132,7 +150,9 @@ def test_cli_refresh_skill_exits_nonzero_on_unreachable(tmp_path, monkeypatch, c
     assert rc == 1
 
 
-def test_cli_refresh_skill_json_output(tmp_path, monkeypatch, capsys):
+def test_cli_refresh_skill_json_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Consumers piping to jq expect {state, detail} — mirror the pattern
     of every other --json emitter in the CLI."""
     import json as _json
@@ -150,14 +170,16 @@ def test_cli_refresh_skill_json_output(tmp_path, monkeypatch, capsys):
 # --------------------------------------------------------------- doctor hint
 
 
-def test_doctor_hint_points_at_refresh_skill_not_setup(tmp_path, monkeypatch):
+def test_doctor_hint_points_at_refresh_skill_not_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The specific defect the peer reported: doctor's stale-skill hint used
     to name `agentbus setup claude`, which refuses in exactly the scenario
     where the hint appears. The new hint must name a command that works."""
     import httpx
 
     class _R:
-        def __init__(self, code, content):
+        def __init__(self, code: int, content: Any) -> None:
             self.status_code = code
             self.content = content
 

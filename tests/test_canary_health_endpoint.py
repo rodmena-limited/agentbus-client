@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 from agentbus_client import cli as cli_module
 from agentbus_client.client import AgentBus, AgentBusError
+
+if TYPE_CHECKING:
+    import pytest
 
 LIVE_RESPONSE = {
     "agent": "target-agent",
@@ -41,7 +45,7 @@ STALE_RESPONSE = {
 # --------------------------------------------------------------- SDK
 
 
-def test_sdk_health_hits_the_right_endpoint():
+def test_sdk_health_hits_the_right_endpoint() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     with patch.object(bus, "_request", return_value=LIVE_RESPONSE) as m:
         result = bus.health("target-agent")
@@ -50,14 +54,14 @@ def test_sdk_health_hits_the_right_endpoint():
     assert result == LIVE_RESPONSE
 
 
-def test_sdk_health_passes_agent_when_named():
+def test_sdk_health_passes_agent_when_named() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
     with patch.object(bus, "_request", return_value=LIVE_RESPONSE) as m:
         bus.health("target-agent", agent="acting-as")
     m.assert_called_once_with("GET", "/v1/agents/target-agent/health", agent="acting-as")
 
 
-async def test_async_sdk_health_parity():
+async def test_async_sdk_health_parity() -> None:
     """Async client must have parity — a caller cannot know which path is
     behind the SDK. pytest-asyncio's asyncio_mode=auto (see pyproject.toml)
     handles the event-loop fixture for us."""
@@ -65,7 +69,7 @@ async def test_async_sdk_health_parity():
 
     bus = AsyncAgentBus(api_key="ab_sk_test_test", agent="me")
 
-    async def fake_request(*a, **kw):
+    async def fake_request(*a: Any, **kw: Any) -> Any:
         assert a == ("GET", "/v1/agents/target-agent/health")
         return LIVE_RESPONSE
 
@@ -77,28 +81,30 @@ async def test_async_sdk_health_parity():
 # --------------------------------------------------------------- CLI
 
 
-def _args(**over):
+def _args(**over: Any) -> argparse.Namespace:
     base = {"target_agent": "target", "agent": None, "json": False}
     base.update(over)
     return argparse.Namespace(**base)
 
 
 class _FakeBus:
-    def __init__(self, response=None, raises=None):
+    def __init__(self, response: Any = None, raises: Any = None) -> None:
         self._response = response
         self._raises = raises
         self.agent = "me"
 
-    def health(self, target_agent, agent=None):
+    def health(self, target_agent: Any, agent: Any = None) -> Any:
         if self._raises:
             raise self._raises
         return self._response
 
-    def whoami(self, agent=None):
+    def whoami(self, agent: Any = None) -> dict[str, Any]:
         return {"agent": None}
 
 
-def test_cli_health_live_prints_and_exits_zero(monkeypatch, capsys):
+def test_cli_health_live_prints_and_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _FakeBus(LIVE_RESPONSE))
     rc = cli_module.cmd_health(_args())
     assert rc == 0
@@ -110,7 +116,9 @@ def test_cli_health_live_prints_and_exits_zero(monkeypatch, capsys):
     assert "server supports canary heartbeat" in out
 
 
-def test_cli_health_stale_prints_note_and_exits_nonzero(monkeypatch, capsys):
+def test_cli_health_stale_prints_note_and_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A stale wake_channel is the sender's actionable signal: even if
     presence reads 'responsive', a send would land in a queue nothing
     drains. The CLI must exit non-zero so scripts branching on `agentbus
@@ -123,7 +131,9 @@ def test_cli_health_stale_prints_note_and_exits_nonzero(monkeypatch, capsys):
     assert "require_responsive" in out  # actionable hint present
 
 
-def test_cli_health_json_output(monkeypatch, capsys):
+def test_cli_health_json_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: _FakeBus(LIVE_RESPONSE))
     rc = cli_module.cmd_health(_args(json=True))
     assert rc == 0
@@ -131,7 +141,9 @@ def test_cli_health_json_output(monkeypatch, capsys):
     assert data == LIVE_RESPONSE
 
 
-def test_cli_health_404_prints_clear_error(monkeypatch, capsys):
+def test_cli_health_404_prints_clear_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Backend returns 404 for unknown agent in caller's workspace
     (existence undisclosed). The CLI must render that as an actionable
     error, not a raw traceback."""
@@ -143,7 +155,9 @@ def test_cli_health_404_prints_clear_error(monkeypatch, capsys):
     assert "unknown agent 'ghost'" in err
 
 
-def test_cli_health_defaults_to_acting_agent(monkeypatch, capsys):
+def test_cli_health_defaults_to_acting_agent(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """When no target is given, check ourselves — the common case for
     an operator running the command to verify their own watcher is
     healthy."""
@@ -156,7 +170,9 @@ def test_cli_health_defaults_to_acting_agent(monkeypatch, capsys):
     assert "agent: me" in out
 
 
-def test_cli_health_no_target_and_no_acting_agent_exits_two(monkeypatch, capsys):
+def test_cli_health_no_target_and_no_acting_agent_exits_two(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _FakeBus(LIVE_RESPONSE)
     bus.agent = None
     monkeypatch.setattr(cli_module._common, "_bus", lambda _a: bus)
@@ -166,7 +182,7 @@ def test_cli_health_no_target_and_no_acting_agent_exits_two(monkeypatch, capsys)
     assert "no target agent" in err
 
 
-def test_cli_health_verb_registered_in_parser():
+def test_cli_health_verb_registered_in_parser() -> None:
     """A verb nobody can invoke is not a verb."""
     src = _cli_source()
     assert '"health"' in src or "'health'" in src

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import argparse
 from types import SimpleNamespace
-from typing import Any
-
-import pytest
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import onboarding, sealing
 from agentbus_client.cli import _common, _diag
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class _Bus:
@@ -37,7 +38,8 @@ class _Bus:
     def read(self, delivery_id: str, raw: bool = False) -> dict[str, Any]:
         if raw:
             if self._stored is None:
-                raise RuntimeError("raw read failed")
+                msg = "raw read failed"
+                raise RuntimeError(msg)
             return {"text_body": self._stored}
         return {"text_body": "self-test"}
 

@@ -20,27 +20,29 @@ import argparse
 import io
 import json
 from contextlib import redirect_stdout
+from typing import Any
 
 from agentbus_client.cli import _keys
 from agentbus_client.client.errors import AgentBusError
 
 
 class _Bus:
-    def __init__(self, sealing, signing):
+    def __init__(self, sealing: Any, signing: Any) -> None:
         self._sealing, self._signing = sealing, signing
         self.asked: list[str | None] = []
 
-    def _request(self, method, path, params=None, **kw):
+    def _request(self, method: Any, path: Any, params: Any = None, **kw: Any) -> dict[str, Any]:
         algo = (params or {}).get("algorithm")
         self.asked.append(algo)
         if algo == "ed25519":
             if self._signing is None:
-                raise AgentBusError("nope", code="not_found", status=404)
+                msg = "nope"
+                raise AgentBusError(msg, code="not_found", status=404)
             return {"keys": self._signing}
         return {"keys": self._sealing}
 
 
-def _run(bus, as_json=False):
+def _run(bus: Any, as_json: bool = False) -> Any:
     buf = io.StringIO()
     with redirect_stdout(buf):
         rc = _keys._keys_list(bus, argparse.Namespace(json=as_json), "a", None)
@@ -52,12 +54,12 @@ SEAL = [{"fingerprint": "seal1", "label": "s"}]
 SIGN = [{"fingerprint": "sign1", "label": "g"}]
 
 
-def test_a_published_signing_key_appears():
+def test_a_published_signing_key_appears() -> None:
     out = _run(_Bus(SEAL, SIGN))
     assert "sign1" in out
 
 
-def test_the_ed25519_surface_is_actually_queried():
+def test_the_ed25519_surface_is_actually_queried() -> None:
     """Asserting on output alone would pass if the key were printed from the
     sealing response by accident. Assert the request that went out."""
     bus = _Bus(SEAL, SIGN)
@@ -65,37 +67,38 @@ def test_the_ed25519_surface_is_actually_queried():
     assert "ed25519" in bus.asked
 
 
-def test_no_signing_key_says_so_rather_than_printing_nothing():
+def test_no_signing_key_says_so_rather_than_printing_nothing() -> None:
     """THE AUDIT FAILURE. Silence read as 'none' when it meant 'never asked'."""
     out = _run(_Bus(SEAL, None))
     assert "none published" in out
     assert "keys sign" in out
 
 
-def test_the_absence_notice_is_absent_when_a_key_exists():
+def test_the_absence_notice_is_absent_when_a_key_exists() -> None:
     """Known-negative: a notice that always prints tells the reader nothing."""
     assert "none published" not in _run(_Bus(SEAL, SIGN))
 
 
-def test_sealing_keys_are_still_listed():
+def test_sealing_keys_are_still_listed() -> None:
     """Known-positive control: the half that already worked must keep working."""
     assert "seal1" in _run(_Bus(SEAL, SIGN))
 
 
-def test_json_carries_both_key_types():
+def test_json_carries_both_key_types() -> None:
     d = json.loads(_run(_Bus(SEAL, SIGN), as_json=True))
     assert d["keys"][0]["fingerprint"] == "seal1"
     assert d["signing_keys"][0]["fingerprint"] == "sign1"
 
 
-def test_a_failed_signing_lookup_does_not_kill_the_whole_listing():
+def test_a_failed_signing_lookup_does_not_kill_the_whole_listing() -> None:
     """A listing that dies because one of two lookups failed tells the reader
     less than one showing the half it has."""
 
     class _Broken(_Bus):
-        def _request(self, method, path, params=None, **kw):
+        def _request(self, method: Any, path: Any, params: Any = None, **kw: Any) -> dict[str, Any]:
             if (params or {}).get("algorithm") == "ed25519":
-                raise AgentBusError("boom", code="internal_error", status=500)
+                msg = "boom"
+                raise AgentBusError(msg, code="internal_error", status=500)
             return {"keys": SEAL}
 
     out = _run(_Broken(SEAL, None))

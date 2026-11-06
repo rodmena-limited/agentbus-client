@@ -19,6 +19,7 @@ import asyncio
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -26,14 +27,15 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agentbus_client.client import errors as client_errors
-from agentbus_client.client import resilience as client_resilience
+from typing import NoReturn
+
+from agentbus_client.client import errors as client_errors, resilience as client_resilience
 from agentbus_client.client.async_client import AsyncAgentBus
 from agentbus_client.client.resilience import _AsyncCircuitBreaker
 
 
 @pytest.fixture(autouse=True)
-def _isolate_breaker(monkeypatch):
+def _isolate_breaker(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Give every test a fresh, controlled breaker; restore the real singleton."""
     fresh = _AsyncCircuitBreaker()
     # Patch the global singleton so _async_circuit_breaker() returns it
@@ -41,14 +43,14 @@ def _isolate_breaker(monkeypatch):
     return fresh
 
 
-def _stub_client(calls: list):
+def _stub_client(calls: list) -> Any:
     """A stub httpx.AsyncClient whose request appends to `calls` and succeeds."""
 
     class _Stub:
-        def __init__(self):
+        def __init__(self) -> None:
             self.calls = calls
 
-        async def request(self, *_a, **_k):
+        async def request(self, *_a: Any, **_k: Any) -> Any:
             self.calls.append(1)
 
             class _R:
@@ -56,19 +58,19 @@ def _stub_client(calls: list):
                 content = b'{"ok": true}'
                 text = '{"ok": true}'
 
-                def json(self):
+                def json(self) -> dict[str, Any]:
                     return {"ok": True}
 
             return _R()
 
-        async def aclose(self):  # pragma: no cover
+        async def aclose(self) -> None:  # pragma: no cover
             pass
 
     return _Stub()
 
 
 @pytest.fixture
-def bus(monkeypatch):
+def bus(monkeypatch: pytest.MonkeyPatch) -> Any:
     """An AsyncAgentBus whose transport is a controllable stub."""
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
     monkeypatch.setattr(b, "_client", _stub_client([]))
@@ -82,21 +84,22 @@ def bus(monkeypatch):
 # ---------------------------------------------------------------- breaker opens
 
 
-def test_breaker_opens_then_calls_fail_fast(monkeypatch):
+def test_breaker_opens_then_calls_fail_fast(monkeypatch: pytest.MonkeyPatch) -> None:
     """After `failure_limit` consecutive failing retry-sequences the breaker
     opens; subsequent calls fail fast with the last error and attempt no retry
     and no new transport call."""
     calls: list = []
 
     class _Flaky:
-        def __init__(self):
+        def __init__(self) -> None:
             self.calls = calls
 
-        async def request(self, *_a, **_k):
+        async def request(self, *_a: Any, **_k: Any) -> NoReturn:
             self.calls.append(1)
-            raise httpx.ConnectError("bus down")
+            msg = "bus down"
+            raise httpx.ConnectError(msg)
 
-        async def aclose(self):  # pragma: no cover
+        async def aclose(self) -> None:  # pragma: no cover
             pass
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
@@ -130,31 +133,32 @@ def test_breaker_opens_then_calls_fail_fast(monkeypatch):
 # ---------------------------------------------------------------- breaker recovers
 
 
-def test_breaker_closes_after_clean_successes(monkeypatch):
+def test_breaker_closes_after_clean_successes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Once the cooldown lapses, a successful call (half-open probe) closes the
     breaker, and subsequent calls proceed normally."""
     state = {"fail": True, "calls": 0}
 
     class _Flip:
-        def __init__(self):
+        def __init__(self) -> None:
             self.state = state
 
-        async def request(self, *_a, **_k):
+        async def request(self, *_a: Any, **_k: Any) -> Any:
             self.state["calls"] += 1
             if self.state["fail"]:
-                raise httpx.ConnectError("bus down")
+                msg = "bus down"
+                raise httpx.ConnectError(msg)
 
             class _R:
                 status_code = 200
                 content = b'{"ok": true}'
                 text = '{"ok": true}'
 
-                def json(self):
+                def json(self) -> dict[str, Any]:
                     return {"ok": True}
 
             return _R()
 
-        async def aclose(self):  # pragma: no cover
+        async def aclose(self) -> None:  # pragma: no cover
             pass
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
@@ -195,7 +199,7 @@ def test_breaker_closes_after_clean_successes(monkeypatch):
 # ---------------------------------------------------- sustained outage re-opens
 
 
-def test_half_open_probe_failure_reopens_immediately(monkeypatch):
+def test_half_open_probe_failure_reopens_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
     """After the cooldown lapses, a FAILED probe must re-open the breaker on the
     FIRST failure (not failure_limit more) — a sustained outage costs one probe
     burst per cooldown, not N. This is the release-vs-block durability half: it
@@ -203,14 +207,15 @@ def test_half_open_probe_failure_reopens_immediately(monkeypatch):
     state = {"calls": 0}
 
     class _Down:
-        def __init__(self):
+        def __init__(self) -> None:
             self.state = state
 
-        async def request(self, *_a, **_k):
+        async def request(self, *_a: Any, **_k: Any) -> NoReturn:
             self.state["calls"] += 1
-            raise httpx.ConnectError("still down")
+            msg = "still down"
+            raise httpx.ConnectError(msg)
 
-        async def aclose(self):  # pragma: no cover
+        async def aclose(self) -> None:  # pragma: no cover
             pass
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
@@ -244,13 +249,14 @@ def test_half_open_probe_failure_reopens_immediately(monkeypatch):
 # ---------------------------------------------------------------- outer deadline
 
 
-def test_outer_deadline_surfaces_transport_error():
+def test_outer_deadline_surfaces_transport_error() -> None:
     """A retry sequence that exceeds the deadline must raise TransportError
     (mirroring the sync future.result(timeout=) translation), not hang."""
 
-    async def hang():
+    async def hang() -> NoReturn:
         await asyncio.sleep(0.5)
-        raise AssertionError("should have been cut off by the deadline")
+        msg = "should have been cut off by the deadline"
+        raise AssertionError(msg)
 
     start = time.monotonic()
     with pytest.raises(client_errors.TransportError) as exc:
@@ -260,7 +266,7 @@ def test_outer_deadline_surfaces_transport_error():
     assert "did not complete within" in str(exc.value)
 
 
-async def _call_with_deadline(fn, *, deadline):
+async def _call_with_deadline(fn: Any, *, deadline: Any) -> Any:
     """Drive _run_with_resilience_async with a synthetic deadline (no bus)."""
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
     return await b._run_with_resilience_async(fn, deadline=deadline)
@@ -269,16 +275,16 @@ async def _call_with_deadline(fn, *, deadline):
 # ---------------------------------------------------------- disable still works
 
 
-def test_resilience_disable_skips_breaker_and_deadline(monkeypatch):
+def test_resilience_disable_skips_breaker_and_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     """AGENTBUS_SDK_RESILIENCE=0 must bypass the resilience layer entirely — a
     slow call is awaited directly (no deadline cut, no breaker engagement)."""
     slow = {"calls": 0}
 
     class _Slow:
-        def __init__(self):
+        def __init__(self) -> None:
             self.slow = slow
 
-        async def request(self, *_a, **_k):
+        async def request(self, *_a: Any, **_k: Any) -> Any:
             self.slow["calls"] += 1
             await asyncio.sleep(0.2)  # slower than any deadline we'd use
 
@@ -287,12 +293,12 @@ def test_resilience_disable_skips_breaker_and_deadline(monkeypatch):
                 content = b'{"ok": true}'
                 text = '{"ok": true}'
 
-                def json(self):
+                def json(self) -> dict[str, Any]:
                     return {"ok": True}
 
             return _R()
 
-        async def aclose(self):  # pragma: no cover
+        async def aclose(self) -> None:  # pragma: no cover
             pass
 
     b = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
@@ -317,19 +323,22 @@ def test_resilience_disable_skips_breaker_and_deadline(monkeypatch):
 # -------------------------------------------------------- non-transient bypasses
 
 
-def test_non_transient_error_passes_through_without_tripping_breaker(bus, monkeypatch):
+def test_non_transient_error_passes_through_without_tripping_breaker(
+    bus: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A definitive (non-transient) error passes through immediately and does
     NOT count toward the breaker — same as the sync should_handle classifier."""
 
     class _Deny:
-        def __init__(self):
+        def __init__(self) -> None:
             self.calls = 0
 
-        async def request(self, *_a, **_k):
+        async def request(self, *_a: Any, **_k: Any) -> NoReturn:
             self.calls += 1
-            raise client_errors.AuthError("revoked")
+            msg = "revoked"
+            raise client_errors.AuthError(msg)
 
-        async def aclose(self):  # pragma: no cover
+        async def aclose(self) -> None:  # pragma: no cover
             pass
 
     b = bus

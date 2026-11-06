@@ -22,11 +22,12 @@ hosts, in one night:
 
 from __future__ import annotations
 
-import argparse
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ..client import AgentBus
+from agentbus_client.client import AgentBus
+
 from ._credentials import doctor_credential_scope
 from ._identity import _agent_key, _project_claude_dir, _write_worktree_identity
 from ._paths import (
@@ -51,6 +52,9 @@ from ._plugin import INSTALL_COMMANDS, PLUGIN_ID, claude_settings_path, install_
 from ._provision import _provision_project_agent
 from ._signin import _sealing_publish_with_retry
 from ._skill import refresh_skill
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _setup_claude(args: argparse.Namespace) -> int:
@@ -194,7 +198,7 @@ def _setup_claude(args: argparse.Namespace) -> int:
     # one that had a rough sealing publish — but the operator now sees the
     # exact recovery command.
     try:
-        from .. import sealing as _sealing
+        from agentbus_client import sealing as _sealing
 
         _bus = AgentBus(base_url=base_url, agent=name)
         _state = _bus._request("GET", "/v1/workspace/pubkeys")
@@ -393,7 +397,7 @@ def _setup_claude(args: argparse.Namespace) -> int:
     except Exception as exc:
         report.append(f"credential scope: not checked ({exc})")
 
-    from .. import ui
+    from agentbus_client import ui
 
     ui.banner("setup claude — everything wired, nothing foreign touched")
     for line in report:

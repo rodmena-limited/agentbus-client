@@ -22,6 +22,7 @@ from __future__ import annotations
 import io
 import json
 from contextlib import redirect_stdout
+from typing import Any
 
 import pytest
 
@@ -44,14 +45,14 @@ class _FakeStdin(io.StringIO):
 
 
 @pytest.fixture
-def _stdin(monkeypatch):
-    def _set(text: str):
+def _stdin(monkeypatch: pytest.MonkeyPatch) -> Any:
+    def _set(text: str) -> None:
         monkeypatch.setattr("sys.stdin", _FakeStdin(text))
 
     return _set
 
 
-def _run(monkeypatch, payload: str) -> str:
+def _run(monkeypatch: pytest.MonkeyPatch, payload: str) -> str:
     monkeypatch.setattr("sys.stdin", _FakeStdin(payload))
     # No credential -> pending() takes its early exit without touching the bus.
     monkeypatch.setattr(_turn, "_resolve_agent", lambda: None)
@@ -61,14 +62,14 @@ def _run(monkeypatch, payload: str) -> str:
     return buf.getvalue()
 
 
-def test_the_payload_is_not_echoed(monkeypatch):
+def test_the_payload_is_not_echoed(monkeypatch: pytest.MonkeyPatch) -> None:
     out = _run(monkeypatch, PAYLOAD)
     assert "session_id" not in out
     assert "transcript_path" not in out
     assert "the user's actual words" not in out
 
 
-def test_a_harness_notification_exits_silently(monkeypatch):
+def test_a_harness_notification_exits_silently(monkeypatch: pytest.MonkeyPatch) -> None:
     """The other echo site: a harness notification is not a human prompt, and
     passing it through put the same JSON into the turn."""
     # A harness event is a TAGGED BLOCK, not JSON. My first version of this
@@ -81,7 +82,7 @@ def test_a_harness_notification_exits_silently(monkeypatch):
     assert _run(monkeypatch, notif).strip() == ""
 
 
-def test_the_hook_can_still_print_something(monkeypatch):
+def test_the_hook_can_still_print_something(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-NEGATIVE, and the reason this file is not vacuous.
 
     'stdout is empty' would also pass if pending() had been broken into
@@ -94,13 +95,13 @@ def test_the_hook_can_still_print_something(monkeypatch):
     monkeypatch.setattr(_turn, "_warn_if_shadow_queue", lambda: None)
 
     class _Bus:
-        def __init__(self, *a, **k):
+        def __init__(self, *a: Any, **k: Any) -> None:
             pass
 
-        def whoami(self):
+        def whoami(self) -> dict[str, Any]:
             return {"unread": {"count": 2}}
 
-        def inbox(self, *a, **k):
+        def inbox(self, *a: Any, **k: Any) -> dict[str, Any]:
             return {"messages": []}
 
     monkeypatch.setattr("agentbus_client.client.AgentBus", _Bus)

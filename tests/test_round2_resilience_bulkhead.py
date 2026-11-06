@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 import weakref
+from typing import Any, NoReturn
 
 import pytest
 
@@ -26,7 +27,7 @@ def _fresh_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def _wait_until(predicate, limit: float = 5.0) -> bool:
+def _wait_until(predicate: Any, limit: float = 5.0) -> bool:
     end = time.monotonic() + limit
     while time.monotonic() < end:
         if predicate():
@@ -35,7 +36,7 @@ def _wait_until(predicate, limit: float = 5.0) -> bool:
     return False
 
 
-def _background(fn, results: list) -> threading.Thread:
+def _background(fn: Any, results: list) -> threading.Thread:
     def _run() -> None:
         try:
             results.append(resilience._run_with_resilience(fn, timeout=10))
@@ -167,8 +168,8 @@ def test_inflight_registry_holds_the_cancel_flag_during_a_call() -> None:
     assert seen[0].is_set() is False
 
 
-def _raise(exc: BaseException):
-    def _fn():
+def _raise(exc: BaseException) -> Any:
+    def _fn() -> NoReturn:
         raise exc
 
     return _fn
@@ -181,7 +182,8 @@ def test_non_idempotent_5xx_is_attempted_once(monkeypatch: pytest.MonkeyPatch, s
 
     def _fn() -> None:
         calls.append(1)
-        raise AgentBusError("server exploded", status=status)
+        msg = "server exploded"
+        raise AgentBusError(msg, status=status)
 
     with pytest.raises(AgentBusError) as info:
         resilience._run_with_resilience(_fn, timeout=10, idempotent=False)
@@ -198,7 +200,8 @@ def test_outer_deadline_returns_on_time_and_abandons() -> None:
         attempts.append(1)
         flags.extend(resilience._INFLIGHT)
         time.sleep(1.0)
-        raise TransportError("slow")
+        msg = "slow"
+        raise TransportError(msg)
 
     started = time.monotonic()
     with pytest.raises(TransportError) as info:
@@ -247,7 +250,8 @@ def test_exit_hook_abandons_closes_and_cancels(monkeypatch: pytest.MonkeyPatch) 
         def close(self) -> None:
             self.closed += 1
             if self.fail:
-                raise RuntimeError("close failed")
+                msg = "close failed"
+                raise RuntimeError(msg)
 
     clients = [_Client(True), _Client(False)]
     registry: weakref.WeakSet = weakref.WeakSet(clients)
@@ -283,7 +287,8 @@ def test_exit_hook_without_bulkhead_still_abandons(monkeypatch: pytest.MonkeyPat
 def test_exit_hook_survives_a_failing_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Executor:
         def shutdown(self, **_k: object) -> None:
-            raise RuntimeError("boom")
+            msg = "boom"
+            raise RuntimeError(msg)
 
     class _Bulkhead:
         _executor = _Executor()

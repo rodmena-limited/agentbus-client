@@ -16,8 +16,14 @@ from __future__ import annotations
 
 import inspect
 import re
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client.client import AgentBus, AsyncAgentBus
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 # One entry per legitimate name-map: close() on sync <-> aclose() on async, the
 # standard httpx-style asymmetry. Anything else added here needs justification.
@@ -158,7 +164,9 @@ def test_shared_methods_use_the_same_endpoints() -> None:
     )
 
 
-def test_private_sealing_twin_covers_async_secure_draft(tmp_path, monkeypatch) -> None:
+def test_private_sealing_twin_covers_async_secure_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """C (reliability audit follow-up): async `secure_draft` called the
     UNDEFINED `_seal_to_self_async` — a guaranteed AttributeError on the async
     draft path, invisible to the public-method parity check above because the
@@ -184,10 +192,11 @@ def test_private_sealing_twin_covers_async_secure_draft(tmp_path, monkeypatch) -
     monkeypatch.setattr(sealing_mod, "config_dir", lambda: tmp_path)
     bus = AsyncAgentBus(api_key="ab_sk_stub", base_url="https://stub", agent="t")
 
-    async def fake_request(_method, path, **_kwargs):
+    async def fake_request(_method: Any, path: Any, **_kwargs: Any) -> dict[str, Any]:
         if path == "/v1/recipients/resolve":
             return {"encrypted": True, "keys": {}}
-        raise AssertionError(f"unexpected request path: {path}")
+        msg = f"unexpected request path: {path}"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(bus, "_request", fake_request)
     sealed = asyncio.run(bus._seal_to_self_async({"text": "secret"}, "t"))

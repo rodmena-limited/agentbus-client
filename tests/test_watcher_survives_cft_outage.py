@@ -30,34 +30,40 @@ from __future__ import annotations
 
 import concurrent.futures
 import time
+from typing import TYPE_CHECKING, Any, NoReturn
 from unittest.mock import patch
 
 import pytest
+from typing_extensions import Self
 
 from agentbus_client import client as client_module
 from agentbus_client.client import AgentBusError, TransportError
 from agentbus_client.watch import DeadWakeSocket, Watcher
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 # ---------------------------------------------------- Fix #1: boundary translation
 
 
-def test_run_with_resilience_translates_cft_to_transport_error():
+def test_run_with_resilience_translates_cft_to_transport_error() -> None:
     """The SINGLE FIX that closes the whole class. Every downstream `except
     TransportError` now catches network stalls on every Python version, at
     every call site, including ones nobody audited."""
 
-    def timing_out_call():
-        raise RuntimeError("should not reach here")
+    def timing_out_call() -> NoReturn:
+        msg = "should not reach here"
+        raise RuntimeError(msg)
 
     # Bypass the real bulkman + safety net — patch the future to raise CFT
     # directly out of .result(timeout=...), which is what happens on a real
     # network stall.
     class _FakeFuture:
-        def result(self, timeout=None):
-            raise concurrent.futures.TimeoutError()
+        def result(self, timeout: Any = None) -> NoReturn:
+            raise concurrent.futures.TimeoutError
 
     class _FakeBulkhead:
-        def execute(self, fn):
+        def execute(self, fn: Any) -> Any:
             return _FakeFuture()
 
     with (
@@ -75,7 +81,7 @@ def test_run_with_resilience_translates_cft_to_transport_error():
     assert "TimeoutError" in str(exc.value)
 
 
-def test_transport_error_is_catchable_by_downstream_guards():
+def test_transport_error_is_catchable_by_downstream_guards() -> None:
     """Contract check: TransportError is an AgentBusError subclass, so every
     `except AgentBusError` guard in watch.py, cli.py, onboarding.py catches
     the translated CFT for free."""
@@ -89,28 +95,30 @@ class _FakeBus:
     """Minimum surface for Watcher: `.inbox`, `.agent`, `.base_url`,
     `.api_key`, `.whoami`. Everything is patchable."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.agent = "test-agent"
         self.base_url = "https://x"
         self.api_key = "ab_sk_test"
         self.inbox_raises: BaseException | None = None
         self.inbox_calls = 0
 
-    def inbox(self, cursor, limit=100, agent=None):
+    def inbox(self, cursor: Any, limit: int = 100, agent: Any = None) -> list[Any]:
         self.inbox_calls += 1
         if self.inbox_raises is not None:
             raise self.inbox_raises
         return []
 
-    def whoami(self, agent=None):
+    def whoami(self, agent: Any = None) -> dict[str, Any]:
         return {"workspace": {"slug": "test-ws"}}
 
 
-def _watcher(bus, tmp_path):
+def _watcher(bus: Any, tmp_path: Path) -> Watcher:
     return Watcher(bus, agent="test-agent", state_path=tmp_path / "state.json")
 
 
-def test_backoff_and_drain_survives_cft_from_inbox(tmp_path, monkeypatch):
+def test_backoff_and_drain_survives_cft_from_inbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The exact site macbook traced. bus.inbox() raises CFT (network
     down). _backoff_and_drain USED to let it propagate to run() and kill
     the process. Now it catches everything and sleeps in finally."""
@@ -129,7 +137,9 @@ def test_backoff_and_drain_survives_cft_from_inbox(tmp_path, monkeypatch):
     assert w._failures == 1
 
 
-def test_backoff_and_drain_survives_arbitrary_exception_from_drain(tmp_path, monkeypatch):
+def test_backoff_and_drain_survives_arbitrary_exception_from_drain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Belt-and-braces: even if a NEW exception shape lands in the drain
     tomorrow, the reconnect handler is total. Only DeadWakeSocket re-raises."""
     bus = _FakeBus()
@@ -146,7 +156,9 @@ def test_backoff_and_drain_survives_arbitrary_exception_from_drain(tmp_path, mon
     assert slept, "sleep in finally still fires"
 
 
-def test_backoff_sleep_fires_even_when_drain_raises(tmp_path, monkeypatch):
+def test_backoff_sleep_fires_even_when_drain_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Macbook's secondary defect (b): `time.sleep(delay)` used to sit AFTER
     the drain, unguarded, so a drain that raised skipped the sleep too and
     the watcher became a 1Hz reconnect hammer against the server."""
@@ -162,7 +174,7 @@ def test_backoff_sleep_fires_even_when_drain_raises(tmp_path, monkeypatch):
     assert 0.85 <= slept[0] <= 1.15, f"unexpected jittered sleep: {slept}"
 
 
-def test_backoff_reraises_dead_wake_socket(tmp_path, monkeypatch):
+def test_backoff_reraises_dead_wake_socket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Contract: DeadWakeSocket is the ONE signal that means 'stop trying,
     the wake target no longer exists' — it must propagate out even though
     the reconnect handler is otherwise total."""
@@ -176,7 +188,9 @@ def test_backoff_reraises_dead_wake_socket(tmp_path, monkeypatch):
         w._backoff_and_drain("test")
 
 
-def test_backoff_escalates_across_repeated_failures(tmp_path, monkeypatch):
+def test_backoff_escalates_across_repeated_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The RECONNECT_BACKOFF table is (1, 2, 5, 10, 30, 60). Repeated
     failures MUST walk it, not stay at 1s. macbook's log showed every line
     at 'retrying in 1s' during a multi-minute outage — a 1Hz hammer.
@@ -200,7 +214,9 @@ def test_backoff_escalates_across_repeated_failures(tmp_path, monkeypatch):
 # ---------------------------------------------------- Fix #7: empty-message diagnostic
 
 
-def test_drain_async_diagnostic_names_type_when_str_is_empty(tmp_path, capsys):
+def test_drain_async_diagnostic_names_type_when_str_is_empty(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """str(concurrent.futures.TimeoutError()) is ''. macbook's log
     literally contained `agentbus watch: background drain failed:` with
     nothing after the colon. Now the type name is in the log."""
@@ -222,7 +238,9 @@ def test_drain_async_diagnostic_names_type_when_str_is_empty(tmp_path, capsys):
 # ---------------------------------------------------- Fix #4: startup resilience (integration)
 
 
-def test_run_can_start_when_startup_drain_raises(tmp_path, monkeypatch):
+def test_run_can_start_when_startup_drain_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The blackhole test that caught 0.9.24 (macbook-admin-bd8e86 in
     thread 01M08ZWE0XCTPJG1R0ZBXP8K7P): a watcher pointed at an
     unroutable base_url MUST be able to START. Before this fix the
@@ -242,7 +260,9 @@ def test_run_can_start_when_startup_drain_raises(tmp_path, monkeypatch):
     assert rc == 0, "run(once=True) must not raise or exit-code when startup drain fails"
 
 
-def test_run_startup_stamps_client_version_immediately(tmp_path, monkeypatch):
+def test_run_startup_stamps_client_version_immediately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Macbook's instrument-lag observation: `doctor --wake` used to
     read `client_version` from the state file, but the state file was
     only rewritten when the cursor advanced. On a healthy watcher with
@@ -271,7 +291,7 @@ def test_run_startup_stamps_client_version_immediately(tmp_path, monkeypatch):
     assert data["client_version"], "client_version was empty in state file"
 
 
-def test_cmd_watch_whoami_startup_catches_any_exception():
+def test_cmd_watch_whoami_startup_catches_any_exception() -> None:
     """The startup workspace-label lookup was `except (AgentBusError,
     OSError, ValueError, KeyError)` — missing httpx.HTTPError entirely,
     missing CFT on 3.10. Now bare `except Exception` because the whoami
@@ -290,12 +310,13 @@ def test_cmd_watch_whoami_startup_catches_any_exception():
     assert "startup label lookup MUST NOT block launch" in src
 
 
-def test_cmd_watch_catches_escaped_auth_error(monkeypatch, tmp_path):
+def test_cmd_watch_catches_escaped_auth_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """AuthError escaping Watcher.run() returns exit code 8 (terminal)."""
     import argparse
 
-    from agentbus_client import cli as cli_module
-    from agentbus_client import watch as watch_module
+    from agentbus_client import cli as cli_module, watch as watch_module
     from agentbus_client.client import AuthError
 
     args = argparse.Namespace(
@@ -311,20 +332,22 @@ def test_cmd_watch_catches_escaped_auth_error(monkeypatch, tmp_path):
         once=True,
     )
 
-    def _fake_run(self, once=False):
-        raise AuthError("Key revoked", code="auth_failed", status=401)
+    def _fake_run(self, once: bool = False) -> NoReturn:
+        msg = "Key revoked"
+        raise AuthError(msg, code="auth_failed", status=401)
 
     monkeypatch.setattr(watch_module.Watcher, "run", _fake_run)
     rc = cli_module.cmd_watch(args)
     assert rc == 8
 
 
-def test_cmd_watch_catches_escaped_service_unavailable(monkeypatch, tmp_path):
+def test_cmd_watch_catches_escaped_service_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """ServiceUnavailable/AgentBusError escaping Watcher.run() returns exit code 3 (retryable)."""
     import argparse
 
-    from agentbus_client import cli as cli_module
-    from agentbus_client import watch as watch_module
+    from agentbus_client import cli as cli_module, watch as watch_module
     from agentbus_client.client import ServiceUnavailable
 
     args = argparse.Namespace(
@@ -340,8 +363,9 @@ def test_cmd_watch_catches_escaped_service_unavailable(monkeypatch, tmp_path):
         once=True,
     )
 
-    def _fake_run(self, once=False):
-        raise ServiceUnavailable("Gateway down", status=503)
+    def _fake_run(self, once: bool = False) -> NoReturn:
+        msg = "Gateway down"
+        raise ServiceUnavailable(msg, status=503)
 
     monkeypatch.setattr(watch_module.Watcher, "run", _fake_run)
     rc = cli_module.cmd_watch(args)
@@ -358,7 +382,9 @@ def test_cmd_watch_catches_escaped_service_unavailable(monkeypatch, tmp_path):
 # flagged.
 
 
-def test_run_propagates_confirmed_revocation_from_stream(tmp_path, monkeypatch):
+def test_run_propagates_confirmed_revocation_from_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """run() must re-raise AuthError from _stream_once, not fold it into the
     reconnect backoff. If it were swallowed, _backoff_and_drain would fire —
     which this test turns into a loud failure instead of an infinite loop."""
@@ -370,11 +396,13 @@ def test_run_propagates_confirmed_revocation_from_stream(tmp_path, monkeypatch):
     bus = _FakeBus()
     w = _watcher(bus, tmp_path)
 
-    def _revoked(self, once=False):
-        raise AuthError("API key was revoked", code="revoked", status=401)
+    def _revoked(self, once: bool = False) -> NoReturn:
+        msg = "API key was revoked"
+        raise AuthError(msg, code="revoked", status=401)
 
-    def _must_not_backoff(self, reason, stream=None):
-        raise AssertionError("revoked credential was folded into the backoff loop")
+    def _must_not_backoff(self, reason: Any, stream: Any = None) -> NoReturn:
+        msg = "revoked credential was folded into the backoff loop"
+        raise AssertionError(msg)
 
     with (
         patch.object(watch_module.Watcher, "_stream_once", _revoked),
@@ -384,7 +412,9 @@ def test_run_propagates_confirmed_revocation_from_stream(tmp_path, monkeypatch):
         w.run()
 
 
-def test_run_propagates_revocation_from_startup_drain(tmp_path, monkeypatch):
+def test_run_propagates_revocation_from_startup_drain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A revoked key at STARTUP is terminal too: run(once=True) must raise
     AuthError, not defer the drain and return 0 (a revoked credential must
     never look like a successful `--once` check)."""
@@ -402,10 +432,10 @@ class _FakeStreamResponse:
     (`client.stream(...) as response`) and raise_for_status — nothing else is
     reached for these 4xx tests."""
 
-    def __init__(self, status_code: int):
+    def __init__(self, status_code: int) -> None:
         self.status_code = status_code
 
-    def __enter__(self) -> _FakeStreamResponse:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> bool:
@@ -415,28 +445,31 @@ class _FakeStreamResponse:
         if self.status_code >= 400:
             import httpx
 
+            msg = f"stream error {self.status_code}"
             raise httpx.HTTPStatusError(
-                f"stream error {self.status_code}",
+                msg,
                 request=object(),
                 response=self,
             )
 
 
 class _FakeStreamClient:
-    def __init__(self, status_code: int):
+    def __init__(self, status_code: int) -> None:
         self._status = status_code
 
-    def __enter__(self) -> _FakeStreamClient:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> bool:
         return False
 
-    def stream(self, method: str, url: str, headers=None) -> _FakeStreamResponse:
+    def stream(self, method: str, url: str, headers: Any = None) -> _FakeStreamResponse:
         return _FakeStreamResponse(self._status)
 
 
-def test_stream_once_confirmed_401_raises_auth_error(tmp_path, monkeypatch):
+def test_stream_once_confirmed_401_raises_auth_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /v1/stream returning 401 with a REST-confirmed revocation raises
     AuthError (-> exit 8), not httpx.HTTPStatusError folded into backoff."""
 
@@ -450,7 +483,9 @@ def test_stream_once_confirmed_401_raises_auth_error(tmp_path, monkeypatch):
         w._stream_once()
 
 
-def test_stream_once_401_without_confirmation_stays_transient(tmp_path, monkeypatch):
+def test_stream_once_401_without_confirmation_stays_transient(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /v1/stream returning 401 that is NOT a confirmed revocation (a
     server blip) re-raises the HTTPStatusError so the backoff loop reconnects —
     it must NOT exit 8 on the server's word alone."""

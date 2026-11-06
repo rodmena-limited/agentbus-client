@@ -34,7 +34,7 @@ def _example_commands() -> list[str]:
     return found
 
 
-def test_the_quickref_actually_contains_examples():
+def test_the_quickref_actually_contains_examples() -> None:
     """KNOWN-POSITIVE. Without this, a scraper that silently matched nothing
     would make every assertion below vacuously true — the exact shape of a
     check that cannot go red."""
@@ -42,10 +42,10 @@ def test_the_quickref_actually_contains_examples():
 
 
 @pytest.mark.parametrize("cmd", _example_commands())
-def test_each_example_parses(cmd: str):
+def test_each_example_parses(cmd: str) -> None:
     parser = build_parser()
     # Shell redirection is not part of the command the parser sees.
-    cmd = cmd.split("<")[0].strip() if " < " in f" {cmd} " else cmd
+    cmd = cmd.split("<", maxsplit=1)[0].strip() if " < " in f" {cmd} " else cmd
     argv = [a for a in shlex.split(cmd)[1:] if a != "\\"]
     # `[--flag]` marks an OPTIONAL flag in the quickref's notation; the command
     # must parse both with and without it, and the shape is what is under test.

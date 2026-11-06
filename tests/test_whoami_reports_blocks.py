@@ -14,13 +14,14 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from typing import Any
 
 import pytest
 
 from agentbus_client.cli import _directory
 
 
-def _whoami(monkeypatch, result):
+def _whoami(monkeypatch: pytest.MonkeyPatch, result: Any) -> Any:
     monkeypatch.setattr(
         _directory._common,
         "_bus",
@@ -32,7 +33,7 @@ def _whoami(monkeypatch, result):
     return buf.getvalue()
 
 
-def _base(**extra):
+def _base(**extra: Any) -> dict[str, Any]:
     return {
         "workspace": {"slug": "w"},
         "agent": {"name": "me", "labels": None},
@@ -41,7 +42,7 @@ def _base(**extra):
     }
 
 
-def test_active_blocks_are_reported(monkeypatch):
+def test_active_blocks_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     out = _whoami(monkeypatch, _base(blocks={"count": 2, "suppressed_total": 7}))
     assert "2 active" in out
     assert "7 message(s) suppressed" in out
@@ -52,13 +53,15 @@ def test_active_blocks_are_reported(monkeypatch):
     [None, {"count": 0, "suppressed_total": 0}, {}],
     ids=["null-unknown", "zero", "empty"],
 )
-def test_nothing_is_claimed_when_there_is_nothing_to_claim(monkeypatch, blocks):
+def test_nothing_is_claimed_when_there_is_nothing_to_claim(
+    monkeypatch: pytest.MonkeyPatch, blocks: Any
+) -> None:
     """null must NOT render as '0 blocks': that asserts something unknown."""
     out = _whoami(monkeypatch, _base(blocks=blocks))
     assert "blocks:" not in out
 
 
-def test_the_key_being_absent_is_not_an_error(monkeypatch):
+def test_the_key_being_absent_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """An older server omits the field entirely; whoami is the startup call and
     must not start failing over an advisory nothing depends on."""
     out = _whoami(monkeypatch, _base())

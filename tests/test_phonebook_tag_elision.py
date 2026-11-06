@@ -25,21 +25,21 @@ sys.path.insert(0, str(REPO / "src"))
 from agentbus_client.cli import _format_tags
 
 
-def test_short_tag_list_is_untouched():
+def test_short_tag_list_is_untouched() -> None:
     """Known-positive: the eliding path must not fire when everything fits."""
     out = _format_tags({"team:hive": "", "skill:py": ""}, limit=40)
     assert out == "skill:py,team:hive"
     assert "more" not in out
 
 
-def test_no_bare_ellipsis_anywhere():
+def test_no_bare_ellipsis_anywhere() -> None:
     labels = {f"tag{i}:value-that-is-long": "" for i in range(12)}
     out = _format_tags(labels, limit=40)
     assert "…" not in out
     assert "..." not in out
 
 
-def test_elision_never_splits_a_token():
+def test_elision_never_splits_a_token() -> None:
     """The `ro…` failure: every rendered tag must be a WHOLE tag."""
     labels = {"demo:agentbus": "", "film:the-hive": "", "role:alice": "", "team:hive": ""}
     out = _format_tags(labels, limit=40)
@@ -51,7 +51,7 @@ def test_elision_never_splits_a_token():
         )
 
 
-def test_elision_states_how_many_were_dropped():
+def test_elision_states_how_many_were_dropped() -> None:
     labels = {f"k{i}:v": "" for i in range(10)}
     out = _format_tags(labels, limit=40)
     body, _, suffix = out.partition(" +")
@@ -60,20 +60,20 @@ def test_elision_states_how_many_were_dropped():
     assert kept + dropped == 10, f"count must reconcile: {kept} kept + {dropped} dropped != 10"
 
 
-def test_output_never_exceeds_the_limit_including_its_own_marker():
+def test_output_never_exceeds_the_limit_including_its_own_marker() -> None:
     for count in range(1, 30):
         labels = {f"namespace{i}:some-value": "" for i in range(count)}
         out = _format_tags(labels, limit=40)
         assert len(out) <= 40, f"{count} tags -> {len(out)} chars: {out!r}"
 
 
-def test_a_single_oversized_tag_reports_a_count_not_a_fragment():
+def test_a_single_oversized_tag_reports_a_count_not_a_fragment() -> None:
     out = _format_tags({"a" * 100: ""}, limit=40)
     assert out == "+1 more"
     assert "aaa" not in out
 
 
-def test_the_team_hive_regression_that_started_this():
+def test_the_team_hive_regression_that_started_this() -> None:
     """frontend's exact case: team: sorts LATE, so a naive cut hides it — and
     the reader cannot tell. It may still be elided (that is a display), but the
     output must SAY it, so nothing computed from it can silently undercount."""

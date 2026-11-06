@@ -20,36 +20,41 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client import cli
 from agentbus_client.client import AgentBusError
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 class _Bus:
-    def __init__(self, fail_code: str | None = None):
+    def __init__(self, fail_code: str | None = None) -> None:
         self.fail_code = fail_code
         self.calls: list[str] = []
 
-    def _request(self, method, path, **kw):
+    def _request(self, method: Any, path: Any, **kw: Any) -> dict[str, Any]:
         self.calls.append(path)
         if self.fail_code:
-            raise AgentBusError("nope", code=self.fail_code, status=409)
+            msg = "nope"
+            raise AgentBusError(msg, code=self.fail_code, status=409)
         return {"retired": True}
 
 
-def _args(name=None, **over):
-    base = dict(name=name, agent=None, api_key=None, base_url=None, json=False)
+def _args(name: Any = None, **over: Any) -> argparse.Namespace:
+    base = {"name": name, "agent": None, "api_key": None, "base_url": None, "json": False}
     base.update(over)
     return argparse.Namespace(**base)
 
 
-def _run(monkeypatch, args, key_for_agent, bus=None):
+def _run(monkeypatch: pytest.MonkeyPatch, args: Any, key_for_agent: Any, bus: Any = None) -> Any:
     bus = bus or _Bus()
     seen: dict = {}
 
-    def fake_bus(a):
+    def fake_bus(a: Any) -> Any:
         seen["api_key"] = a.api_key
         seen["agent"] = a.agent
         return bus
@@ -62,10 +67,10 @@ def _run(monkeypatch, args, key_for_agent, bus=None):
     return rc, buf.getvalue(), seen, bus
 
 
-def test_it_uses_the_named_agents_own_key_when_we_hold_it(monkeypatch):
+def test_it_uses_the_named_agents_own_key_when_we_hold_it(monkeypatch: pytest.MonkeyPatch) -> None:
     """THE REGRESSION. No ambient identity, but the target's key is on disk."""
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
-    rc, out, seen, bus = _run(
+    rc, _out, seen, bus = _run(
         monkeypatch,
         _args("auditor-be8047"),
         lambda n: "ab_sk_auditor_key" if n == "auditor-be8047" else None,
@@ -78,23 +83,27 @@ def test_it_uses_the_named_agents_own_key_when_we_hold_it(monkeypatch):
     assert "/v1/agents/auditor-be8047/retire" in bus.calls
 
 
-def test_an_agent_whose_key_we_do_not_hold_still_needs_admin(monkeypatch):
+def test_an_agent_whose_key_we_do_not_hold_still_needs_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """KNOWN-POSITIVE TWIN. Retiring somebody else's agent genuinely does need
     an admin key — the fix must not quietly act as whoever is ambient."""
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
-    rc, out, seen, bus = _run(monkeypatch, _args("someone-elses-agent"), lambda n: None)
+    _rc, _out, seen, _bus = _run(monkeypatch, _args("someone-elses-agent"), lambda n: None)
     assert seen["api_key"] is None, "must not invent a credential we do not hold"
 
 
-def test_an_explicit_api_key_still_wins(monkeypatch):
+def test_an_explicit_api_key_still_wins(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
-    rc, out, seen, _ = _run(
+    _rc, _out, seen, _ = _run(
         monkeypatch, _args("auditor-be8047", api_key="ab_sk_operator"), lambda n: "ab_sk_bound"
     )
     assert seen["api_key"] == "ab_sk_operator"
 
 
-def test_retiring_an_already_retired_agent_is_not_a_failure(monkeypatch):
+def test_retiring_an_already_retired_agent_is_not_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The operator's second `retire` printed an error that read like something
     had gone wrong when nothing had — it was the state they asked for."""
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
@@ -105,7 +114,7 @@ def test_retiring_an_already_retired_agent_is_not_a_failure(monkeypatch):
     assert "already retired" in out
 
 
-def test_other_errors_still_propagate(monkeypatch):
+def test_other_errors_still_propagate(monkeypatch: pytest.MonkeyPatch) -> None:
     """KNOWN-POSITIVE TWIN: only `agent_retired` is swallowed."""
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
     with pytest.raises(AgentBusError):
@@ -115,7 +124,9 @@ def test_other_errors_still_propagate(monkeypatch):
 # ------------------------------------------------- the retire/setup loop
 
 
-def test_retire_warns_that_this_checkout_will_revive_it(monkeypatch, tmp_path):
+def test_retire_warns_that_this_checkout_will_revive_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """THE LOOP, run six times by an operator who concluded retire was broken.
 
         agentbus retire auditor-be8047      -> "retired"
@@ -139,7 +150,9 @@ def test_retire_warns_that_this_checkout_will_revive_it(monkeypatch, tmp_path):
     assert "agentbus teardown" in out, "must name the command that actually stops it"
 
 
-def test_no_warning_when_this_checkout_does_not_declare_it(monkeypatch, tmp_path):
+def test_no_warning_when_this_checkout_does_not_declare_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """KNOWN-POSITIVE TWIN: a warning printed after every retire teaches nothing."""
     root = tmp_path / "repo"
     (root / ".agentbus").mkdir(parents=True)

@@ -43,7 +43,8 @@ def test_a_refused_resolve_leaves_the_payload_alone_instead_of_raising(status: i
     bus = _bus()
 
     def _refuse(*_a: Any, **_k: Any) -> Any:
-        raise AgentBusError("nope", code="permission_denied", status=status)
+        msg = "nope"
+        raise AgentBusError(msg, code="permission_denied", status=status)
 
     bus._request = _refuse
     # #220: the sealer hands back the resolver's answer too, so a reply can
@@ -64,14 +65,17 @@ def test_an_unexpected_failure_still_propagates() -> None:
     bus = _bus()
 
     def _boom(*_a: Any, **_k: Any) -> Any:
-        raise AgentBusError("server exploded", status=500)
+        msg = "server exploded"
+        raise AgentBusError(msg, status=500)
 
     bus._request = _boom
     with pytest.raises(AgentBusError):
         bus._seal_if_needed(dict(PAYLOAD), None)
 
 
-def test_sealing_still_happens_when_resolve_answers(tmp_path: Path, monkeypatch) -> None:
+def test_sealing_still_happens_when_resolve_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The known-positive that makes the two tests above mean anything: with a
     working resolve the body must come back UNREADABLE, and readable again only
     with the recipient's private key."""

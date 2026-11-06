@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from . import _common
 from ._common import _git_remote, _print, _print_qr
-from ._identity_cmd import cmd_identity as cmd_identity
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_device_id(_args: argparse.Namespace) -> int:
-    from .. import identity
+    from agentbus_client import identity
 
     print(identity.device_id())
     return 0
@@ -34,7 +36,7 @@ def cmd_invite(args: argparse.Namespace) -> int:
     prevents is the operator pasting a bare token into chat with no context and
     the recipient guessing at the verb.
     """
-    from ..client import AgentBusError
+    from agentbus_client.client import AgentBusError
 
     try:
         result = _common._bus(args).create_invite(role=args.role, ttl_seconds=args.ttl)
@@ -54,7 +56,7 @@ def cmd_invite(args: argparse.Namespace) -> int:
         return 1
 
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
 
     token = result.get("token", "")
@@ -90,7 +92,7 @@ def cmd_join(args: argparse.Namespace) -> int:
     import urllib.error
     import urllib.request
 
-    from ..onboarding import _keys_dir, _write_private
+    from agentbus_client.onboarding import _keys_dir, _write_private
 
     body = _json.dumps(
         {
@@ -103,7 +105,7 @@ def cmd_join(args: argparse.Namespace) -> int:
     ).encode()
     # Resolve the base URL the same way the client does — --base-url defaults to
     # None, and joining is the one command that runs before any client exists.
-    from ..client import DEFAULT_BASE_URL
+    from agentbus_client.client import DEFAULT_BASE_URL
 
     base = (args.base_url or os.environ.get("AGENTBUS_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
     request = urllib.request.Request(
@@ -122,7 +124,7 @@ def cmd_join(args: argparse.Namespace) -> int:
         print(f"could not join: {detail or exc}", file=sys.stderr)
         return 1
     except urllib.error.URLError as exc:
-        from ..client.errors import TransportError
+        from agentbus_client.client.errors import TransportError
 
         raise TransportError(str(exc.reason)) from exc
 
@@ -136,7 +138,7 @@ def cmd_join(args: argparse.Namespace) -> int:
     # WRITE to keys/../operator.env and CLOBBER the operator credential.
     # bound_env_filename collapses '..' and '/' to '_', so the write lands
     # inside keys/ regardless.
-    from .. import sealing as _sealing
+    from agentbus_client import sealing as _sealing
 
     key_path = keys_dir / _sealing.bound_env_filename(agent)
     if secret:
@@ -224,7 +226,7 @@ def cmd_register(args: argparse.Namespace) -> int:
     # inventing one. Naming a different agent on purpose still works — that is a
     # legitimate act, and it is what `--name` is for.
     if not args.name and not getattr(args, "role", None):
-        from ..onboarding import _resolve_agent_name
+        from agentbus_client.onboarding import _resolve_agent_name
 
         declared = _resolve_agent_name()
         if declared:
@@ -277,8 +279,8 @@ def cmd_register(args: argparse.Namespace) -> int:
     # matter how correct everything else was.
     key_note = ""
     try:
-        from .. import sealing as _sealing
-        from ..onboarding import (
+        from agentbus_client import sealing as _sealing
+        from agentbus_client.onboarding import (
             _keys_dir,
             _mint_bound_key,
             _operator_key,
@@ -312,7 +314,7 @@ def cmd_register(args: argparse.Namespace) -> int:
 
     wired_note = ""
     try:
-        from ..onboarding import _dump_json, _load_json, _project_claude_dir
+        from agentbus_client.onboarding import _dump_json, _load_json, _project_claude_dir
 
         local_path = _project_claude_dir() / "settings.local.json"
         local = _load_json(local_path)
@@ -354,7 +356,7 @@ def cmd_register(args: argparse.Namespace) -> int:
             # every non-Claude harness read; writing only settings.local.json
             # would wire Claude Code and leave opencode and codex deaf in the
             # same checkout, which is the #90 split-identity shape again.
-            from ..onboarding import _write_worktree_identity
+            from agentbus_client.onboarding import _write_worktree_identity
 
             notes: list[str] = []
             _write_worktree_identity(agent_name, notes)
@@ -370,7 +372,7 @@ def cmd_register(args: argparse.Namespace) -> int:
     if args.json:
         result["wired"] = wired_note
         result["key"] = key_note
-        _print(result, True)
+        _print(result, as_json=True)
     else:
         agent = result["agent"]
         print(f"registered as {agent['name']}")

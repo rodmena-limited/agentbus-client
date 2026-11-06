@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ..client import AgentBusError, NotFoundError
+from agentbus_client.client import AgentBusError, NotFoundError
+
 from . import _common, _sigline
 from ._common import _print
 from ._threads import _render_thread
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_inbox(args: argparse.Namespace) -> int:
@@ -18,7 +22,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         args.cursor, limit=args.limit, label=args.label, wait=args.wait, unread=args.unread
     )
     if args.json:
-        _print([d.raw for d in deliveries], True)
+        _print([d.raw for d in deliveries], as_json=True)
         return 0
     if not deliveries:
         if args.unread:
@@ -251,7 +255,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         if args.json:
-            _print(result, True)
+            _print(result, as_json=True)
             return 0
         _render_thread(result)
         return 0
@@ -265,7 +269,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             print("this delivery has no stored text body", file=sys.stderr)
             return 1
         if args.json:
-            _print(delivery, True)
+            _print(delivery, as_json=True)
             return 0
         if not delivery.get("sealed"):
             # An UNSEALED body printed under --raw looks exactly like a successful
@@ -292,14 +296,14 @@ def cmd_show(args: argparse.Namespace) -> int:
     if getattr(args, "thread", False):
         result = bus.thread(delivery["thread_id"])
         if args.json:
-            _print(result, True)
+            _print(result, as_json=True)
             return 0
         _render_thread(result, highlight_message_id=delivery.get("message_id"))
         print(f"\nreply in this thread:  agentbus reply {args.delivery_id} -b '...'")
         return 0
 
     if args.json:
-        _print(delivery, True)
+        _print(delivery, as_json=True)
         return 0
     print(f"From:    {delivery['sender_display'] or delivery['sender_address']}")
     # #155: THE ENVELOPE, like any mail reader shows it. Who else got this, and
@@ -389,5 +393,5 @@ def cmd_ack(args: argparse.Namespace) -> int:
 
 def cmd_labels(args: argparse.Namespace) -> int:
     labels = _common._bus(args).label(args.delivery_id, add=args.add, remove=args.remove)
-    _print(labels if args.json else f"labels: {', '.join(labels)}", args.json)
+    _print(labels if args.json else f"labels: {', '.join(labels)}", as_json=args.json)
     return 0

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -37,7 +38,9 @@ FOREIGN_SIG = (
 
 
 class _Server:
-    def __init__(self, resolve=None, resolve_reply=None, delivery=None, keys=None):
+    def __init__(
+        self, resolve: Any = None, resolve_reply: Any = None, delivery: Any = None, keys: Any = None
+    ) -> None:
         self.resolve = resolve
         self.resolve_reply = resolve_reply
         self.delivery = delivery
@@ -90,7 +93,7 @@ def _send(bus: AgentBus) -> None:
     )
 
 
-def test_send_with_pinned_key_carries_the_known_answer_signature():
+def test_send_with_pinned_key_carries_the_known_answer_signature() -> None:
     _install_pinned_key()
     server = _Server()
     _send(_bus(server))
@@ -102,7 +105,7 @@ def test_send_with_pinned_key_carries_the_known_answer_signature():
     assert body["text"] == BODY
 
 
-def test_send_with_generated_key_verifies_under_independent_ed25519():
+def test_send_with_generated_key_verifies_under_independent_ed25519() -> None:
     private, public = sealing.ensure_signing_keypair(AGENT)
     server = _Server()
     _send(_bus(server))
@@ -116,7 +119,7 @@ def test_send_with_generated_key_verifies_under_independent_ed25519():
     assert private.startswith("ABSIGSEC1")
 
 
-def test_send_without_a_key_is_unsigned():
+def test_send_without_a_key_is_unsigned() -> None:
     server = _Server()
     _send(_bus(server))
     _path, body = server.posted[0]
@@ -124,7 +127,7 @@ def test_send_without_a_key_is_unsigned():
     assert "signing_key_fingerprint" not in body
 
 
-def test_send_signs_over_the_resolver_answer():
+def test_send_signs_over_the_resolver_answer() -> None:
     _install_pinned_key()
     server = _Server(
         resolve={
@@ -140,7 +143,7 @@ def test_send_signs_over_the_resolver_answer():
     assert body["signature"] == CANONICAL_SIG
 
 
-def test_reply_signs_over_server_derived_recipients_and_subject():
+def test_reply_signs_over_server_derived_recipients_and_subject() -> None:
     _install_pinned_key()
     server = _Server(
         resolve_reply={
@@ -157,7 +160,9 @@ def test_reply_signs_over_server_derived_recipients_and_subject():
     assert body["signing_key_fingerprint"] == FINGERPRINT
 
 
-def _delivery(*, subject="Quarterly close", body_sha=BODY_SHA, signature=CANONICAL_SIG):
+def _delivery(
+    *, subject: str = "Quarterly close", body_sha: Any = BODY_SHA, signature: Any = CANONICAL_SIG
+) -> dict[str, Any]:
     return {
         "delivery_id": "d-1",
         "message_id": "m-1",
@@ -180,12 +185,12 @@ def _delivery(*, subject="Quarterly close", body_sha=BODY_SHA, signature=CANONIC
     }
 
 
-def _verify(delivery) -> dict:
+def _verify(delivery: Any) -> dict:
     keys = [{"fingerprint": FINGERPRINT, "public_key": PUBLIC}]
     return _bus(_Server(delivery=delivery, keys=keys)).verify("d-1")
 
 
-def test_verify_sender_reports_valid_for_genuine_signature():
+def test_verify_sender_reports_valid_for_genuine_signature() -> None:
     result = _verify(_delivery())
     assert result["verified"] is True
     assert result["verdict"] == "valid"
@@ -202,7 +207,7 @@ def test_verify_sender_reports_valid_for_genuine_signature():
         {"signature": FOREIGN_SIG},
     ],
 )
-def test_verify_sender_reports_invalid_for_tampering(overrides):
+def test_verify_sender_reports_invalid_for_tampering(overrides: Any) -> None:
     result = _verify(_delivery(**overrides))
     assert result["verified"] is False
     assert result["verdict"] == "invalid"
@@ -210,7 +215,7 @@ def test_verify_sender_reports_invalid_for_tampering(overrides):
     assert result["platform_said"] == "valid"
 
 
-def test_verify_sender_unverifiable_when_fingerprint_unpublished():
+def test_verify_sender_unverifiable_when_fingerprint_unpublished() -> None:
     delivery = _delivery()
     server = _Server(delivery=delivery, keys=[{"fingerprint": "0" * 16, "public_key": PUBLIC}])
     result = _bus(server).verify("d-1")
@@ -219,7 +224,7 @@ def test_verify_sender_unverifiable_when_fingerprint_unpublished():
     assert result["reason"] == "signing key not published for this fingerprint"
 
 
-def test_send_then_verify_round_trip_through_the_wire():
+def test_send_then_verify_round_trip_through_the_wire() -> None:
     _private, public = sealing.ensure_signing_keypair(AGENT)
     sender = _Server()
     _send(_bus(sender))
@@ -231,7 +236,7 @@ def test_send_then_verify_round_trip_through_the_wire():
     assert result["verdict"] == "valid"
 
 
-def test_read_opens_an_armored_sealed_body():
+def test_read_opens_an_armored_sealed_body() -> None:
     _private, public = sealing.ensure_keypair(AGENT)
     delivery = _delivery()
     delivery["text_body"] = sealing.seal_for("the plaintext", [public])
@@ -240,7 +245,7 @@ def test_read_opens_an_armored_sealed_body():
     assert message["text_body"] == "the plaintext"
 
 
-def test_read_leaves_a_plain_body_alone():
+def test_read_leaves_a_plain_body_alone() -> None:
     sealing.ensure_keypair(AGENT)
     delivery = _delivery()
     message = _bus(_Server(delivery=delivery)).read("d-1")
@@ -249,7 +254,7 @@ def test_read_leaves_a_plain_body_alone():
     assert "sealed_unreadable" not in message
 
 
-def test_foreign_signature_is_genuine_for_its_own_key():
+def test_foreign_signature_is_genuine_for_its_own_key() -> None:
     foreign = bytes.fromhex("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")
     Ed25519PublicKey.from_public_bytes(foreign).verify(bech32_decode(FOREIGN_SIG), CANONICAL)
     with pytest.raises(_signing.BadSignature):

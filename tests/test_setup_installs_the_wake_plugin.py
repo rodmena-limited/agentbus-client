@@ -18,11 +18,14 @@ import argparse
 import json
 import os
 import stat
-from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from agentbus_client.onboarding import _claude_setup, _doctor, _plugin
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 FAKE_CLAUDE = r"""#!/usr/bin/env python3
 import json, os, sys
@@ -51,7 +54,7 @@ sys.exit(0)
 
 
 @pytest.fixture
-def box(tmp_path, monkeypatch):
+def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """A machine with Claude Code but no agentbus plugin, and no network."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -71,13 +74,14 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.chdir(project)
 
-    def provision(args, report, harness):
+    def provision(args: Any, report: Any, harness: Any) -> str:
         report.append("agent: demo-agent")
         return "demo-agent"
 
     class _NoNetwork:
-        def __init__(self, *a, **k):
-            raise ConnectionError("no network in this test")
+        def __init__(self, *a: Any, **k: Any) -> None:
+            msg = "no network in this test"
+            raise ConnectionError(msg)
 
     monkeypatch.setattr(_claude_setup, "_provision_project_agent", provision)
     monkeypatch.setattr(_claude_setup, "_write_worktree_identity", lambda name, report: None)
@@ -89,7 +93,7 @@ def box(tmp_path, monkeypatch):
     return {"settings": cc / "settings.json", "log": log}
 
 
-def _setup(capsys) -> tuple[int, str]:
+def _setup(capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
     rc = _claude_setup._setup_claude(argparse.Namespace(base_url="https://example.invalid"))
     return rc, capsys.readouterr().out
 
@@ -98,7 +102,9 @@ def _installs(log: Path) -> list[str]:
     return [ln for ln in log.read_text().splitlines() if ln.startswith("plugin install")]
 
 
-def test_setup_installs_the_plugin_when_it_is_missing(box, capsys, monkeypatch):
+def test_setup_installs_the_plugin_when_it_is_missing(
+    box: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "ok")
     rc, out = _setup(capsys)
     assert rc == 0, out
@@ -107,7 +113,9 @@ def test_setup_installs_the_plugin_when_it_is_missing(box, capsys, monkeypatch):
     assert _installs(box["log"]) == ["plugin install agentbus@rodmena --scope user --json"]
 
 
-def test_setup_does_not_overwrite_the_plugin_it_just_installed(box, capsys, monkeypatch):
+def test_setup_does_not_overwrite_the_plugin_it_just_installed(
+    box: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Setup rewrites settings.json for its hooks. Loaded BEFORE the install, its
     stale copy would be written back over the plugin's entry — the install would
     succeed and then be silently undone by setup itself."""
@@ -117,7 +125,9 @@ def test_setup_does_not_overwrite_the_plugin_it_just_installed(box, capsys, monk
     assert settings.get("enabledPlugins", {}).get("agentbus@rodmena") is True
 
 
-def test_the_plugin_owns_the_wake_so_no_stop_hook_is_written(box, capsys, monkeypatch):
+def test_the_plugin_owns_the_wake_so_no_stop_hook_is_written(
+    box: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """SPECS/0022: two wake paths wake the session twice."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "ok")
     _setup(capsys)
@@ -125,7 +135,9 @@ def test_the_plugin_owns_the_wake_so_no_stop_hook_is_written(box, capsys, monkey
     assert "Stop" not in (settings.get("hooks") or {})
 
 
-def test_an_installer_that_claims_success_is_not_believed(box, capsys, monkeypatch):
+def test_an_installer_that_claims_success_is_not_believed(
+    box: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """THE EFFECT, NOT THE RETURN CODE. The fake reports ok and changes nothing."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "lie")
     rc, out = _setup(capsys)
@@ -135,7 +147,9 @@ def test_an_installer_that_claims_success_is_not_believed(box, capsys, monkeypat
     assert "NOT LISTENING YET" in out
 
 
-def test_a_failed_install_is_loud_and_exits_non_zero(box, capsys, monkeypatch):
+def test_a_failed_install_is_loud_and_exits_non_zero(
+    box: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "fail")
     rc, out = _setup(capsys)
     assert rc == 1
@@ -145,7 +159,9 @@ def test_a_failed_install_is_loud_and_exits_non_zero(box, capsys, monkeypatch):
     assert "monitor arms at session start" not in out
 
 
-def test_no_claude_on_path_is_loud_and_exits_non_zero(box, capsys, monkeypatch):
+def test_no_claude_on_path_is_loud_and_exits_non_zero(
+    box: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("PATH", "/nonexistent")
     rc, out = _setup(capsys)
     assert rc == 1
@@ -153,7 +169,9 @@ def test_no_claude_on_path_is_loud_and_exits_non_zero(box, capsys, monkeypatch):
     assert "monitor arms at session start" not in out
 
 
-def test_an_already_enabled_plugin_is_not_reinstalled(box, capsys, monkeypatch):
+def test_an_already_enabled_plugin_is_not_reinstalled(
+    box: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     box["settings"].write_text(json.dumps({"enabledPlugins": {"agentbus@rodmena": True}}))
     rc, out = _setup(capsys)
     assert rc == 0
@@ -161,7 +179,9 @@ def test_an_already_enabled_plugin_is_not_reinstalled(box, capsys, monkeypatch):
     assert _installs(box["log"]) == []
 
 
-def test_settings_path_follows_claude_config_dir(monkeypatch, tmp_path):
+def test_settings_path_follows_claude_config_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
     assert _plugin.claude_settings_path() == tmp_path / "cc" / "settings.json"
     monkeypatch.delenv("CLAUDE_CONFIG_DIR")
@@ -169,7 +189,12 @@ def test_settings_path_follows_claude_config_dir(monkeypatch, tmp_path):
     assert _plugin.claude_settings_path() == tmp_path / "home" / ".claude" / "settings.json"
 
 
-def _doctor_output(monkeypatch, capsys, settings_path: Path, settings: dict) -> str:
+def _doctor_output(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    settings_path: Path,
+    settings: dict,
+) -> str:
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(settings_path.parent))
@@ -181,15 +206,17 @@ def _doctor_output(monkeypatch, capsys, settings_path: Path, settings: dict) -> 
     return capsys.readouterr().out
 
 
-def test_doctor_fails_a_claude_setup_without_the_plugin(monkeypatch, capsys, tmp_path):
+def test_doctor_fails_a_claude_setup_without_the_plugin(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     out = _doctor_output(monkeypatch, capsys, tmp_path / "cc" / "settings.json", {"hooks": {}})
     assert "FAIL: the agentbus plugin is not enabled" in out
     assert "nobody has typed into" in out
 
 
 def test_doctor_does_not_raise_that_failure_when_the_plugin_is_enabled(
-    monkeypatch, capsys, tmp_path
-):
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     """Known-negative: the new failure must be able to stay silent."""
     out = _doctor_output(
         monkeypatch,

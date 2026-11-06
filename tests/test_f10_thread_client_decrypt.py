@@ -8,6 +8,7 @@ correction (thread 01M06KND89GDQ7W9MEVJ97JRNK): this is client-lane.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 from agentbus_client.client import AgentBus, AsyncAgentBus
@@ -33,7 +34,7 @@ def test_thread_calls_unseal_on_every_message() -> None:
     }
     called_with: list[str] = []
 
-    def fake_unseal(msg):
+    def fake_unseal(msg: Any) -> Any:
         called_with.append(msg.get("text_body"))
         msg["text_body"] = f"opened-{msg['id']}"
         msg["sealed_opened"] = True
@@ -73,7 +74,7 @@ def test_thread_uses_the_same_unseal_helper_as_read() -> None:
     # response with a damaged message must carry the SAME field on the SAME
     # message dict, not a separate error format.
 
-    def damaged_unseal(msg):
+    def damaged_unseal(msg: Any) -> Any:
         msg["sealed_unreadable"] = "the sealed body is damaged: not-age"
         return msg
 
@@ -94,7 +95,7 @@ async def test_async_thread_also_unseals_each_message() -> None:
     behind the SDK."""
     bus = _async_bus()
 
-    async def fake_request(*a, **kw):
+    async def fake_request(*a: Any, **kw: Any) -> dict[str, Any]:
         return {
             "thread_id": "01T",
             "messages": [
@@ -103,7 +104,7 @@ async def test_async_thread_also_unseals_each_message() -> None:
             ],
         }
 
-    def fake_unseal(msg):
+    def fake_unseal(msg: Any) -> Any:
         msg["text_body"] = "opened"
         return msg
 

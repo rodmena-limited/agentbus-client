@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 import httpx
+from typing_extensions import Self
 
 from .base import _Base
 from .errors import (
@@ -53,10 +54,10 @@ class AgentBus(
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> AgentBus:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
     def _request(

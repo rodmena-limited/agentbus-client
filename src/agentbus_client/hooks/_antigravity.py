@@ -34,18 +34,20 @@ quiet AgentBus. Every path prints one valid JSON object and returns 0.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ._identity import (
     _adopt_credential_for,
     _read_declared_agent,
     _resolve_agent,
 )
+
+if TYPE_CHECKING:
+    import argparse
 
 # `Stop` requires a decision; the docs say any value other than "continue" lets
 # the agent stop. We send an explicit "stop" rather than {} so the no-mail case
@@ -132,7 +134,7 @@ def _agent_for(payload: dict[str, Any]) -> str | None:
     """
     workspace = _workspace(payload)
     if workspace is not None:
-        from ..onboarding._paths import agy_is_wired
+        from agentbus_client.onboarding._paths import agy_is_wired
 
         # THE OPT-IN CHECK IS NOT A FORMALITY. This plugin is machine-wide, so
         # these hooks fire in every agy session on the box — and
@@ -226,12 +228,12 @@ def agy_stop(_args: object = None) -> int:
     if not _with_credential(agent):
         return _emit(_STOP)
 
-    from ..onboarding._paths import AGY_WAKE_WINDOW_SEC
+    from agentbus_client.onboarding._paths import AGY_WAKE_WINDOW_SEC
 
     window = int(os.environ.get("AGENTBUS_REWAKE_WINDOW", str(AGY_WAKE_WINDOW_SEC)))
     interval = max(1, int(os.environ.get("AGENTBUS_REWAKE_INTERVAL", "5")))
     try:
-        from ..rewake import poll_for_fresh_mail
+        from agentbus_client.rewake import poll_for_fresh_mail
 
         text = poll_for_fresh_mail(agent, window=window, interval=interval)
     except Exception:
@@ -269,7 +271,7 @@ def agy_preinvocation(_args: object = None) -> int:
     if not _with_credential(agent):
         return _emit(_NOOP)
     try:
-        from ..rewake import poll_for_fresh_mail
+        from agentbus_client.rewake import poll_for_fresh_mail
 
         # window=0 -> one deterministic pass. This runs before EVERY model call;
         # holding here would put the whole window on the front of every turn.

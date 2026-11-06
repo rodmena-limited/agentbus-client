@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import sys
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError
+from agentbus_client.client import AgentBusError
+
 from . import _common
 from ._common import _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_identities(args: argparse.Namespace) -> int:
@@ -33,7 +36,7 @@ def cmd_identities(args: argparse.Namespace) -> int:
     Deliberately prints NO key material — only the key_id prefix, which is
     the non-secret half and is what the dashboard shows.
     """
-    from .. import onboarding as _onboarding
+    from agentbus_client import onboarding as _onboarding
 
     keys_dir = _onboarding._keys_dir()
     rows: list[dict[str, Any]] = []
@@ -110,7 +113,7 @@ def cmd_identities(args: argparse.Namespace) -> int:
             row["elsewhere"] = bool(dev and this_device and dev != this_device)
 
     if args.json:
-        _print({"acting_as": acting, "identities": rows}, True)
+        _print({"acting_as": acting, "identities": rows}, as_json=True)
         return 0
 
     if not rows:
@@ -201,7 +204,7 @@ def cmd_health(args: argparse.Namespace) -> int:
             return 1
         raise
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return 0
     # Human-readable rendering. Lead with the ONE fact a sender needs:
     # "should I trust that a send to this peer will actually be delivered?"

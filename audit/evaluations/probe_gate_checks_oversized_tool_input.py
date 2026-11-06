@@ -8,6 +8,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or str(REPO / "src")
@@ -15,7 +16,7 @@ PY = os.environ.get("PYTHON") or str(REPO / ".venv" / "bin" / "python")
 LIMIT = 4096
 
 
-def longest(value):
+def longest(value: Any) -> Any:
     if isinstance(value, str):
         return len(value)
     if isinstance(value, dict):
@@ -26,7 +27,7 @@ def longest(value):
 
 
 class Guard(BaseHTTPRequestHandler):
-    def do_POST(self):
+    def do_POST(self) -> None:
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         if longest(body.get("tool_input")) > LIMIT:
             self._send(422, {"code": "validation_error", "detail": f"a field is over the {LIMIT}"})
@@ -35,7 +36,7 @@ class Guard(BaseHTTPRequestHandler):
         else:
             self._send(200, {"decision": "allow", "reason": "permitted"})
 
-    def _send(self, code, payload):
+    def _send(self, code: int, payload: Any) -> None:
         data = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -43,7 +44,7 @@ class Guard(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def log_message(self, *args):
+    def log_message(self, *args: Any) -> None:
         pass
 
 

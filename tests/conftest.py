@@ -9,16 +9,21 @@ a different test set + order and needs the explicit isolation.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
-def anyio_backend():
+def anyio_backend() -> str:
     return "asyncio"
 
 
 @pytest.fixture(autouse=True)
-def _isolated_home(tmp_path, monkeypatch):
+def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Every test gets its own HOME so ~/.config/agentbus/ is clean.
 
     Applied autouse because ANY test that constructs an AgentBus, calls a hook,
@@ -32,4 +37,4 @@ def _isolated_home(tmp_path, monkeypatch):
     # Undo any inherited AGENTBUS_* keys that would poison a fresh test.
     for k in ("AGENTBUS_API_KEY", "AGENTBUS_AGENT", "AGENTBUS_BASE_URL"):
         monkeypatch.delenv(k, raising=False)
-    yield tmp_path
+    return tmp_path

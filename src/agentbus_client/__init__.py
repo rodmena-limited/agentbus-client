@@ -89,7 +89,8 @@ def __getattr__(name: str) -> Any:
             return _pkg_version("rodmena-agentbus")
         except Exception:
             return "0.0.0+source"
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
 
 
 __all__ = [

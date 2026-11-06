@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import argparse
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..client import AgentBusError, QuotaExceeded, ServiceUnavailable
+from agentbus_client.client import AgentBusError, QuotaExceeded, ServiceUnavailable
+
 from . import _common
 from ._common import _print
+
+if TYPE_CHECKING:
+    import argparse
 
 #: How long `doctor` waits for its own self-test message to come back.
 #:
@@ -158,10 +161,10 @@ def cmd_quickref(args: argparse.Namespace) -> int:
         from ._parser import verbs
 
         names = verbs()
-        _print(names, args.json) if args.json else print("\n".join(names))
+        _print(names, as_json=args.json) if args.json else print("\n".join(names))
         return 0
 
-    _print(QUICKREF, args.json)
+    _print(QUICKREF, as_json=args.json)
     return 0
 
 
@@ -175,20 +178,20 @@ def cmd_refresh_skill(args: argparse.Namespace) -> int:
     re-registration should not happen silently — but it was blocking a
     docs-only refresh. This verb is the docs-only path.
     """
-    from .. import onboarding as _onboarding
+    from agentbus_client import onboarding as _onboarding
 
     bus = _common._bus(args) if getattr(args, "agent", None) else None
     base_url = bus.base_url if bus else "https://agentbus.rodmena.co.uk"
     state, detail = _onboarding.refresh_skill(base_url=base_url)
     if args.json:
-        _print({"state": state, "detail": detail}, True)
+        _print({"state": state, "detail": detail}, as_json=True)
         return 0 if state in ("updated", "current", "installed") else 1
     print(f"skill: {state.upper()} — {detail}")
     return 0 if state in ("updated", "current", "installed") else 1
 
 
 def _loop_path(bus: Any, delivery_id: str) -> str:
-    from .. import sealing
+    from agentbus_client import sealing
 
     try:
         stored = (bus.read(delivery_id, raw=True) or {}).get("text_body") or ""
@@ -201,7 +204,7 @@ def _loop_path(bus: Any, delivery_id: str) -> str:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "wake", False):
-        from .. import onboarding
+        from agentbus_client import onboarding
 
         return onboarding.doctor_wake(args)
     """Prove the whole path works, rather than reporting that nothing failed."""
@@ -234,7 +237,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # (user-scope ~/.claude.json / opencode.json MCP entry) is the exact
     # finding the gate incident rested on — a `full` key there can MINT a bound
     # key for any agent. Report-only; never mint, never mutate.
-    from .. import onboarding as _onboarding
+    from agentbus_client import onboarding as _onboarding
 
     try:
         scope = _onboarding.doctor_credential_scope(base_url=bus.base_url)
@@ -274,7 +277,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # wake path, so it does not fail the command. `unknown` prints too, because
     # "could not reach PyPI" and "up to date" are different answers.
     try:
-        from ..onboarding import _doctor_version
+        from agentbus_client.onboarding import _doctor_version
+
         from ._common import _client_version
 
         state, detail = _doctor_version.cli_freshness(_client_version())

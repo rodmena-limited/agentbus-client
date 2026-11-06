@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from typing import Any
 
 import pytest
 
@@ -15,7 +16,7 @@ FOOTER = "-----END AGE ENCRYPTED FILE-----"
 needs_age = pytest.mark.skipif(shutil.which("age") is None, reason="age(1) not installed")
 
 
-def _age_decrypt(armored: bytes, keyfile) -> subprocess.CompletedProcess:
+def _age_decrypt(armored: bytes, keyfile: Any) -> subprocess.CompletedProcess:
     return subprocess.run(
         [AGE, "-d", "-i", str(keyfile)], input=armored, capture_output=True, timeout=30
     )
@@ -27,7 +28,7 @@ def _age_encrypt(plaintext: bytes, public: str, *, armor: bool) -> bytes:
     return done.stdout
 
 
-def test_armor_lines_are_exactly_64_columns():
+def test_armor_lines_are_exactly_64_columns() -> None:
     raw = bytes(range(256)) * 3 + bytes(32)
     text = sealing._armor(raw)
     lines = text.split("\n")
@@ -41,13 +42,13 @@ def test_armor_lines_are_exactly_64_columns():
     assert sealing._dearmor(text) == raw
 
 
-def test_armor_of_exact_multiple_has_no_short_line():
+def test_armor_of_exact_multiple_has_no_short_line() -> None:
     text = sealing._armor(bytes(96))
     assert text == HEADER + "\n" + "A" * 64 + "\n" + "A" * 64 + "\n" + FOOTER + "\n"
 
 
 @needs_age
-def test_real_age_decrypts_seal_for_output():
+def test_real_age_decrypts_seal_for_output() -> None:
     _private, public = sealing.ensure_keypair("ops-1")
     plaintext = "the quarterly ledger balances to the penny\n" * 40
     armored = sealing.seal_for(plaintext, [public])
@@ -58,7 +59,7 @@ def test_real_age_decrypts_seal_for_output():
 
 
 @needs_age
-def test_real_age_decrypts_seal_for_bytes_output():
+def test_real_age_decrypts_seal_for_bytes_output() -> None:
     _private, public = sealing.ensure_keypair("ops-1")
     payload = bytes(range(256)) * 50
     armored = sealing.seal_for_bytes(payload, [public])
@@ -68,7 +69,7 @@ def test_real_age_decrypts_seal_for_bytes_output():
 
 
 @needs_age
-def test_real_age_decrypts_for_every_recipient():
+def test_real_age_decrypts_for_every_recipient() -> None:
     _a, alpha = sealing.ensure_keypair("alpha")
     _b, beta = sealing.ensure_keypair("beta")
     armored = sealing.seal_for("for both", [alpha, beta]).encode()
@@ -79,7 +80,7 @@ def test_real_age_decrypts_for_every_recipient():
 
 
 @needs_age
-def test_real_age_keygen_derives_the_same_public_key():
+def test_real_age_keygen_derives_the_same_public_key() -> None:
     _private, public = sealing.ensure_keypair("ops-1")
     done = subprocess.run(
         [AGE_KEYGEN, "-y", str(sealing.key_path("ops-1"))],
@@ -92,7 +93,7 @@ def test_real_age_keygen_derives_the_same_public_key():
 
 
 @needs_age
-def test_body_sealed_by_real_age_is_detected_and_opened():
+def test_body_sealed_by_real_age_is_detected_and_opened() -> None:
     _private, public = sealing.ensure_keypair("ops-1")
     armored = _age_encrypt(b"from real age", public, armor=True).decode()
     assert sealing.is_sealed(armored) is True
@@ -116,17 +117,19 @@ def test_body_sealed_by_real_age_is_detected_and_opened():
         ("-----BEGIN PGP MESSAGE-----\n", False),
     ],
 )
-def test_is_sealed_known_answers(body, expected):
+def test_is_sealed_known_answers(body: str, expected: Any) -> None:
     assert sealing.is_sealed(body) is expected
 
 
-def test_is_sealed_on_own_seal_for_output():
+def test_is_sealed_on_own_seal_for_output() -> None:
     _private, public = sealing.ensure_keypair("ops-1")
     assert sealing.is_sealed(sealing.seal_for("x", [public])) is True
     assert sealing.is_sealed(sealing.seal_for_bytes(b"x", [public]).decode()) is True
 
 
-def test_unseal_bytes_with_any_uses_the_named_agent_not_env(monkeypatch):
+def test_unseal_bytes_with_any_uses_the_named_agent_not_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _a, alpha_public = sealing.ensure_keypair("alpha")
     sealing.ensure_keypair("beta")
     monkeypatch.setenv("AGENTBUS_AGENT", "beta")
@@ -138,7 +141,7 @@ def test_unseal_bytes_with_any_uses_the_named_agent_not_env(monkeypatch):
         sealing.unseal_bytes_with_any(sealed)
 
 
-def test_unseal_with_any_uses_the_named_agent_not_env(monkeypatch):
+def test_unseal_with_any_uses_the_named_agent_not_env(monkeypatch: pytest.MonkeyPatch) -> None:
     _a, alpha_public = sealing.ensure_keypair("alpha")
     sealing.ensure_keypair("beta")
     monkeypatch.setenv("AGENTBUS_AGENT", "beta")
@@ -148,7 +151,7 @@ def test_unseal_with_any_uses_the_named_agent_not_env(monkeypatch):
         sealing.unseal_with_any(sealed)
 
 
-def test_unseal_with_any_opens_mail_sealed_to_a_superseded_key():
+def test_unseal_with_any_opens_mail_sealed_to_a_superseded_key() -> None:
     sealing.ensure_keypair("ops-1")
     old_private, old_public = sealing.generate_keypair()
     keys_dir = sealing.key_path("ops-1").parent
@@ -157,7 +160,7 @@ def test_unseal_with_any_opens_mail_sealed_to_a_superseded_key():
     assert sealing.unseal_with_any(sealed, "ops-1") == "yesterday"
 
 
-def test_no_key_at_all_says_so():
+def test_no_key_at_all_says_so() -> None:
     _p, public = sealing.generate_keypair()
     sealed = sealing.seal_for("x", [public])
     with pytest.raises(sealing.CannotDecrypt) as info:
@@ -166,7 +169,7 @@ def test_no_key_at_all_says_so():
     assert not isinstance(info.value, sealing.MalformedSealed)
 
 
-def test_keys_exist_but_none_fit_says_so_and_chains_cause():
+def test_keys_exist_but_none_fit_says_so_and_chains_cause() -> None:
     sealing.ensure_keypair("ops-1")
     _p, stranger = sealing.generate_keypair()
     sealed = sealing.seal_for("x", [stranger])
@@ -177,7 +180,7 @@ def test_keys_exist_but_none_fit_says_so_and_chains_cause():
     assert isinstance(info.value.__cause__, sealing.CannotDecrypt)
 
 
-def test_damaged_payload_is_malformed_and_tried_once(monkeypatch):
+def test_damaged_payload_is_malformed_and_tried_once(monkeypatch: pytest.MonkeyPatch) -> None:
     sealing.ensure_keypair("ops-1")
     old_private = sealing.generate_keypair()[0]
     keys_dir = sealing.key_path("ops-1").parent
@@ -185,7 +188,7 @@ def test_damaged_payload_is_malformed_and_tried_once(monkeypatch):
     calls: list[str] = []
     real_unseal = sealing.unseal_bytes
 
-    def counting(raw, key):
+    def counting(raw: Any, key: str) -> Any:
         calls.append(key)
         return real_unseal(raw, key)
 
@@ -197,7 +200,7 @@ def test_damaged_payload_is_malformed_and_tried_once(monkeypatch):
     assert info.value.__cause__ is not None
 
 
-def test_round_trip_seal_for_and_unseal_body():
+def test_round_trip_seal_for_and_unseal_body() -> None:
     private, public = sealing.ensure_keypair("ops-1")
     text = "line one\nline two é\n" * 30
     assert sealing.unseal_body(sealing.seal_for(text, [public]), private) == text

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -46,7 +47,9 @@ def _client(fake: FakeBus, agent: str | None = READER) -> AgentBus:
     return bus
 
 
-def _sender_signs(to, cc, subject, priority, text=TEXT, sender=SENDER):
+def _sender_signs(
+    to: Any, cc: Any, subject: str, priority: Any, text: Any = TEXT, sender: Any = SENDER
+) -> Any:
     _private, public = sealing.ensure_signing_keypair(sender)
     origin = AgentBus(api_key="ab_live_sender", base_url=BASE, agent=sender)
     payload = {"to": to, "cc": cc, "subject": subject, "text": text}
@@ -59,7 +62,9 @@ def _sender_signs(to, cc, subject, priority, text=TEXT, sender=SENDER):
     return signed, public
 
 
-def _delivery(signed, *, state="valid", priority="urgent", recipients=None):
+def _delivery(
+    signed: Any, *, state: str = "valid", priority: str = "urgent", recipients: Any = None
+) -> Any:
     message = {
         "id": "dlv-1",
         "sender_agent_name": SENDER,
@@ -86,7 +91,7 @@ def _delivery(signed, *, state="valid", priority="urgent", recipients=None):
 
 
 @pytest.fixture
-def world():
+def world() -> Any:
     fake = FakeBus()
     signed, public = _sender_signs(
         ["bob-2", "carol-3"], ["dave-4", "erin-5"], "deploy status", "urgent"
@@ -100,7 +105,7 @@ def world():
     return fake, signed
 
 
-def test_a_genuine_signature_verifies_with_the_exact_result_contract(world) -> None:
+def test_a_genuine_signature_verifies_with_the_exact_result_contract(world: Any) -> None:
     fake, signed = world
     result = _client(fake).verify("dlv-1")
     assert result == {
@@ -113,7 +118,7 @@ def test_a_genuine_signature_verifies_with_the_exact_result_contract(world) -> N
     }
 
 
-def test_verify_requests_the_delivery_then_the_ed25519_key_as_the_reader(world) -> None:
+def test_verify_requests_the_delivery_then_the_ed25519_key_as_the_reader(world: Any) -> None:
     fake, _ = world
     _client(fake).verify("dlv-1")
     assert [(r.method, r.url.path) for r in fake.requests] == [
@@ -126,7 +131,7 @@ def test_verify_requests_the_delivery_then_the_ed25519_key_as_the_reader(world) 
         assert request.headers["Authorization"] == "Bearer ab_live_round2"
 
 
-def test_an_explicit_agent_is_the_acting_identity_on_both_requests(world) -> None:
+def test_an_explicit_agent_is_the_acting_identity_on_both_requests(world: Any) -> None:
     fake, _ = world
     result = _client(fake).verify("dlv-1", agent="other-agent-9")
     assert result["verdict"] == "valid"
@@ -136,7 +141,7 @@ def test_an_explicit_agent_is_the_acting_identity_on_both_requests(world) -> Non
     ]
 
 
-def test_the_local_verdict_is_reported_beside_a_disagreeing_platform(world) -> None:
+def test_the_local_verdict_is_reported_beside_a_disagreeing_platform(world: Any) -> None:
     fake, signed = world
     fake.deliveries["dlv-1"] = _delivery(signed, state="platform-said-invalid")
     result = _client(fake).verify("dlv-1")
@@ -145,38 +150,38 @@ def test_the_local_verdict_is_reported_beside_a_disagreeing_platform(world) -> N
     assert result["platform_said"] == "platform-said-invalid"
 
 
-def _tamper_subject(m):
+def _tamper_subject(m: Any) -> None:
     m["subject"] = "deploy status (edited)"
 
 
-def _tamper_priority(m):
+def _tamper_priority(m: Any) -> None:
     m["priority"] = "background"
 
 
-def _tamper_body_hash(m):
+def _tamper_body_hash(m: Any) -> None:
     m["body_sha256"] = hashlib.sha256(b"a different body").hexdigest()
 
 
-def _tamper_to_added(m):
+def _tamper_to_added(m: Any) -> None:
     m["provenance"]["signature"]["verify_yourself"]["signed_recipients"]["to"].append("mallory")
 
 
-def _tamper_to_removed(m):
+def _tamper_to_removed(m: Any) -> None:
     m["provenance"]["signature"]["verify_yourself"]["signed_recipients"]["to"] = ["bob-2"]
 
 
-def _tamper_cc_dropped(m):
+def _tamper_cc_dropped(m: Any) -> None:
     m["provenance"]["signature"]["verify_yourself"]["signed_recipients"]["cc"] = []
 
 
-def _tamper_cc_moved_to_to(m):
+def _tamper_cc_moved_to_to(m: Any) -> None:
     m["provenance"]["signature"]["verify_yourself"]["signed_recipients"] = {
         "to": ["bob-2", "carol-3", "dave-4", "erin-5"],
         "cc": [],
     }
 
 
-def _tamper_signature_bytes(m):
+def _tamper_signature_bytes(m: Any) -> None:
     block = m["provenance"]["signature"]
     other = _signing.sign(_signing.generate_keypair()[0], b"something else entirely")
     block["signature"] = other
@@ -195,7 +200,7 @@ def _tamper_signature_bytes(m):
         _tamper_signature_bytes,
     ],
 )
-def test_tampering_with_any_signed_field_is_reported_invalid(world, tamper) -> None:
+def test_tampering_with_any_signed_field_is_reported_invalid(world: Any, tamper: Any) -> None:
     fake, _ = world
     tamper(fake.deliveries["dlv-1"])
     result = _client(fake).verify("dlv-1")
@@ -206,7 +211,7 @@ def test_tampering_with_any_signed_field_is_reported_invalid(world, tamper) -> N
     assert result["platform_said"] == "valid"
 
 
-def test_a_signature_by_another_key_claiming_the_senders_fingerprint_is_invalid(world) -> None:
+def test_a_signature_by_another_key_claiming_the_senders_fingerprint_is_invalid(world: Any) -> None:
     fake, _ = world
     attacker_private, _ = _signing.generate_keypair()
     message = fake.deliveries["dlv-1"]
@@ -227,14 +232,14 @@ def test_a_signature_by_another_key_claiming_the_senders_fingerprint_is_invalid(
     assert result["verdict"] == "invalid"
 
 
-def test_recipient_order_is_not_tampering(world) -> None:
+def test_recipient_order_is_not_tampering(world: Any) -> None:
     fake, _ = world
     rcpts = fake.deliveries["dlv-1"]["provenance"]["signature"]["verify_yourself"]
     rcpts["signed_recipients"] = {"to": ["carol-3", "bob-2"], "cc": ["erin-5", "dave-4"]}
     assert _client(fake).verify("dlv-1")["verdict"] == "valid"
 
 
-def test_an_unpublished_fingerprint_is_unverifiable_never_invalid(world) -> None:
+def test_an_unpublished_fingerprint_is_unverifiable_never_invalid(world: Any) -> None:
     fake, signed = world
     fake.keys[SENDER] = [
         k for k in fake.keys[SENDER] if k["fingerprint"] != signed["signing_key_fingerprint"]
@@ -248,7 +253,7 @@ def test_an_unpublished_fingerprint_is_unverifiable_never_invalid(world) -> None
     }
 
 
-def test_no_published_keys_at_all_is_unverifiable(world) -> None:
+def test_no_published_keys_at_all_is_unverifiable(world: Any) -> None:
     fake, _ = world
     fake.keys[SENDER] = []
     result = _client(fake).verify("dlv-1")
@@ -256,7 +261,7 @@ def test_no_published_keys_at_all_is_unverifiable(world) -> None:
     assert result["verdict"] == "unverifiable"
 
 
-def test_a_block_without_a_fingerprint_does_not_match_a_published_key(world) -> None:
+def test_a_block_without_a_fingerprint_does_not_match_a_published_key(world: Any) -> None:
     fake, _ = world
     del fake.deliveries["dlv-1"]["provenance"]["signature"]["key_fingerprint"]
     result = _client(fake).verify("dlv-1")
@@ -268,7 +273,7 @@ def test_a_block_without_a_fingerprint_does_not_match_a_published_key(world) -> 
     "provenance",
     [None, {}, {"signature": None}, {"signature": {"signed": False, "state": "unsigned"}}],
 )
-def test_an_unsigned_message_is_unsigned_and_no_key_is_fetched(world, provenance) -> None:
+def test_an_unsigned_message_is_unsigned_and_no_key_is_fetched(world: Any, provenance: Any) -> None:
     fake, _ = world
     fake.deliveries["dlv-1"]["provenance"] = provenance
     result = _client(fake).verify("dlv-1")
@@ -282,7 +287,7 @@ def test_an_unsigned_message_is_unsigned_and_no_key_is_fetched(world, provenance
 
 
 @pytest.mark.parametrize("missing", ["absent", None, ""])
-def test_a_copy_without_a_body_hash_is_unverifiable_not_invalid(world, missing) -> None:
+def test_a_copy_without_a_body_hash_is_unverifiable_not_invalid(world: Any, missing: Any) -> None:
     fake, _ = world
     message = fake.deliveries["dlv-1"]
     if missing == "absent":
@@ -298,7 +303,7 @@ def test_a_copy_without_a_body_hash_is_unverifiable_not_invalid(world, missing) 
     assert "NOT a failed signature" in result["reason"]
 
 
-def test_the_display_name_fallback_strips_the_via_suffix(world) -> None:
+def test_the_display_name_fallback_strips_the_via_suffix(world: Any) -> None:
     fake, _ = world
     del fake.deliveries["dlv-1"]["sender_agent_name"]
     result = _client(fake).verify("dlv-1")
@@ -307,7 +312,7 @@ def test_the_display_name_fallback_strips_the_via_suffix(world) -> None:
     assert fake.requests[1].url.path == f"/v1/agents/{SENDER}/pubkey"
 
 
-def test_the_structured_sender_name_wins_over_the_display_string(world) -> None:
+def test_the_structured_sender_name_wins_over_the_display_string(world: Any) -> None:
     fake, _ = world
     fake.deliveries["dlv-1"]["sender_display"] = "Somebody Else via AgentBus (encrypted)"
     result = _client(fake).verify("dlv-1")
@@ -315,7 +320,7 @@ def test_the_structured_sender_name_wins_over_the_display_string(world) -> None:
     assert result["signed_by"] == SENDER
 
 
-def test_a_claimed_sender_other_than_the_signer_is_not_valid(world) -> None:
+def test_a_claimed_sender_other_than_the_signer_is_not_valid(world: Any) -> None:
     fake, _ = world
     fake.keys["mallory-6"] = list(fake.keys[SENDER])
     fake.deliveries["dlv-1"]["sender_agent_name"] = "mallory-6"
@@ -325,7 +330,7 @@ def test_a_claimed_sender_other_than_the_signer_is_not_valid(world) -> None:
     assert fake.requests[1].url.path == "/v1/agents/mallory-6/pubkey"
 
 
-def test_signed_recipients_published_as_a_json_string_verify(world) -> None:
+def test_signed_recipients_published_as_a_json_string_verify(world: Any) -> None:
     fake, _ = world
     block = fake.deliveries["dlv-1"]["provenance"]["signature"]
     block["verify_yourself"]["signed_recipients"] = json.dumps(
@@ -363,7 +368,7 @@ def test_absent_priority_is_verified_as_normal() -> None:
     assert bus.verify("dlv-2")["verdict"] == "invalid"
 
 
-def test_missing_signed_recipients_cannot_verify_a_message_signed_to_people(world) -> None:
+def test_missing_signed_recipients_cannot_verify_a_message_signed_to_people(world: Any) -> None:
     fake, _ = world
     del fake.deliveries["dlv-1"]["provenance"]["signature"]["verify_yourself"]
     result = _client(fake).verify("dlv-1")
@@ -371,7 +376,7 @@ def test_missing_signed_recipients_cannot_verify_a_message_signed_to_people(worl
     assert result["verdict"] == "invalid"
 
 
-def test_an_unknown_delivery_raises_rather_than_returning_a_verdict(world) -> None:
+def test_an_unknown_delivery_raises_rather_than_returning_a_verdict(world: Any) -> None:
     fake, _ = world
     from agentbus_client.client import AgentBusError
 
@@ -380,7 +385,9 @@ def test_an_unknown_delivery_raises_rather_than_returning_a_verdict(world) -> No
 
 
 @pytest.mark.parametrize("bad", [None, 7, "", "absig1"])
-def test_a_signed_delivery_with_a_missing_or_broken_signature_is_invalid(world, bad) -> None:
+def test_a_signed_delivery_with_a_missing_or_broken_signature_is_invalid(
+    world: Any, bad: Any
+) -> None:
     fake, _ = world
     block = fake.deliveries["dlv-1"]["provenance"]["signature"]
     if bad is None:

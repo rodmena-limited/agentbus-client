@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 import httpx
+from typing_extensions import Self
 
 from .async_block import AsyncBlockMixin
 from .async_directory import AsyncDirectoryMixin
@@ -52,10 +53,10 @@ class AsyncAgentBus(
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def __aenter__(self) -> AsyncAgentBus:
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *exc: Any) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
 
     async def _request(
@@ -173,12 +174,13 @@ class AsyncAgentBus(
             # probe is already in flight). A FRESH TransportError per caller, with
             # the last observed error as __cause__: re-raising one shared exception
             # instance across callers grew its traceback without bound (S9).
-            raise TransportError(
+            msg = (
                 "agentbus SDK async circuit breaker is OPEN: recent calls to the bus "
                 "failed, so the client is failing fast for the cooldown instead of "
                 "retrying at full rate. Retry after the cooldown, or set "
                 "AGENTBUS_SDK_RESILIENCE=0 to bypass the resilience layer."
-            ) from breaker.last_error()
+            )
+            raise TransportError(msg) from breaker.last_error()
         verdict_given = False
 
         async def _sequence() -> Any:
@@ -218,11 +220,12 @@ class AsyncAgentBus(
                     # it, or a slow outage never opens the breaker (S9).
                     verdict_given = True
                     breaker.on_failure(exc)
-                    raise TransportError(
+                    msg = (
                         f"agentbus SDK call did not complete within {deadline}s "
                         "(deadline = caller timeout + 5s; likely a transient "
                         "network stall)."
-                    ) from exc
+                    )
+                    raise TransportError(msg) from exc
             return await _sequence()
         finally:
             if not verdict_given:

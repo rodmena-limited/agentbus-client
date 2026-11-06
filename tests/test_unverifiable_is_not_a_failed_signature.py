@@ -25,6 +25,8 @@ about it.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agentbus_client.cli import _sigline
@@ -80,14 +82,14 @@ SURFACES = [
 
 
 @pytest.mark.parametrize("render", SURFACES)
-def test_unverifiable_is_rendered_as_not_checked(render):
+def test_unverifiable_is_rendered_as_not_checked(render: Any) -> None:
     text = render(SERVER_UNVERIFIABLE).lower()
     assert "could not check" in text
     assert "not a failed signature" in text or "not a failure" in text
 
 
 @pytest.mark.parametrize("render", SURFACES)
-def test_unverifiable_is_never_rendered_with_the_failure_wording(render):
+def test_unverifiable_is_never_rendered_with_the_failure_wording(render: Any) -> None:
     """THE REGRESSION. The failure wording must be unreachable for this state."""
     text = render(SERVER_UNVERIFIABLE)
     assert "NOT a pass" not in text
@@ -95,7 +97,7 @@ def test_unverifiable_is_never_rendered_with_the_failure_wording(render):
 
 
 @pytest.mark.parametrize("render", SURFACES)
-def test_invalid_keeps_the_failure_wording(render):
+def test_invalid_keeps_the_failure_wording(render: Any) -> None:
     """Known-positive for the assertion above: the failure wording still exists,
     and still fires for the state it belongs to. Without this, deleting the
     failure branch entirely would pass the regression test."""
@@ -105,21 +107,21 @@ def test_invalid_keeps_the_failure_wording(render):
 
 
 @pytest.mark.parametrize("render", SURFACES)
-def test_an_unknown_future_state_still_fails_closed(render):
+def test_an_unknown_future_state_still_fails_closed(render: Any) -> None:
     """A state this client has never seen is not assumed benign."""
     block = dict(SERVER_INVALID, state="revoked")
     assert "NOT a pass" in render(block)
 
 
 @pytest.mark.parametrize("render", SURFACES)
-def test_valid_is_unaffected(render):
+def test_valid_is_unaffected(render: Any) -> None:
     text = render(dict(SERVER_INVALID, state="valid"))
     assert "VALID" in text or "verifies" in text
     assert "NOT a pass" not in text
     assert "could not check" not in text.lower()
 
 
-def test_the_surfaces_agree_with_verify_sender_on_what_unverifiable_means():
+def test_the_surfaces_agree_with_verify_sender_on_what_unverifiable_means() -> None:
     """verify-sender prints 'this is NOT a failed signature' for an unverifiable
     verdict. Every display surface must say the same thing, not the opposite."""
     from pathlib import Path

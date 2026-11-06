@@ -90,7 +90,8 @@ def _decode(text: str, expected: str) -> bytes:
     """
     lowered = text.strip().lower()
     if not lowered.startswith(f"{expected}1"):
-        raise ValueError(f"expected a {expected}1… key, got {lowered[:12]}…")
+        msg = f"expected a {expected}1… key, got {lowered[:12]}…"
+        raise ValueError(msg)
     return bech32_decode(lowered)
 
 
@@ -181,7 +182,8 @@ def verify(public_key: object, payload: bytes, signature: object) -> None:
     failure. An exception cannot be ignored by accident.
     """
     if not isinstance(signature, str) or not isinstance(public_key, str):
-        raise BadSignature("the signature or the public key is missing or not text")
+        msg = "the signature or the public key is missing or not text"
+        raise BadSignature(msg)
     try:
         raw_sig = _decode(signature, SIGNATURE_PREFIX)
         raw_key = _decode(public_key, PUBLIC_PREFIX)

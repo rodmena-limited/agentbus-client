@@ -28,6 +28,7 @@ WHY EACH CHECK EXISTS — the negative ones are the point:
                                  scheduler 409s an already-cancelled object)
   5. recurrence fires TWICE      one fire is indistinguishable from a one-shot
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -43,7 +44,7 @@ sys.path.insert(0, os.path.abspath(SRC))
 
 from agentbus_client.client import AgentBus, AgentBusError  # noqa: E402
 
-RESULTS: list[tuple[str, str, str]] = []   # (state, name, detail)
+RESULTS: list[tuple[str, str, str]] = []  # (state, name, detail)
 
 
 def record(state: str, name: str, detail: str = "") -> None:
@@ -166,9 +167,9 @@ def main() -> int:
     record(
         "UNTESTED",
         "timezone default is UTC (omitted flag)",
-        "this box is UTC — the two behaviours are indistinguishable from here; "
-        "needs a non-UTC seat" if local_utc else "run from a non-UTC box: compare "
-        "the response's zone against local",
+        "this box is UTC — the two behaviours are indistinguishable from here; needs a non-UTC seat"
+        if local_utc
+        else "run from a non-UTC box: compare the response's zone against local",
     )
 
     # DESCOPED BY OPERATOR DECISION, 2026-08-21, before testing began — not a
@@ -220,9 +221,11 @@ def main() -> int:
     # NEITHER untested NOR descoped COUNTS AS A PASS. They are printed
     # separately and deliberately: a tally that folded them into "passed" would
     # report coverage the run never had.
-    print(f"\n{passed} passed, {len(failed)} failed, "
-          f"{len(untested)} UNTESTED, {len(descoped)} DESCOPED "
-          f"(neither counts as a pass)")
+    print(
+        f"\n{passed} passed, {len(failed)} failed, "
+        f"{len(untested)} UNTESTED, {len(descoped)} DESCOPED "
+        f"(neither counts as a pass)"
+    )
     return 1 if failed else 0
 
 

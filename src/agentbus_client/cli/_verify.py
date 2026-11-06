@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import _common
 from ._common import _client_version, _print
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -159,7 +161,7 @@ def cmd_verify_signature(args: argparse.Namespace) -> int:
     result = _common._bus(args).verify(args.delivery_id)
     code = _verify_exit_code(result)
     if args.json:
-        _print(result, True)
+        _print(result, as_json=True)
         return code
     if result.get("verified"):
         print(f"VERIFIED — signed by {result['signed_by']} (key {result['key_fingerprint']})")

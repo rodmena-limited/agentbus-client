@@ -4,40 +4,44 @@ import argparse
 import io
 import json
 import sys
-
-import pytest
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
 from agentbus_client.cli import _read
 from agentbus_client.client import Delivery
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
+
 PAYLOAD = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) + b"\xff\xfe tail"
 
 
 class _Bus:
-    def __init__(self, inbox=None, labels=None, attachments=None) -> None:
+    def __init__(self, inbox: Any = None, labels: Any = None, attachments: Any = None) -> None:
         self.calls: list[tuple] = []
         self._inbox = inbox or []
         self._labels = labels or []
         self._attachments = attachments if attachments is not None else [{"filename": "f.bin"}]
 
-    def ack(self, *args, **kwargs):
+    def ack(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("ack", args, kwargs))
         return {"ok": True}
 
-    def label(self, *args, **kwargs):
+    def label(self, *args: Any, **kwargs: Any) -> Any:
         self.calls.append(("label", args, kwargs))
         return self._labels
 
-    def inbox(self, *args, **kwargs):
+    def inbox(self, *args: Any, **kwargs: Any) -> Any:
         self.calls.append(("inbox", args, kwargs))
         return self._inbox
 
-    def read(self, *args, **kwargs):
+    def read(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("read", args, kwargs))
         return {"attachments": self._attachments}
 
-    def attachment(self, *args, **kwargs):
+    def attachment(self, *args: Any, **kwargs: Any) -> Any:
         self.calls.append(("attachment", args, kwargs))
         return PAYLOAD
 
@@ -45,7 +49,7 @@ class _Bus:
 def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> list:
     given: list = []
 
-    def _factory(args):
+    def _factory(args: Any) -> Any:
         given.append(args)
         return bus
 
@@ -59,7 +63,9 @@ def _binary_stdout(monkeypatch: pytest.MonkeyPatch, encoding: str = "utf-8") -> 
     return raw
 
 
-def _delivery(seq: int, *, read: bool = False, role: str | None = None, attachments: int = 0):
+def _delivery(
+    seq: int, *, read: bool = False, role: str | None = None, attachments: int = 0
+) -> Any:
     data = {
         "delivery_id": f"01DEL{seq}",
         "agent_seq": seq,
@@ -74,7 +80,9 @@ def _delivery(seq: int, *, read: bool = False, role: str | None = None, attachme
     return Delivery.from_api(data)
 
 
-def test_ack_sends_each_id_and_prints_each(monkeypatch, capsys) -> None:
+def test_ack_sends_each_id_and_prints_each(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus()
     given = _install(monkeypatch, bus)
     assert cli.main(["ack", "01AAA", "01BBB"]) == 0
@@ -85,7 +93,9 @@ def test_ack_sends_each_id_and_prints_each(monkeypatch, capsys) -> None:
     assert given[0].command == "ack"
 
 
-def test_ack_json_flag_keeps_plain_confirmation(monkeypatch, capsys) -> None:
+def test_ack_json_flag_keeps_plain_confirmation(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus()
     _install(monkeypatch, bus)
     assert cli.main(["ack", "--json", "01AAA"]) == 0
@@ -93,7 +103,9 @@ def test_ack_json_flag_keeps_plain_confirmation(monkeypatch, capsys) -> None:
     assert capsys.readouterr().out == "acked 01AAA\n"
 
 
-def test_labels_forwards_id_add_and_remove(monkeypatch, capsys) -> None:
+def test_labels_forwards_id_add_and_remove(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus(labels=["urgent", "billing"])
     given = _install(monkeypatch, bus)
     argv = ["labels", "01DEL", "--add", "urgent", "--add", "billing", "--remove", "old"]
@@ -105,7 +117,9 @@ def test_labels_forwards_id_add_and_remove(monkeypatch, capsys) -> None:
     assert given[0].command == "labels"
 
 
-def test_labels_json_prints_the_list(monkeypatch, capsys) -> None:
+def test_labels_json_prints_the_list(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus(labels=["urgent", "billing"])
     _install(monkeypatch, bus)
     assert cli.main(["labels", "01DEL", "--remove", "x", "--json"]) == 0
@@ -115,14 +129,18 @@ def test_labels_json_prints_the_list(monkeypatch, capsys) -> None:
     assert bus.calls == [("label", ("01DEL",), {"add": [], "remove": ["x"]})]
 
 
-def test_labels_empty_result(monkeypatch, capsys) -> None:
+def test_labels_empty_result(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus(labels=[])
     _install(monkeypatch, bus)
     assert cli.main(["labels", "01DEL"]) == 0
     assert capsys.readouterr().out == "labels: \n"
 
 
-def test_inbox_forwards_every_query_argument(monkeypatch, capsys) -> None:
+def test_inbox_forwards_every_query_argument(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus(inbox=[])
     given = _install(monkeypatch, bus)
     argv = ["inbox", "--cursor", "7", "--limit", "3", "--label", "ops", "--wait", "9", "--unread"]
@@ -134,7 +152,9 @@ def test_inbox_forwards_every_query_argument(monkeypatch, capsys) -> None:
     assert given[0].command == "inbox"
 
 
-def test_inbox_defaults_forwarded(monkeypatch, capsys) -> None:
+def test_inbox_defaults_forwarded(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = _Bus(inbox=[])
     _install(monkeypatch, bus)
     assert cli.main(["inbox"]) == 0
@@ -144,13 +164,17 @@ def test_inbox_defaults_forwarded(monkeypatch, capsys) -> None:
     assert capsys.readouterr().out == "your inbox is empty\n"
 
 
-def test_inbox_empty_after_cursor(monkeypatch, capsys) -> None:
+def test_inbox_empty_after_cursor(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _install(monkeypatch, _Bus(inbox=[]))
     assert cli.main(["inbox", "--cursor", "12"]) == 0
     assert capsys.readouterr().out == "no messages after cursor 12\n"
 
 
-def test_inbox_json_prints_the_raw_list(monkeypatch, capsys) -> None:
+def test_inbox_json_prints_the_raw_list(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     deliveries = [_delivery(1), _delivery(2, read=True, role="cc")]
     _install(monkeypatch, _Bus(inbox=deliveries))
     assert cli.main(["inbox", "--json"]) == 0
@@ -160,13 +184,17 @@ def test_inbox_json_prints_the_raw_list(monkeypatch, capsys) -> None:
     assert json.loads(out) == raws
 
 
-def test_inbox_json_empty_list(monkeypatch, capsys) -> None:
+def test_inbox_json_empty_list(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _install(monkeypatch, _Bus(inbox=[]))
     assert cli.main(["inbox", "--json"]) == 0
     assert capsys.readouterr().out == "[]\n"
 
 
-def test_inbox_listing_lines(monkeypatch, capsys) -> None:
+def test_inbox_listing_lines(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     deliveries = [
         _delivery(3, attachments=2, role="cc"),
         _delivery(4, read=True, role="to"),
@@ -185,7 +213,9 @@ def test_inbox_listing_lines(monkeypatch, capsys) -> None:
     ]
 
 
-def test_inbox_listing_unread_short_page(monkeypatch, capsys) -> None:
+def test_inbox_listing_unread_short_page(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _install(monkeypatch, _Bus(inbox=[_delivery(9)]))
     assert cli.main(["inbox", "--unread"]) == 0
     assert capsys.readouterr().out.splitlines() == [
@@ -196,7 +226,9 @@ def test_inbox_listing_unread_short_page(monkeypatch, capsys) -> None:
     ]
 
 
-def test_inbox_cc_marker_only_for_cc(monkeypatch, capsys) -> None:
+def test_inbox_cc_marker_only_for_cc(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     deliveries = [_delivery(1, role="cc"), _delivery(2, role="to"), _delivery(3)]
     _install(monkeypatch, _Bus(inbox=deliveries))
     cli.main(["inbox", "--unread"])
@@ -206,7 +238,9 @@ def test_inbox_cc_marker_only_for_cc(monkeypatch, capsys) -> None:
     assert lines[4] == "* #3  peer3  subject 3"
 
 
-def test_attachment_passes_id_and_index(monkeypatch, tmp_path, capsys) -> None:
+def test_attachment_passes_id_and_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     bus = _Bus(attachments=[{"filename": "a.txt"}, {"filename": "b.bin"}, {"filename": "c.png"}])
     given = _install(monkeypatch, bus)
@@ -217,7 +251,9 @@ def test_attachment_passes_id_and_index(monkeypatch, tmp_path, capsys) -> None:
     assert given[0].command == "attachment"
 
 
-def test_attachment_dash_writes_raw_bytes_to_stdout(monkeypatch, tmp_path) -> None:
+def test_attachment_dash_writes_raw_bytes_to_stdout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.chdir(tmp_path)
     bus = _Bus(attachments=[{"filename": "a.txt"}, {"filename": "b.bin"}])
     _install(monkeypatch, bus)
@@ -229,7 +265,9 @@ def test_attachment_dash_writes_raw_bytes_to_stdout(monkeypatch, tmp_path) -> No
     assert sorted(p.name for p in tmp_path.iterdir()) == []
 
 
-def test_attachment_all_passes_each_index(monkeypatch, tmp_path, capsys) -> None:
+def test_attachment_all_passes_each_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
     bus = _Bus(attachments=[{"filename": "a..b"}, {"filename": "dir\\evil.txt"}])
     _install(monkeypatch, bus)
@@ -248,7 +286,7 @@ def test_attachment_all_passes_each_index(monkeypatch, tmp_path, capsys) -> None
 
 
 def test_attachment_all_two_hostile_names_get_distinct_fallbacks(
-    monkeypatch, tmp_path, capsys
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     bus = _Bus(attachments=[{"filename": ".."}, {"filename": "."}])

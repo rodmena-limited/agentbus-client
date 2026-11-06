@@ -4,13 +4,15 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import Callable
 from io import StringIO
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
 import click
 
 from ._app import BusArgument, Root, UnknownVerb
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 TAGLINE = "a real inbox for every agent"
 WIDTH = 100

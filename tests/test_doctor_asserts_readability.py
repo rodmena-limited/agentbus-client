@@ -35,7 +35,7 @@ def _source() -> str:
     return SRC.read_text()
 
 
-def test_the_loop_check_no_longer_gates_on_a_state_value():
+def test_the_loop_check_no_longer_gates_on_a_state_value() -> None:
     """THE REGRESSION. Re-coupling to `state` re-introduces a check that can
     report failure while holding the delivered message."""
     src = _source()
@@ -44,7 +44,7 @@ def test_the_loop_check_no_longer_gates_on_a_state_value():
     )
 
 
-def test_the_loop_check_reads_the_body_back():
+def test_the_loop_check_reads_the_body_back() -> None:
     """It must actually fetch and inspect the message, not just see it listed."""
     src = _source()
     window = src[src.index("bus loop") - 3000 : src.index("bus loop") + 500]
@@ -52,7 +52,7 @@ def test_the_loop_check_reads_the_body_back():
     assert "text_body" in window
 
 
-def test_an_unreadable_arrival_is_reported_as_BROKEN_not_ok():
+def test_an_unreadable_arrival_is_reported_as_BROKEN_not_ok() -> None:
     """Arrived-and-unreadable is WORSE than not arriving: the sender believes it
     landed. It must not be reported as a latency result or a pass."""
     src = _source()
@@ -60,7 +60,7 @@ def test_an_unreadable_arrival_is_reported_as_BROKEN_not_ok():
     assert "data loss, not health" in src
 
 
-def test_the_wait_window_was_not_widened():
+def test_the_wait_window_was_not_widened() -> None:
     """The backend retracted their own suggestion to widen it after measuring
     p50 = p90 = max = 0:00:00 across 10,544 delivered rows. There is no latency
     distribution to widen for, and a longer wait would have HIDDEN this defect
@@ -71,7 +71,7 @@ def test_the_wait_window_was_not_widened():
     assert int(m.group(1)) <= 90, f"wait window widened to {m.group(1)}s"
 
 
-def test_the_source_file_is_the_one_we_think():
+def test_the_source_file_is_the_one_we_think() -> None:
     """KNOWN-POSITIVE. Every assertion above is a grep over a file path; if the
     path were wrong they would all pass or all fail for the wrong reason."""
     src = _source()

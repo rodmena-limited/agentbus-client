@@ -13,6 +13,7 @@ production.
 from __future__ import annotations
 
 import subprocess
+from typing import Any
 
 import pytest
 
@@ -48,12 +49,12 @@ SAMPLE_MESSAGE = {
 
 
 @pytest.fixture
-def captured_command(monkeypatch):
+def captured_command(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Intercept subprocess.run so the test can inspect the fully-substituted
     command string without actually spawning a shell."""
     calls: list[str] = []
 
-    def fake_run(command, *_a, **_kw):
+    def fake_run(command: Any, *_a: Any, **_kw: Any) -> subprocess.CompletedProcess:
         calls.append(command)
         return subprocess.CompletedProcess(args=command, returncode=0)
 
@@ -61,7 +62,7 @@ def captured_command(monkeypatch):
     return calls
 
 
-def test_every_documented_placeholder_substitutes_without_keyerror(captured_command):
+def test_every_documented_placeholder_substitutes_without_keyerror(captured_command: Any) -> None:
     """The whole set as one template — catches a placeholder that was quietly
     removed by not appearing in the format() call."""
     template = " ".join(f"[{p}]={{{p}}}" for p in DOCUMENTED_PLACEHOLDERS)
@@ -78,7 +79,7 @@ def test_every_documented_placeholder_substitutes_without_keyerror(captured_comm
 
 
 @pytest.mark.parametrize("placeholder", DOCUMENTED_PLACEHOLDERS)
-def test_each_placeholder_individually_substitutes(placeholder, captured_command):
+def test_each_placeholder_individually_substitutes(placeholder: Any, captured_command: Any) -> None:
     """Parametrised failure message names WHICH placeholder broke, so a
     regression from a refactor points at the offending line immediately."""
     template = f"echo before-{{{placeholder}}}-after"
@@ -93,7 +94,7 @@ def test_each_placeholder_individually_substitutes(placeholder, captured_command
     assert "-after" in command
 
 
-def test_unknown_placeholder_still_raises_keyerror(captured_command):
+def test_unknown_placeholder_still_raises_keyerror(captured_command: Any) -> None:
     """The spec REQUIRES that a template typo fails LOUD rather than passing
     the literal `{typo}` through to the shell — otherwise every arrival
     would be broken silently. Keep this behaviour."""

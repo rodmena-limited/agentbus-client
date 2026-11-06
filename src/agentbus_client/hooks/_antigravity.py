@@ -237,7 +237,7 @@ def agy_stop(_args: object = None) -> int:
         from agentbus_client.rewake import poll_for_fresh_mail
 
         text = poll_for_fresh_mail(agent, window=window, interval=interval)
-    except Exception:  # noqa: BLE001
+    except (Exception, KeyboardInterrupt):  # noqa: BLE001
         # A bus failure must never hold the loop or look like a harness fault.
         return _emit(_STOP)
     if not text:
@@ -277,7 +277,7 @@ def agy_preinvocation(_args: object = None) -> int:
         # window=0 -> one deterministic pass. This runs before EVERY model call;
         # holding here would put the whole window on the front of every turn.
         text = poll_for_fresh_mail(agent, window=0, interval=1)
-    except Exception:  # noqa: BLE001
+    except (Exception, KeyboardInterrupt):  # noqa: BLE001
         return _emit(_NOOP)
     if not text:
         return _emit(_NOOP)

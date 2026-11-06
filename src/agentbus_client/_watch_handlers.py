@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import subprocess
 import sys
 from typing import TYPE_CHECKING, Any
+
+from ._watch_exec import expand
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -72,8 +73,8 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
     """Run a shell command per message.
 
     Placeholders {subject} {sender} {delivery_id} {message_id} {thread_id}
-    {agent_seq} {direction} are substituted and shell-quoted, so a hostile subject cannot
-    inject a command.
+    {agent_seq} {direction} are substituted through `_watch_exec.expand`, so a hostile
+    subject cannot inject a command, whether or not the template quotes the placeholder.
 
     A coalesced envelope (issuedb #9) exposes two extra placeholders,
     `{envelope_count}` and `{envelope_kind}`, so a template can render
@@ -87,28 +88,26 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
     """
 
     def handler(message: dict[str, Any]) -> None:
-        command = template.format(
-            subject=shlex.quote(str(message.get("subject") or "")),
-            sender=shlex.quote(
-                str(message.get("sender_display") or message.get("sender_address") or "")
-            ),
-            delivery_id=shlex.quote(str(message.get("delivery_id") or "")),
-            message_id=shlex.quote(str(message.get("message_id") or "")),
-            thread_id=shlex.quote(str(message.get("thread_id") or "")),
-            agent_seq=shlex.quote(str(message.get("agent_seq") or "")),
+        fields = {
+            "subject": str(message.get("subject") or ""),
+            "sender": str(message.get("sender_display") or message.get("sender_address") or ""),
+            "delivery_id": str(message.get("delivery_id") or ""),
+            "message_id": str(message.get("message_id") or ""),
+            "thread_id": str(message.get("thread_id") or ""),
+            "agent_seq": str(message.get("agent_seq") or ""),
             # WHERE THE MESSAGE CAME FROM. Already on every delivery row and
             # never surfaced, which is why the injected envelope had to guess —
             # and guessed the most alarming option every time.
-            direction=shlex.quote(str(message.get("direction") or "")),
+            "direction": str(message.get("direction") or ""),
             # HOW an ingress message arrived: "" for SMTP, "hook:<label>" for a
             # signed inbound HTTPS POST. `direction` alone cannot separate them
             # and the envelope was calling both of them email.
-            inbound_source=shlex.quote(str(message.get("inbound_source") or "")),
+            "inbound_source": str(message.get("inbound_source") or ""),
             # Coalesced-envelope placeholders (issuedb #9). For a single
             # message, count=1 and kind="" — the template author can gate
             # on kind to render burst summaries differently from singletons.
-            envelope_count=shlex.quote(str(message.get("count") or 1)),
-            envelope_kind=shlex.quote(str(message.get("kind") or "")),
+            "envelope_count": str(message.get("count") or 1),
+            "envelope_kind": str(message.get("kind") or ""),
             # Persona lanes (SPECS/0021, SEV-2 fix). TWO distinct fields:
             #   {lane}    = the SENDER's persona, enriched by backend #267
             #               (who sent this)
@@ -120,14 +119,15 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
             # #66: the bus's own verdict for this delivery, already on the
             # inbox row the drain hands us. Empty when the server did not say,
             # which the injector must read as "no claim" rather than "unsigned".
-            signature_state=shlex.quote(str(message.get("signature_state") or "")),
-            lane=shlex.quote(str(message.get("lane") or "")),
-            my_lane=shlex.quote(str(message.get("my_lane") or "")),
-        )
+            "signature_state": str(message.get("signature_state") or ""),
+            "lane": str(message.get("lane") or ""),
+            "my_lane": str(message.get("my_lane") or ""),
+        }
+        command, passed = expand(template, fields)
         # Justified in place: `command` is the OPERATOR'S OWN shell template, passed
-        # to `agentbus watch --exec`. shell=True is the feature. Every value
-        # interpolated into it above is shlex.quote()d, so a sender cannot
-        # break out through a subject or display name. S602 stays ARMED
+        # to `agentbus watch --exec`. shell=True is the feature. `expand` keeps
+        # every value with shell meaning out of the command text, so a sender
+        # cannot break out through a subject or display name. S602 stays ARMED
         # everywhere else so a NEW shell=True is caught.
         #
         # SEV-3 (#234): default 5s (was 60s). A stuck --exec (broken notify-send,
@@ -137,7 +137,13 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
         # override with AGENTBUS_EXEC_TIMEOUT for genuinely slow commands.
         _timeout = float(os.environ.get("AGENTBUS_EXEC_TIMEOUT", "5"))
         try:
-            subprocess.run(command, shell=True, check=False, timeout=_timeout)  # noqa: S602
+            subprocess.run(  # noqa: S602
+                command,
+                shell=True,
+                check=False,
+                timeout=_timeout,
+                env={**os.environ, **passed},
+            )
         except subprocess.TimeoutExpired:
             print(
                 f"agentbus watch: --exec timed out after {_timeout}s "

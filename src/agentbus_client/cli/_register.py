@@ -80,6 +80,24 @@ def cmd_invite(args: argparse.Namespace) -> int:
     return 0
 
 
+def _join_url_refused(base: str) -> _common.InputError:
+    msg = (
+        f"base URL {base!r}: join accepts only http:// and https:// URLs with a host. "
+        "Fix --base-url or $AGENTBUS_BASE_URL."
+    )
+    return _common.InputError(msg)
+
+
+def _join_url_usable(base: str) -> bool:
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(base)
+        return parts.scheme.lower() in {"http", "https"} and bool(parts.hostname)
+    except ValueError:
+        return False
+
+
 def cmd_join(args: argparse.Namespace) -> int:
     """Register THIS session as a NEW agent using a one-time join token.
 
@@ -88,6 +106,7 @@ def cmd_join(args: argparse.Namespace) -> int:
     is bound to itself and can act as nothing else. A host provisioned with bound
     keys only — which is what our own guidance recommends — can now onboard.
     """
+    import http.client
     import json as _json
     import urllib.error
     import urllib.request
@@ -108,6 +127,8 @@ def cmd_join(args: argparse.Namespace) -> int:
     from agentbus_client.client import DEFAULT_BASE_URL
 
     base = (args.base_url or os.environ.get("AGENTBUS_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+    if not _join_url_usable(base):
+        raise _join_url_refused(base)
     request = urllib.request.Request(  # noqa: S310
         f"{base}/v1/agents/join",
         data=body,
@@ -117,6 +138,8 @@ def cmd_join(args: argparse.Namespace) -> int:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
             result = _json.loads(response.read())
+    except http.client.InvalidURL as exc:
+        raise _join_url_refused(base) from exc
     except urllib.error.HTTPError as exc:
         detail = ""
         with contextlib.suppress(Exception):

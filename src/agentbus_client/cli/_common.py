@@ -9,16 +9,19 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agentbus_client.client import AgentBus, AgentBusError
 from agentbus_client.client.errors import TransportError
 
 if TYPE_CHECKING:
     import argparse
+    import datetime
+
+_MAX_LITERAL_PATH = 4096
 
 
-def _parse_duration(value: str) -> Any:
+def _parse_duration(value: str) -> datetime.timedelta:
     """Parse a human duration like `24h`, `90m`, `2d`, or bare seconds into
     a timedelta.
 
@@ -59,9 +62,9 @@ def _read_body(value: str | None) -> str | None:
     if value == "@-":
         return sys.stdin.read()
     if value.startswith("@"):
-        with open(value[1:], encoding="utf-8") as handle:
+        with open(value[1:], encoding="utf-8") as handle:  # noqa: PTH123
             return handle.read()
-    if os.path.isfile(value) and len(value) < 4096 and "\n" not in value:
+    if os.path.isfile(value) and len(value) < _MAX_LITERAL_PATH and "\n" not in value:  # noqa: PTH113
         msg = (
             f"refusing to send the literal path '{value}'. "
             f"Use '@{value}' to send the file's contents."
@@ -98,7 +101,7 @@ def checked_agent_name(name: str) -> str:
     return name
 
 
-def _print(data: Any, *, as_json: bool) -> None:
+def _print(data: object, *, as_json: bool) -> None:
     if as_json:
         print(json.dumps(data, indent=2, default=str))
         return
@@ -148,32 +151,20 @@ def _resolve_env_agent() -> str | None:
     return env_agent
 
 
-def acting_agent(
-    args: argparse.Namespace, bus: AgentBus | None = None, *, network: bool = True
-) -> str | None:
-    explicit = getattr(args, "agent", None)
-    if explicit:
-        return checked_agent_name(str(explicit))
-    if bus is None:
-        env_agent = _resolve_env_agent()
-        if env_agent:
-            return env_agent
-        if not (getattr(args, "api_key", None) or os.environ.get("AGENTBUS_API_KEY")):
-            from agentbus_client.onboarding._identity import _session_identity
+def _local_agent(args: argparse.Namespace, *, network: bool) -> tuple[bool, str | None]:
+    env_agent = _resolve_env_agent()
+    if env_agent:
+        return True, env_agent
+    if not (getattr(args, "api_key", None) or os.environ.get("AGENTBUS_API_KEY")):
+        from agentbus_client.onboarding._identity import _session_identity
 
-            declared = _session_identity()
-            if declared or not network:
-                return declared
-        if not network:
-            return None
-        try:
-            bus = _bus(args)
-        except (SystemExit, AgentBusError, ValueError):
-            return None
-    if bus.agent:
-        return str(bus.agent)
-    if not network:
-        return None
+        declared = _session_identity()
+        if declared or not network:
+            return True, declared
+    return not network, None
+
+
+def _agent_from_server(bus: AgentBus) -> str | None:
     try:
         answer = bus.whoami()
     except TransportError:
@@ -182,6 +173,27 @@ def acting_agent(
         return None
     name = (answer.get("agent") or {}).get("name") if isinstance(answer, dict) else None
     return str(name) if name else None
+
+
+def acting_agent(
+    args: argparse.Namespace, bus: AgentBus | None = None, *, network: bool = True
+) -> str | None:
+    explicit = getattr(args, "agent", None)
+    if explicit:
+        return checked_agent_name(str(explicit))
+    if bus is None:
+        settled, local = _local_agent(args, network=network)
+        if settled:
+            return local
+        try:
+            bus = _bus(args)
+        except (SystemExit, AgentBusError, ValueError):
+            return None
+    if bus.agent:
+        return str(bus.agent)
+    if not network:
+        return None
+    return _agent_from_server(bus)
 
 
 NO_ACTING_AGENT = (
@@ -305,7 +317,7 @@ def _client_version() -> str:
     return str(__version__)
 
 
-def _harden_if_possible(path: Any) -> None:
+def _harden_if_possible(path: Path) -> None:
     """0600 on a retired private key, exactly as on the live one.
 
     A superseded key opens the same mail the current one did; leaving it
@@ -313,8 +325,7 @@ def _harden_if_possible(path: Any) -> None:
     opposite of the point.
     """
     import contextlib
-    import os
     import stat
 
     with contextlib.suppress(OSError):
-        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)

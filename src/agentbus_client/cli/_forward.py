@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 import tempfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client.client import AgentBusError
 
@@ -15,6 +15,7 @@ from ._common import _print
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Iterable
 
 
 def cmd_forward(args: argparse.Namespace) -> int:
@@ -96,7 +97,7 @@ def cmd_forward(args: argparse.Namespace) -> int:
         paths: list[str] = []
         for index, meta in enumerate(originals):
             name = (meta or {}).get("filename") or f"attachment-{index}"
-            safe = os.path.basename(name) or "attachment"
+            safe = os.path.basename(name) or "attachment"  # noqa: PTH119
             path = pathlib.Path(tmpdir) / safe
             try:
                 # Fetch + write in one pass; the bytes are released as soon as
@@ -264,6 +265,28 @@ def cmd_drafts(args: argparse.Namespace) -> int:
 _TERMINAL = frozenset({"approved", "rejected", "cancelled", "timed_out", "changes_requested"})
 
 
+def _print_review_entries(entries: Iterable[Any], label: str, echoed: object) -> bool:
+    printed = False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        text = entry.get("text")
+        if not text:
+            continue
+        # The reviewer's feedback message is frequently the SAME string
+        # as the reason text; printing it twice reads like two people
+        # objected.
+        if text == echoed:
+            continue
+        code = entry.get("code")
+        print(f"  {label}{f' ({code})' if code else ''}: {text}")
+        who = entry.get("actor_id")
+        if who:
+            print(f"    - {who}")
+        printed = True
+    return printed
+
+
 def _print_reviewer_reasoning(outcome: object) -> None:
     """Print WHY a human denied this, from the REAL Futex outcome shape.
 
@@ -311,28 +334,10 @@ def _print_reviewer_reasoning(outcome: object) -> None:
 
     inner = outcome.get("outcome")
     if isinstance(inner, dict):
+        message = feedback.get("message") if isinstance(feedback, dict) else None
         for key, label in (("reasons", "reason"), ("justifications", "justification")):
-            for entry in inner.get(key) or []:
-                if not isinstance(entry, dict):
-                    continue
-                text = entry.get("text")
-                if not text:
-                    continue
-                # The reviewer's feedback message is frequently the SAME string
-                # as the reason text; printing it twice reads like two people
-                # objected.
-                if (
-                    printed
-                    and key == "reasons"
-                    and text
-                    == ((feedback or {}).get("message") if isinstance(feedback, dict) else None)
-                ):
-                    continue
-                code = entry.get("code")
-                print(f"  {label}{f' ({code})' if code else ''}: {text}")
-                who = entry.get("actor_id")
-                if who:
-                    print(f"    - {who}")
+            echoed = message if key == "reasons" else None
+            if _print_review_entries(inner.get(key) or [], label, echoed):
                 printed = True
 
     if not printed:
@@ -341,7 +346,7 @@ def _print_reviewer_reasoning(outcome: object) -> None:
         print("  (no reviewer reasoning recorded)")
 
 
-def _report_approval(settled: dict) -> int:
+def _report_approval(settled: dict[str, Any]) -> int:
     """Print an approval's outcome and turn it into an exit code.
 
     THREE OUTCOMES, NOT TWO, and collapsing them is the defect this function

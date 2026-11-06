@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from http import HTTPStatus
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import _signing, sealing
 from agentbus_client.client import AgentBus, AgentBusError
@@ -69,7 +70,7 @@ def _keys_sign(
     return 0
 
 
-def _published_signing_keys(bus: AgentBus, agent: str) -> list[dict]:
+def _published_signing_keys(bus: AgentBus, agent: str) -> list[dict[str, Any]]:
     """Published ed25519 keys for `agent`, or [] — never a raised error (#43).
 
     A listing that dies because ONE of two lookups failed tells the reader less
@@ -89,7 +90,7 @@ def _keys_list(bus: AgentBus, args: argparse.Namespace, agent: str, mine: str | 
     try:
         data = bus._request("GET", f"/v1/agents/{agent}/pubkey")
     except AgentBusError as exc:
-        if getattr(exc, "status", None) != 404:
+        if getattr(exc, "status", None) != HTTPStatus.NOT_FOUND:
             raise
         _print(
             {"keys": [], "count": 0}
@@ -240,9 +241,9 @@ def _superseded_fingerprints() -> set[str]:
         for path in directory.glob("sealing-*.key.superseded"):
             stem = path.name.removeprefix("sealing-").removesuffix(".key.superseded")
             found.add(stem.rsplit("-", 1)[-1])
-        return found
-    except Exception:
+    except Exception:  # noqa: BLE001
         return set()
+    return found
 
 
 def _local_signing_fingerprint(agent: str) -> str | None:
@@ -259,7 +260,7 @@ def _local_signing_fingerprint(agent: str) -> str | None:
         return None
     try:
         return _signing.fingerprint(_signing.public_from_private(private))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 

@@ -17,24 +17,16 @@ from ._watch_runtime import _watch_logfile, _watch_pid, _watch_pidfile
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable
-
-
-def cmd_watch(args: argparse.Namespace) -> int:
-    """Hold a stream open and act on every arriving message.
-
-    This is the piece no server-side feature can replace: the bus pushes fine,
-    but a session that is not running cannot be woken by anything the server
-    does. Run this alongside a session and it will notice.
-    """
     from pathlib import Path
+    from types import FrameType
 
     from agentbus_client._coalesce import Coalescer
-    from agentbus_client.watch import Watcher, append_file, notify_command, print_line
 
-    bus = _common._bus(args)
-    agent = _common.require_acting_agent(args, bus)
-    if not agent:
-        return 2
+
+def _fanout(args: argparse.Namespace) -> Callable[[dict[str, Any]], None]:
+    from pathlib import Path
+
+    from agentbus_client.watch import append_file, notify_command, print_line
 
     # --exec and --append COMPOSE. They were an if/elif, so passing both silently
     # dropped the append: the messages were processed, the command fired, the
@@ -59,8 +51,216 @@ def cmd_watch(args: argparse.Namespace) -> int:
         for one in handlers:
             try:
                 one(message)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
+
+    return fanout
+
+
+def _coalesced(
+    args: argparse.Namespace, sink: Callable[[dict[str, Any]], None]
+) -> tuple[Callable[[dict[str, Any]], None], Coalescer | None]:
+    from agentbus_client._coalesce import Coalescer
+
+    # Coalescer (issuedb #9, SPECS/0009): burst arrivals collapse into a
+    # single envelope wake. Lone messages still fire immediately with the
+    # unchanged per-message shape, so installed UserPromptSubmit hooks that
+    # grep the current fields keep working with no schema-version bump.
+    if getattr(args, "no_coalesce", False):
+        return sink, None
+    coalescer = Coalescer(
+        sink,
+        window_ms=int(getattr(args, "coalesce_window", 2500)),
+        quiet_ms=int(getattr(args, "coalesce_quiet", 800)),
+    )
+    return coalescer.handle, coalescer
+
+
+def _daemon_argv(args: argparse.Namespace, agent: str) -> list[str]:
+    argv = [sys.executable, "-m", "agentbus_client.cli", "watch", "--agent", agent]
+    for flag in ("exec", "append", "state"):
+        value = getattr(args, flag, None)
+        if value:
+            argv += [f"--{flag}", str(value)]
+    # Forward coalescer knobs so a daemonised watcher matches the
+    # caller's tuning (issuedb #9).
+    for flag, dest in (
+        ("coalesce-window", "coalesce_window"),
+        ("coalesce-quiet", "coalesce_quiet"),
+    ):
+        value = getattr(args, dest, None)
+        if value is not None:
+            argv += [f"--{flag}", str(value)]
+    if getattr(args, "no_coalesce", False):
+        argv += ["--no-coalesce"]
+    if getattr(args, "persona", None):
+        argv += ["--persona", str(args.persona)]
+    return argv
+
+
+def _start_daemon(args: argparse.Namespace, agent: str, state_key: str, log_path: Path) -> None:
+    argv = _daemon_argv(args, agent)
+    with log_path.open("ab", buffering=0) as log:
+        proc = subprocess.Popen(
+            argv,
+            stdout=log,
+            stderr=log,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,  # own session+process group: survives SIGHUP
+        )
+    _watch_pidfile(agent, state_key).write_text(str(proc.pid))
+    print(f"watcher started for {agent} (pid {proc.pid}), detached from this session")
+    print(f"  log:    {log_path}")
+    print(f"  status: agentbus watch-status --agent {agent}")
+    print(f"  stop:   agentbus watch-stop --agent {agent}")
+
+
+def _state_path(args: argparse.Namespace, agent: str, workspace: str | None) -> Path:
+    from pathlib import Path
+
+    if args.state:
+        return Path(args.state)
+
+    state = _cfg_dir() / f"watch-{workspace or 'unknown'}-{agent}.json"
+
+    # A pre-existing `watch-<agent>.json` is NOT adopted. It predates this
+    # change and carries no workspace, so there is no way to tell whether its
+    # cursor belongs to this workspace or another one. The two failure modes
+    # are not symmetric: adopting a foreign cursor SKIPS mail silently, while
+    # declining replays an inbox once and is merely noisy. This system's whole
+    # premise is that a missed message is the expensive failure, so it replays.
+    legacy = _cfg_dir() / f"watch-{agent}.json"
+    if legacy.exists() and not state.exists():
+        print(
+            f"agentbus watch: ignoring pre-workspace state {legacy.name} — it "
+            f"does not record which workspace its cursor belongs to, so this "
+            f"run replays {workspace} from the start once, then checkpoints "
+            f"to {state.name}. Delete the old file when every watcher has "
+            f"been restarted.",
+            file=sys.stderr,
+        )
+    return state
+
+
+def _release(coalescer: Coalescer | None, pidfile: Path) -> None:
+    # Flush any buffered coalesced envelope so a graceful shutdown never
+    # eats a wake. Runs on every exit path — normal, DeadWakeSocket,
+    # SIGTERM, or an unexpected raise higher up.
+    if coalescer is not None:
+        coalescer.close()
+    # Remove OUR pidfile (only if it still names us) so a reused PID can
+    # never be mistaken for a live watcher later (issuedb #28).
+    with contextlib.suppress(OSError, ValueError):
+        if pidfile.read_text().strip() == str(os.getpid()):
+            pidfile.unlink(missing_ok=True)
+
+
+def _run_foreground(
+    run: Callable[[], None], coalescer: Coalescer | None, agent: str, state_key: str
+) -> int:
+    # ONLY --exec CAN START A TURN. --append files it, the default prints it to a
+    # terminal that, for an unattended agent, nobody is attached to. Declaring this
+    # is what lets the server stop reporting `wake_channel: true` for a recorder —
+    # the state david sat in for two days while every dashboard showed him green.
+    #
+    # A DEAD SESSION SOCKET IS NOT A TRANSIENT ERROR, IT IS THE WAKE CHANNEL
+    # BEING GONE (2026-08-11: a watcher from a dead session kept streaming and
+    # injected an operator's email into a socket that no longer existed). Surface
+    # it with the dedicated code and a reason on stderr — a supervisor, the
+    # plugin monitor's retry loop, and `watch-status` can then tell "the wake
+    # target died" from "the stream dropped" and act accordingly (stop the
+    # zombie, let a fresh session re-arm).
+    # SIGTERM (watch-stop, session-end, the plugin monitor) used to kill the
+    # process outright, so the coalescer's buffered envelope was lost while the
+    # cursor had already been persisted past it (review #23, S3). Raise a
+    # BaseException instead so every `finally` below runs; exit 143 keeps the
+    # conventional code the monitor script already recognises.
+    import signal as _signal
+    import threading as _threading
+
+    from agentbus_client.watch import (
+        EXIT_DEAD_WAKE_SOCKET,
+        DeadWakeSocket as _DeadWakeSocket,
+        WatchTerminated,
+    )
+
+    def _on_sigterm(_signum: int, _frame: FrameType | None) -> None:
+        raise WatchTerminated
+
+    previous_handler: Any = None
+    if _threading.current_thread() is _threading.main_thread():
+        with contextlib.suppress(ValueError, OSError):
+            previous_handler = _signal.signal(_signal.SIGTERM, _on_sigterm)
+    pidfile = _watch_pidfile(agent, state_key)
+
+    try:
+        try:
+            run()
+        except _DeadWakeSocket as exc:
+            print(f"agentbus watch: {exc}", file=sys.stderr)
+            print("  A fresh session's monitor will re-arm the wake path.", file=sys.stderr)
+            return EXIT_DEAD_WAKE_SOCKET
+        except AuthError as exc:
+            # SPECS/0020: a revoked key is TERMINAL — retrying will hammer
+            # the bus with a credential that will never work. Exit 8 so the
+            # monitor script's dedicated auth-failure branch handles it
+            # (stop + operator message, no retry). Without this catch, the
+            # exception reaches main()'s global AuthError handler which
+            # also returns 8, but catching it HERE means cmd_watch controls
+            # its own exit codes and a refactor to main() cannot silently
+            # change what the monitor sees.
+            print(
+                f"agentbus watch: credential rejected ({exc.code}: {exc.detail})", file=sys.stderr
+            )
+            return 8
+        except AgentBusError as exc:
+            # SPECS/0020: ANY other bus error that escapes the Watcher's own
+            # reconnect loop (e.g. a ServiceUnavailable or TransportError
+            # during construction, or a future code path that doesn't enter
+            # the while-True loop) MUST stay retryable. Exit 3 is the
+            # generic "bus error" code the monitor script counts against its
+            # startup budget and retries with backoff.
+            #
+            # Without this catch, main()'s global handlers assign
+            # ServiceUnavailable → 5, QuotaExceeded → 4, generic → 3. The
+            # monitor script only recognises 3 as retryable; 4 and 5 fall
+            # through to the catch-all and consume an attempt with no
+            # diagnostic. Normalising them to 3 here is both simpler and
+            # more honest: every transient bus failure is retryable.
+            tag = str(exc) or f"({type(exc).__name__})"
+            print(f"agentbus watch: bus error ({tag}); monitor should retry", file=sys.stderr)
+            return 3
+        except WatchTerminated:
+            print(
+                "agentbus watch: SIGTERM received; flushing pending wakes and stopping",
+                file=sys.stderr,
+            )
+            return 143
+    finally:
+        _release(coalescer, pidfile)
+        if previous_handler is not None:
+            with contextlib.suppress(ValueError, OSError):
+                _signal.signal(_signal.SIGTERM, previous_handler)
+    return 0
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Hold a stream open and act on every arriving message.
+
+    This is the piece no server-side feature can replace: the bus pushes fine,
+    but a session that is not running cannot be woken by anything the server
+    does. Run this alongside a session and it will notice.
+    """
+    from pathlib import Path
+
+    from agentbus_client.watch import Watcher
+
+    bus = _common._bus(args)
+    agent = _common.require_acting_agent(args, bus)
+    if not agent:
+        return 2
+
+    fanout = _fanout(args)
 
     # MY-LANE INJECTION (SPECS/0021, SEV-2 fix). The acting agent's OWN
     # persona is injected as `my_lane` into a SHALLOW COPY of every message
@@ -81,21 +281,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
             message = {**message, "my_lane": my_lane}
         fanout(message)
 
-    # Coalescer (issuedb #9, SPECS/0009): burst arrivals collapse into a
-    # single envelope wake. Lone messages still fire immediately with the
-    # unchanged per-message shape, so installed UserPromptSubmit hooks that
-    # grep the current fields keep working with no schema-version bump.
-    coalescer: Coalescer | None = None
-    handler: Callable[[dict[str, Any]], None]
-    if getattr(args, "no_coalesce", False):
-        handler = with_my_lane
-    else:
-        coalescer = Coalescer(
-            with_my_lane,
-            window_ms=int(getattr(args, "coalesce_window", 2500)),
-            quiet_ms=int(getattr(args, "coalesce_quiet", 800)),
-        )
-        handler = coalescer.handle
+    handler, coalescer = _coalesced(args, with_my_lane)
 
     # The cursor state MUST be scoped by workspace as well as agent. Cursors are
     # per-delivery sequences inside one workspace and mean nothing in another, but
@@ -148,7 +334,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
         _who = bus.whoami() or {}
         workspace = (_who.get("workspace") or {}).get("slug") or None
         my_lane = (_who.get("agent") or {}).get("persona") or None
-    except Exception:  # startup label lookup MUST NOT block launch
+    except Exception:  # noqa: BLE001  # startup label lookup MUST NOT block launch
         workspace = None
         my_lane = None
 
@@ -167,37 +353,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
         # and watch-status can name the log belonging to the watcher it is
         # reporting on rather than whichever daemon last wrote the shared path.
         log_path = _watch_logfile(agent, state_key)
-        argv = [sys.executable, "-m", "agentbus_client.cli", "watch", "--agent", agent]
-        for flag in ("exec", "append", "state"):
-            value = getattr(args, flag, None)
-            if value:
-                argv += [f"--{flag}", str(value)]
-        # Forward coalescer knobs so a daemonised watcher matches the
-        # caller's tuning (issuedb #9).
-        for flag, dest in (
-            ("coalesce-window", "coalesce_window"),
-            ("coalesce-quiet", "coalesce_quiet"),
-        ):
-            value = getattr(args, dest, None)
-            if value is not None:
-                argv += [f"--{flag}", str(value)]
-        if getattr(args, "no_coalesce", False):
-            argv += ["--no-coalesce"]
-        if getattr(args, "persona", None):
-            argv += ["--persona", str(args.persona)]
-        with open(log_path, "ab", buffering=0) as log:
-            proc = subprocess.Popen(
-                argv,
-                stdout=log,
-                stderr=log,
-                stdin=subprocess.DEVNULL,
-                start_new_session=True,  # own session+process group: survives SIGHUP
-            )
-        _watch_pidfile(agent, state_key).write_text(str(proc.pid))
-        print(f"watcher started for {agent} (pid {proc.pid}), detached from this session")
-        print(f"  log:    {log_path}")
-        print(f"  status: agentbus watch-status --agent {agent}")
-        print(f"  stop:   agentbus watch-stop --agent {agent}")
+        _start_daemon(args, agent, state_key, log_path)
         return 0
 
     # Record our own pid so watch-status can answer honestly even when started
@@ -207,27 +363,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     with contextlib.suppress(OSError):
         _watch_pidfile(agent, state_key).write_text(str(os.getpid()))
 
-    if args.state:
-        state = Path(args.state)
-    else:
-        state = _cfg_dir() / f"watch-{workspace or 'unknown'}-{agent}.json"
-
-        # A pre-existing `watch-<agent>.json` is NOT adopted. It predates this
-        # change and carries no workspace, so there is no way to tell whether its
-        # cursor belongs to this workspace or another one. The two failure modes
-        # are not symmetric: adopting a foreign cursor SKIPS mail silently, while
-        # declining replays an inbox once and is merely noisy. This system's whole
-        # premise is that a missed message is the expensive failure, so it replays.
-        legacy = _cfg_dir() / f"watch-{agent}.json"
-        if legacy.exists() and not state.exists():
-            print(
-                f"agentbus watch: ignoring pre-workspace state {legacy.name} — it "
-                f"does not record which workspace its cursor belongs to, so this "
-                f"run replays {workspace} from the start once, then checkpoints "
-                f"to {state.name}. Delete the old file when every watcher has "
-                f"been restarted.",
-                file=sys.stderr,
-            )
+    state = _state_path(args, agent, workspace)
     # SEV-1 follow-up (macbook-admin-bd8e86 suggestion): print client_version
     # in the startup banner so a stale watcher is self-evident in the log
     # instead of requiring an operator to think to run `agentbus --version`
@@ -240,104 +376,16 @@ def cmd_watch(args: argparse.Namespace) -> int:
         f"agentbus watch {_client_ver}: {agent} on {bus.base_url} (state: {state})",
         file=sys.stderr,
     )
-    # ONLY --exec CAN START A TURN. --append files it, the default prints it to a
-    # terminal that, for an unattended agent, nobody is attached to. Declaring this
-    # is what lets the server stop reporting `wake_channel: true` for a recorder —
-    # the state david sat in for two days while every dashboard showed him green.
-    #
-    # A DEAD SESSION SOCKET IS NOT A TRANSIENT ERROR, IT IS THE WAKE CHANNEL
-    # BEING GONE (2026-08-11: a watcher from a dead session kept streaming and
-    # injected an operator's email into a socket that no longer existed). Surface
-    # it with the dedicated code and a reason on stderr — a supervisor, the
-    # plugin monitor's retry loop, and `watch-status` can then tell "the wake
-    # target died" from "the stream dropped" and act accordingly (stop the
-    # zombie, let a fresh session re-arm).
-    # SIGTERM (watch-stop, session-end, the plugin monitor) used to kill the
-    # process outright, so the coalescer's buffered envelope was lost while the
-    # cursor had already been persisted past it (review #23, S3). Raise a
-    # BaseException instead so every `finally` below runs; exit 143 keeps the
-    # conventional code the monitor script already recognises.
-    import signal as _signal
-    import threading as _threading
 
-    from agentbus_client.watch import (
-        EXIT_DEAD_WAKE_SOCKET,
-        DeadWakeSocket as _DeadWakeSocket,
-        WatchTerminated,
-    )
+    def run() -> None:
+        Watcher(
+            bus,
+            agent,
+            on_message=handler,
+            cursor=args.cursor,
+            state_path=state,
+            workspace=workspace,
+            wake_capable=bool(args.exec),
+        ).run(once=args.once)
 
-    def _on_sigterm(_signum: int, _frame: Any) -> None:
-        raise WatchTerminated
-
-    previous_handler: Any = None
-    if _threading.current_thread() is _threading.main_thread():
-        with contextlib.suppress(ValueError, OSError):
-            previous_handler = _signal.signal(_signal.SIGTERM, _on_sigterm)
-    pidfile = _watch_pidfile(agent, state_key)
-
-    try:
-        try:
-            Watcher(
-                bus,
-                agent,
-                on_message=handler,
-                cursor=args.cursor,
-                state_path=state,
-                workspace=workspace,
-                wake_capable=bool(args.exec),
-            ).run(once=args.once)
-        except _DeadWakeSocket as exc:
-            print(f"agentbus watch: {exc}", file=sys.stderr)
-            print("  A fresh session's monitor will re-arm the wake path.", file=sys.stderr)
-            return EXIT_DEAD_WAKE_SOCKET
-        except AuthError as exc:
-            # SPECS/0020: a revoked key is TERMINAL — retrying will hammer
-            # the bus with a credential that will never work. Exit 8 so the
-            # monitor script's dedicated auth-failure branch handles it
-            # (stop + operator message, no retry). Without this catch, the
-            # exception reaches main()'s global AuthError handler which
-            # also returns 8, but catching it HERE means cmd_watch controls
-            # its own exit codes and a refactor to main() cannot silently
-            # change what the monitor sees.
-            print(
-                f"agentbus watch: credential rejected ({exc.code}: {exc.detail})", file=sys.stderr
-            )
-            return 8
-        except AgentBusError as exc:
-            # SPECS/0020: ANY other bus error that escapes the Watcher's own
-            # reconnect loop (e.g. a ServiceUnavailable or TransportError
-            # during construction, or a future code path that doesn't enter
-            # the while-True loop) MUST stay retryable. Exit 3 is the
-            # generic "bus error" code the monitor script counts against its
-            # startup budget and retries with backoff.
-            #
-            # Without this catch, main()'s global handlers assign
-            # ServiceUnavailable → 5, QuotaExceeded → 4, generic → 3. The
-            # monitor script only recognises 3 as retryable; 4 and 5 fall
-            # through to the catch-all and consume an attempt with no
-            # diagnostic. Normalising them to 3 here is both simpler and
-            # more honest: every transient bus failure is retryable.
-            tag = str(exc) or f"({type(exc).__name__})"
-            print(f"agentbus watch: bus error ({tag}); monitor should retry", file=sys.stderr)
-            return 3
-        except WatchTerminated:
-            print(
-                "agentbus watch: SIGTERM received; flushing pending wakes and stopping",
-                file=sys.stderr,
-            )
-            return 143
-    finally:
-        # Flush any buffered coalesced envelope so a graceful shutdown never
-        # eats a wake. Runs on every exit path — normal, DeadWakeSocket,
-        # SIGTERM, or an unexpected raise higher up.
-        if coalescer is not None:
-            coalescer.close()
-        # Remove OUR pidfile (only if it still names us) so a reused PID can
-        # never be mistaken for a live watcher later (issuedb #28).
-        with contextlib.suppress(OSError, ValueError):
-            if pidfile.read_text().strip() == str(os.getpid()):
-                pidfile.unlink(missing_ok=True)
-        if previous_handler is not None:
-            with contextlib.suppress(ValueError, OSError):
-                _signal.signal(_signal.SIGTERM, previous_handler)
-    return 0
+    return _run_foreground(run, coalescer, agent, state_key)

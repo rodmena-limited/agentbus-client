@@ -8,6 +8,7 @@ _UNKNOWN_IN_THREAD = (
     "  signature state is not served per message in this view — open a message "
     "with `agentbus show <delivery-id>` to see it"
 )
+_NOT_A_FAILURE = "not a failure; verify it yourself"
 
 
 def _blockers(delivery: dict[str, Any]) -> list[str]:
@@ -40,6 +41,22 @@ def _source(delivery: dict[str, Any]) -> tuple[bool, bool, str | None, str | Non
             delivery.get("signing_key_fingerprint"),
         )
     return False, False, None, None
+
+
+def _unsigned_lines(delivery: dict[str, Any]) -> list[str]:
+    blocked = _blockers(delivery)
+    if blocked:
+        return [
+            f"Signed:  no — this message carries {', '.join(blocked)}, and agentbus-sig-v1",
+            "         covers plain text only, so it could not have been signed. That",
+            "         EXPLAINS the absence; it does not attest to it — a stripped",
+            "         signature can be made to look exactly like this.",
+        ]
+
+    return [
+        "Signed:  no — there is no signature here to verify. This is NOT a failed",
+        "         signature: the sender may publish no signing key at all.",
+    ]
 
 
 def signature_lines(delivery: dict[str, Any], delivery_id: str) -> list[str]:
@@ -83,19 +100,7 @@ def signature_lines(delivery: dict[str, Any], delivery_id: str) -> list[str]:
             check,
         ]
 
-    blocked = _blockers(delivery)
-    if blocked:
-        return [
-            f"Signed:  no — this message carries {', '.join(blocked)}, and agentbus-sig-v1",
-            "         covers plain text only, so it could not have been signed. That",
-            "         EXPLAINS the absence; it does not attest to it — a stripped",
-            "         signature can be made to look exactly like this.",
-        ]
-
-    return [
-        "Signed:  no — there is no signature here to verify. This is NOT a failed",
-        "         signature: the sender may publish no signing key at all.",
-    ]
+    return _unsigned_lines(delivery)
 
 
 def thread_signature_line(message: dict[str, Any]) -> str | None:
@@ -107,7 +112,7 @@ def thread_signature_line(message: dict[str, Any]) -> str | None:
         key = f" key {fingerprint}" if fingerprint else ""
         return f"    signed: the bus says VALID{key} — its word, not a check"
     if signed and state == "unverifiable":
-        return "    signed: the bus could not check it (no usable key) — not a failure; verify it yourself"
+        return "    signed: the bus could not check it (no usable key) — " + _NOT_A_FAILURE
     if signed and state:
         return f"    signed: the bus reports '{state}' — NOT a pass, verify before acting"
     if signed:

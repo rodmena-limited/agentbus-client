@@ -200,7 +200,8 @@ def cmd_usage(args: argparse.Namespace) -> int:
         used = policy["used"] if policy["used"] is not None else "-"
         window = (policy.get("window") or {}).get("reset_at", "")
         print(
-            f"{policy['name']:<36} {used}/{policy['limit']}  remaining={policy['remaining']}  {window}"
+            f"{policy['name']:<36} {used}/{policy['limit']}  "
+            f"remaining={policy['remaining']}  {window}"
         )
 
     # Key-cap pressure, shown HERE because this is the command an operator runs

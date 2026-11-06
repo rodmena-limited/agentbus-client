@@ -25,6 +25,8 @@ from ._common import InputError, _parse_duration, _print
 if TYPE_CHECKING:
     import argparse
 
+    from agentbus_client.client import AgentBus
+
 # A --thread filter that matches nothing must not walk an unbounded history.
 _MAX_PAGES = 50
 
@@ -82,8 +84,18 @@ def _recipients_line(row: dict[str, Any]) -> str:
     return line
 
 
+def _wanted(row: dict[str, Any], thread: str | None, since: _dt.datetime | None) -> bool:
+    if thread and row.get("thread_id") != thread:
+        return False
+    if since is not None:
+        at = _sent_at(row)
+        if at is None or at < since:
+            return False
+    return True
+
+
 def _collect(
-    bus: Any,
+    bus: AgentBus,
     *,
     limit: int,
     thread: str | None,
@@ -115,12 +127,8 @@ def _collect(
             )
         messages = list(page.get("messages") or [])
         for row in messages:
-            if thread and row.get("thread_id") != thread:
+            if not _wanted(row, thread, since):
                 continue
-            if since is not None:
-                at = _sent_at(row)
-                if at is None or at < since:
-                    continue
             rows.append(row)
             if len(rows) >= limit:
                 return rows, None

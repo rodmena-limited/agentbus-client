@@ -5,7 +5,7 @@ import re
 import shutil
 import sys
 from io import StringIO
-from typing import IO, TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING
 
 import click
 
@@ -13,6 +13,9 @@ from ._app import BusArgument, Root, UnknownVerb
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from rich.console import Console
+    from rich.panel import Panel
 
 TAGLINE = "a real inbox for every agent"
 WIDTH = 100
@@ -121,7 +124,7 @@ SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
 )
 
 
-def styled(stream: Any) -> bool:
+def styled(stream: object) -> bool:
     if os.environ.get("NO_COLOR"):
         return False
     isatty = getattr(stream, "isatty", None)
@@ -138,7 +141,7 @@ def _strip_trailing(line: str) -> str:
     return line[: match.start()] + "".join(_CODE.findall(match.group(0)))
 
 
-def _render(draw: Callable[[Any], None]) -> str:
+def _render(draw: Callable[[Console], None]) -> str:
     from rich.console import Console
 
     buffer = StringIO()
@@ -149,7 +152,7 @@ def _render(draw: Callable[[Any], None]) -> str:
     return "\n".join(_strip_trailing(line) for line in text.split("\n"))
 
 
-def _wordmark() -> Any:
+def _wordmark() -> Panel:
     from rich.panel import Panel
     from rich.text import Text
 
@@ -171,7 +174,7 @@ def _sections_for(root: Root) -> list[tuple[str, list[tuple[str, str]]]]:
     return [(title, rows) for title, rows in sections if rows]
 
 
-def overview(root: Root, ctx: click.Context) -> str:
+def overview(root: Root, _ctx: click.Context) -> str:
     sections = _sections_for(root)
     deprecated = [v for v in DEPRECATED if v in root.commands]
     pad = max(len(v) for _, rows in sections for v, _ in rows) + 2
@@ -187,7 +190,7 @@ def overview(root: Root, ctx: click.Context) -> str:
         out.append("Help for one command: agentbus COMMAND --help")
         return "\n".join(out)
 
-    def draw(console: Any) -> None:
+    def draw(console: Console) -> None:
         from rich.text import Text
 
         console.print(_wordmark())
@@ -251,7 +254,7 @@ def verb_help(command: click.Command, ctx: click.Context) -> str:
                 formatter.write_dl(rows)
         return formatter.getvalue().rstrip("\n")
 
-    def draw(console: Any) -> None:
+    def draw(console: Console) -> None:
         from rich.padding import Padding
         from rich.table import Table
         from rich.text import Text
@@ -305,7 +308,7 @@ def usage_error(exc: click.UsageError, stream: IO[str] | None = None) -> None:
         target.write("\n".join(lines) + "\n")
         return
 
-    def draw(console: Any) -> None:
+    def draw(console: Console) -> None:
         from rich.text import Text
 
         for index, line in enumerate(lines):

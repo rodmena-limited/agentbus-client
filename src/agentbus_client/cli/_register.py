@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import _common
 from ._common import _git_remote, _print, _print_qr
@@ -108,14 +108,14 @@ def cmd_join(args: argparse.Namespace) -> int:
     from agentbus_client.client import DEFAULT_BASE_URL
 
     base = (args.base_url or os.environ.get("AGENTBUS_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-    request = urllib.request.Request(
+    request = urllib.request.Request(  # noqa: S310
         f"{base}/v1/agents/join",
         data=body,
         method="POST",
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
             result = _json.loads(response.read())
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -160,7 +160,7 @@ def cmd_join(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_persona_outcome(result: dict, requested: str | None) -> None:
+def _print_persona_outcome(result: dict[str, Any], requested: str | None) -> None:
     """Say when a requested persona did NOT take, instead of reporting success.
 
     A WRITE THAT REPORTS SUCCESS AND DOES NOTHING IS INDISTINGUISHABLE FROM ONE
@@ -204,9 +204,7 @@ def _print_persona_outcome(result: dict, requested: str | None) -> None:
         )
 
 
-def cmd_register(args: argparse.Namespace) -> int:
-    bus = _common._bus(args)
-
+def _adopt_declared_identity(args: argparse.Namespace) -> None:
     # REFUSE BEFORE REGISTERING, NOT AFTER (#57).
     #
     # A bare `agentbus register` in an already-wired project used to mint a
@@ -235,48 +233,9 @@ def cmd_register(args: argparse.Namespace) -> int:
                 "rather than minting a new agent."
             )
             args.name = declared
-    # #149: --label k[=v] at register time. The SDK accepted labels all along;
-    # this flag was simply never wired, so tags were unreachable from the CLI.
-    labels: dict[str, str] = {}
-    for item in getattr(args, "label", None) or []:
-        key, _, value = item.partition("=")
-        labels[key] = value
-    result = bus.register(
-        args.name,
-        role=getattr(args, "role", None),
-        workdir=getattr(args, "workdir", None),
-        repo_remote=args.repo_remote or _git_remote(),
-        capabilities=args.capability,
-        labels=labels or None,
-        unlisted=args.unlisted,
-        ephemeral=True if getattr(args, "ephemeral", False) else None,
-        persona=getattr(args, "persona", None),
-    )
-    agent_name = result["agent"]["name"]
 
-    # WIRE THE SESSION WE JUST REGISTERED, or the wake never starts.
-    #
-    # `register` created an identity and left the session unwired: the monitor
-    # resolves its agent from AGENTBUS_AGENT or .claude/settings.local.json, and
-    # `register` wrote neither. So the plugin monitor sat idle beside a real
-    # inbox, mail arrived, and NOBODY WAS WOKEN.
-    #
-    # The operator hit exactly this: registered `james`, emailed him, and the
-    # message landed in his inbox with nothing watching. It was silent because
-    # the machine-global fallback had (rightly) been removed as a cross-agent
-    # leak, and because the no-agent branch had just been made quiet.
-    #
-    # Registering an agent for a session that then cannot hear it is not a
-    # halfway state worth preserving — it is the whole feature failing while
-    # reporting success. Writing the project identity is exactly what `setup`
-    # does, merged rather than replaced, so nothing else in the file is touched.
-    # AND MINT ITS KEY, or the wiring above only gets us a better error.
-    #
-    # With the identity written but no key file, the monitor resolves the agent
-    # and then stops: "no credential for '<name>'". Honest, and still no wake.
-    # `setup` mints a bound `send` key for exactly this reason; `register` left
-    # it out, so registering by NAME could never produce a working inbox no
-    # matter how correct everything else was.
+
+def _bound_key_note(args: argparse.Namespace, agent_name: str) -> str:
     key_note = ""
     try:
         from agentbus_client import sealing as _sealing
@@ -309,9 +268,12 @@ def cmd_register(args: argparse.Namespace) -> int:
                 key_note = (
                     "  NO KEY: the wake cannot start. Sign in once: agentbus signin <workspace key>"
                 )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         key_note = f"  NO KEY ({exc}); the wake cannot start."
+    return key_note
 
+
+def _project_wiring_note(args: argparse.Namespace, agent_name: str) -> str:
     wired_note = ""
     try:
         from agentbus_client.onboarding import _dump_json, _load_json, _project_claude_dir
@@ -363,11 +325,82 @@ def cmd_register(args: argparse.Namespace) -> int:
             wired_note = f"  wired:    {local_path} env.AGENTBUS_AGENT={agent_name}"
             for note in notes:
                 wired_note += f"\n             {note}"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         wired_note = (
             f"  NOT WIRED ({exc}). The wake will not start; "
             f"run: agentbus setup claude --role <role>"
         )
+    return wired_note
+
+
+def _print_readiness(key_note: str, wired_note: str) -> None:
+    # THE RESTART IS THE DIFFERENCE BETWEEN WORKING AND NOT, so it is not a
+    # footnote. The monitor reads its identity when it STARTS; this session's
+    # monitor started before the identity existed and is watching nothing.
+    # Mail sent before the restart still arrives and still waits — it just
+    # wakes nobody. The operator lost a message to exactly this.
+    if "NO KEY" in key_note or "NOT WIRED" in wired_note:
+        print()
+        print(
+            "  ** NOT READY TO RECEIVE **  see the line(s) above; the wake "
+            "cannot start until that is fixed."
+        )
+    else:
+        print()
+        print("  ** RESTART THIS SESSION NOW **")
+        print("     The monitor picks up its identity when it starts, and this one started before")
+        print("     you existed — so it is watching nothing. Until you restart, mail sent to you")
+        print("     ARRIVES AND WAITS, and no session is woken by it.")
+
+
+def cmd_register(args: argparse.Namespace) -> int:
+    bus = _common._bus(args)
+
+    _adopt_declared_identity(args)
+    # #149: --label k[=v] at register time. The SDK accepted labels all along;
+    # this flag was simply never wired, so tags were unreachable from the CLI.
+    labels: dict[str, str] = {}
+    for item in getattr(args, "label", None) or []:
+        key, _, value = item.partition("=")
+        labels[key] = value
+    result = bus.register(
+        args.name,
+        role=getattr(args, "role", None),
+        workdir=getattr(args, "workdir", None),
+        repo_remote=args.repo_remote or _git_remote(),
+        capabilities=args.capability,
+        labels=labels or None,
+        unlisted=args.unlisted,
+        ephemeral=True if getattr(args, "ephemeral", False) else None,
+        persona=getattr(args, "persona", None),
+    )
+    agent_name = result["agent"]["name"]
+
+    # WIRE THE SESSION WE JUST REGISTERED, or the wake never starts.
+    #
+    # `register` created an identity and left the session unwired: the monitor
+    # resolves its agent from AGENTBUS_AGENT or .claude/settings.local.json, and
+    # `register` wrote neither. So the plugin monitor sat idle beside a real
+    # inbox, mail arrived, and NOBODY WAS WOKEN.
+    #
+    # The operator hit exactly this: registered `james`, emailed him, and the
+    # message landed in his inbox with nothing watching. It was silent because
+    # the machine-global fallback had (rightly) been removed as a cross-agent
+    # leak, and because the no-agent branch had just been made quiet.
+    #
+    # Registering an agent for a session that then cannot hear it is not a
+    # halfway state worth preserving — it is the whole feature failing while
+    # reporting success. Writing the project identity is exactly what `setup`
+    # does, merged rather than replaced, so nothing else in the file is touched.
+    # AND MINT ITS KEY, or the wiring above only gets us a better error.
+    #
+    # With the identity written but no key file, the monitor resolves the agent
+    # and then stops: "no credential for '<name>'". Honest, and still no wake.
+    # `setup` mints a bound `send` key for exactly this reason; `register` left
+    # it out, so registering by NAME could never produce a working inbox no
+    # matter how correct everything else was.
+    key_note = _bound_key_note(args, agent_name)
+    wired_note = _project_wiring_note(args, agent_name)
 
     if args.json:
         result["wired"] = wired_note
@@ -381,27 +414,7 @@ def cmd_register(args: argparse.Namespace) -> int:
         print(key_note)
         print(wired_note)
         _print_persona_outcome(result, getattr(args, "persona", None))
-        # THE RESTART IS THE DIFFERENCE BETWEEN WORKING AND NOT, so it is not a
-        # footnote. The monitor reads its identity when it STARTS; this session's
-        # monitor started before the identity existed and is watching nothing.
-        # Mail sent before the restart still arrives and still waits — it just
-        # wakes nobody. The operator lost a message to exactly this.
-        if "NO KEY" in key_note or "NOT WIRED" in wired_note:
-            print()
-            print(
-                "  ** NOT READY TO RECEIVE **  see the line(s) above; the wake "
-                "cannot start until that is fixed."
-            )
-        else:
-            print()
-            print("  ** RESTART THIS SESSION NOW **")
-            print(
-                "     The monitor picks up its identity when it starts, and this one started before"
-            )
-            print(
-                "     you existed — so it is watching nothing. Until you restart, mail sent to you"
-            )
-            print("     ARRIVES AND WAITS, and no session is woken by it.")
+        _print_readiness(key_note, wired_note)
     return 0
 
 

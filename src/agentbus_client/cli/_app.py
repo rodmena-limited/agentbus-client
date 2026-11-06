@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -13,11 +14,23 @@ Handler = Callable[[argparse.Namespace], int]
 
 HELP_NAMES = ["-h", "--help"]
 
+_NESTED_CHAIN = 3
 
-class _Verbatim(click.ParamType):
+if TYPE_CHECKING:
+    _VerbatimBase = click.ParamType[object, object]
+else:
+    _VerbatimBase = click.ParamType
+
+
+class _Verbatim(_VerbatimBase):
     name = "text"
 
-    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> Any:
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,  # noqa: ARG002
+        ctx: click.Context | None,  # noqa: ARG002
+    ) -> object:
         return value
 
 
@@ -32,7 +45,12 @@ def _check_agent_name(ctx: click.Context, param: click.Parameter, value: str | N
 
 
 class BusArgument(click.Argument):
-    def __init__(self, param_decls: Sequence[str], help: str | None = None, **attrs: Any) -> None:
+    def __init__(
+        self,
+        param_decls: Sequence[str],
+        help: str | None = None,  # noqa: A002
+        **attrs: Any,
+    ) -> None:
         super().__init__(param_decls, **attrs)
         self.help = help
 
@@ -41,21 +59,21 @@ def argument(*param_decls: str, **attrs: Any) -> Callable[[Any], Any]:
     return click.argument(*param_decls, cls=BusArgument, **attrs)
 
 
+@dataclass(frozen=True)
+class VerbOptions:
+    help: str | None = None
+    common: bool = False
+    none_when_empty: Iterable[str] = ()
+    exclusive: Iterable[tuple[str, ...]] = ()
+    remainder: bool = False
+    nested: bool = False
+
+
 class Verb(click.Command):
     def __init__(
-        self,
-        name: str,
-        handler: Handler,
-        *,
-        params: list[click.Parameter],
-        help: str | None = None,
-        common: bool = False,
-        none_when_empty: Iterable[str] = (),
-        exclusive: Iterable[tuple[str, ...]] = (),
-        remainder: bool = False,
-        nested: bool = False,
+        self, name: str, handler: Handler, *, params: list[click.Parameter], options: VerbOptions
     ) -> None:
-        if common:
+        if options.common:
             params = [
                 *params,
                 click.Option(
@@ -73,14 +91,14 @@ class Verb(click.Command):
                 ),
             ]
         settings: dict[str, Any] = {}
-        if remainder:
+        if options.remainder:
             settings = {"ignore_unknown_options": True, "allow_interspersed_args": False}
-        super().__init__(name, params=params, help=help, context_settings=settings)
+        super().__init__(name, params=params, help=options.help, context_settings=settings)
         self.handler = handler
-        self.none_when_empty = frozenset(none_when_empty)
-        self.exclusive = tuple(exclusive)
-        self.remainder = remainder
-        self.nested = nested
+        self.none_when_empty = frozenset(options.none_when_empty)
+        self.exclusive = tuple(options.exclusive)
+        self.remainder = options.remainder
+        self.nested = options.nested
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         if (
@@ -110,7 +128,7 @@ class Verb(click.Command):
 
 
 class VerbGroup(click.Group):
-    def __init__(self, name: str, *, dest: str, help: str | None = None) -> None:
+    def __init__(self, name: str, *, dest: str, help: str | None = None) -> None:  # noqa: A002
         super().__init__(name, help=help, no_args_is_help=False, invoke_without_command=False)
         self.dest = dest
 
@@ -138,9 +156,13 @@ class HelpCommand(click.Command):
 
     def invoke(self, ctx: click.Context) -> None:
         root_ctx = ctx.parent
-        assert root_ctx is not None
+        if root_ctx is None:
+            msg = "the help command has no parent context"
+            raise RuntimeError(msg)
         root = root_ctx.command
-        assert isinstance(root, Root)
+        if not isinstance(root, Root):
+            msg = "the help command must sit directly under the root command"
+            raise TypeError(msg)
         target: click.Command = root
         target_ctx = root_ctx
         for word in ctx.params.get("topic") or ():
@@ -219,7 +241,7 @@ class Root(click.Group):
         return _help.overview(self, ctx)
 
 
-def _print_version(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
+def _print_version(ctx: click.Context, _param: click.Parameter, value: bool) -> None:  # noqa: FBT001
     if not value or ctx.resilient_parsing:
         return
     root = ctx.find_root().command
@@ -243,12 +265,29 @@ def verb(
 ) -> Callable[[Callable[..., Any]], Verb]:
     def decorate(f: Callable[..., Any]) -> Verb:
         params = list(reversed(getattr(f, "__click_params__", [])))
-        cmd = Verb(name, handler, params=params, nested=parent is not None, **options)
+        settings = VerbOptions(nested=parent is not None, **options)
+        cmd = Verb(name, handler, params=params, options=settings)
         if parent is not None:
             parent.add_command(cmd)
         return cmd
 
     return decorate
+
+
+def _verb_of(ctx: click.Context) -> Verb:
+    command = ctx.command
+    if not isinstance(command, Verb):
+        msg = "the leaf context must belong to a Verb"
+        raise TypeError(msg)
+    return command
+
+
+def _group_of(ctx: click.Context) -> VerbGroup:
+    group = ctx.command
+    if not isinstance(group, VerbGroup):
+        msg = "a nested verb must sit under a VerbGroup"
+        raise TypeError(msg)
+    return group
 
 
 def namespace_for(ctx: click.Context) -> argparse.Namespace:
@@ -259,14 +298,11 @@ def namespace_for(ctx: click.Context) -> argparse.Namespace:
         node = node.parent
     chain.reverse()
     root, leaf = chain[0], chain[-1]
-    command = leaf.command
-    assert isinstance(command, Verb)
+    command = _verb_of(leaf)
     values: dict[str, Any] = dict(root.params)
     values["command"] = chain[1].info_name
-    if len(chain) == 3:
-        group = chain[1].command
-        assert isinstance(group, VerbGroup)
-        values[group.dest] = leaf.info_name
+    if len(chain) == _NESTED_CHAIN:
+        values[_group_of(chain[1]).dest] = leaf.info_name
     for param in command.params:
         if not param.expose_value or param.name is None:
             continue

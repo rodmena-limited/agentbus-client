@@ -10,7 +10,7 @@ from pathlib import Path
 from ._common import _cfg_dir
 
 
-def _watch_runtime_dir(create: bool = True) -> Path:
+def _watch_runtime_dir(*, create: bool = True) -> Path:
     """The watcher runtime dir. `create=False` tolerates a read-only parent.
 
     `watch-status` diagnosed the config dir as unwritable and then DIED trying to
@@ -192,7 +192,7 @@ def _watch_pids(agent: str) -> dict[str, int]:
     out: dict[str, int] = {}
     import glob as _glob
 
-    for path in _glob.glob(str(_watch_runtime_dir(create=False) / f"{agent}-*.pid")):
+    for path in _glob.glob(str(_watch_runtime_dir(create=False) / f"{agent}-*.pid")):  # noqa: PTH207
         try:
             pid = int(Path(path).read_text().strip())
             os.kill(pid, 0)
@@ -269,6 +269,13 @@ def _scope_pids_by_state(pids: dict[str, int], agent: str, want_state: str) -> d
     return out
 
 
+def _require_live_watcher(pid: int, agent: str) -> None:
+    os.kill(pid, 0)
+    if not _pid_is_watcher(pid, agent):
+        msg = f"pid {pid} is not an agentbus watcher for {agent}"
+        raise ProcessLookupError(msg)
+
+
 def _watch_pid(agent: str, state: str | None = None) -> int | None:
     """The PID of a live watcher for this agent (state-scoped), or None.
 
@@ -284,10 +291,7 @@ def _watch_pid(agent: str, state: str | None = None) -> int | None:
         # them should stop the caller learning the rest.
         return None
     try:
-        os.kill(pid, 0)
-        if not _pid_is_watcher(pid, agent):
-            msg = f"pid {pid} is not an agentbus watcher for {agent}"
-            raise ProcessLookupError(msg)
+        _require_live_watcher(pid, agent)
     except (OSError, ProcessLookupError):
         # Stale pidfile from a dead (or REUSED, #28) pid. Best-effort: on a
         # read-only config dir we cannot clean it up, and failing to tidy must

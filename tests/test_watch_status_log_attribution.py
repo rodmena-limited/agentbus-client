@@ -114,7 +114,9 @@ def test_watch_status_does_not_print_a_path_it_has_not_checked(runtime: Any) -> 
     """THE REGRESSION. The old line was an unconditional
     `print(f"  log: {_watch_logfile(agent)}")`."""
     src = inspect.getsource(cli.cmd_watch_status)
-    assert "log: {_watch_logfile(agent)}" not in src
+    module_src = inspect.getsource(cli._watch_status)
+    assert "log: {path}" in module_src
+    assert "log: {_watch_logfile(agent)}" not in module_src
     assert "_existing_logfile" in src
     # both the running and the not-running branch
     assert src.count("_existing_logfile") >= 2
@@ -124,6 +126,6 @@ def test_watch_status_says_why_there_is_no_log(runtime: Any) -> None:
     """'log: none' alone would read as a fault. The reason — only
     `watch --daemon` captures output — is what stops someone hunting a bug in
     their watcher."""
-    src = inspect.getsource(cli.cmd_watch_status)
+    src = inspect.getsource(cli._watch_status._print_log)
     assert "watch --daemon" in src
     assert "nothing to read" in src

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 _UNSIGNED = {"signature": {"signed": False, "means": "no signature."}}
 
 
-def _delivery(**over: Any) -> dict:
+def _delivery(**over: Any) -> dict[str, Any]:
     base = {
         "message_id": "msg_1",
         "thread_id": "th_1",
@@ -44,18 +44,18 @@ def _delivery(**over: Any) -> dict:
 
 
 class FakeBus:
-    def __init__(self, delivery: dict) -> None:
+    def __init__(self, delivery: dict[str, Any]) -> None:
         self._delivery = delivery
 
-    def read(self, delivery_id: str, raw: bool = False) -> dict:
+    def read(self, delivery_id: str, *, raw: bool = False) -> dict[str, Any]:
         return self._delivery
 
-    def thread(self, thread_id: str) -> dict:
+    def thread(self, thread_id: str) -> dict[str, Any]:
         msg = "show must not fetch the thread to render Signed:"
         raise AssertionError(msg)
 
 
-def _run_show(monkeypatch: pytest.MonkeyPatch, delivery: dict) -> str:
+def _run_show(monkeypatch: pytest.MonkeyPatch, delivery: dict[str, Any]) -> str:
     monkeypatch.setattr(cli._common, "_bus", lambda _args: FakeBus(delivery))
     args = argparse.Namespace(delivery_id="del_1", json=False, thread=False, agent=None)
     buf = io.StringIO()

@@ -16,6 +16,7 @@ These tests pin the behaviour that the live check cannot repeat cheaply.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,7 @@ class _Bus:
     def __init__(self, attachments: Any = None, data: Any = PAYLOAD) -> None:
         self._attachments = [META] if attachments is None else attachments
         self._data = data
-        self.asked = []
+        self.asked: list[tuple[str, Any]] = []
 
     def read(self, _delivery_id: Any) -> dict[str, Any]:
         return {"attachments": self._attachments}
@@ -43,22 +44,6 @@ class _Bus:
     def attachment(self, delivery_id: str, index: Any) -> Any:
         self.asked.append((delivery_id, index))
         return self._data
-
-
-def _args(**over: Any) -> argparse.Namespace:
-    import argparse
-
-    base = {
-        "delivery_id": "01TEST",
-        "index": 0,
-        "output": None,
-        "force": False,
-        "all": False,
-        "agent": None,
-        "json": False,
-    }
-    base.update(over)
-    return argparse.Namespace(**base)
 
 
 @pytest.fixture
@@ -202,9 +187,7 @@ def test_attachment_write_does_not_escape_cwd(
     assert written.read_bytes() == b"PWNED"
 
 
-def _args(**over: Any) -> _a.Namespace:
-    import argparse as _a
-
+def _args(**over: Any) -> argparse.Namespace:
     base = {
         "delivery_id": "01D",
         "index": 0,
@@ -215,11 +198,9 @@ def _args(**over: Any) -> _a.Namespace:
         "json": False,
     }
     base.update(over)
-    return _a.Namespace(**base)
+    return argparse.Namespace(**base)
 
 
 def _cli_source() -> str:
     """The CLI is a package now (one module per command family): read all of it."""
-    from pathlib import Path as _P
-
-    return "".join(f.read_text() for f in sorted(_P(cli.__file__).parent.glob("*.py")))
+    return "".join(f.read_text() for f in sorted(Path(cli.__file__).parent.glob("*.py")))

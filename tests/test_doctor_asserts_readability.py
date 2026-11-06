@@ -52,7 +52,7 @@ def test_the_loop_check_reads_the_body_back() -> None:
     assert "text_body" in window
 
 
-def test_an_unreadable_arrival_is_reported_as_BROKEN_not_ok() -> None:
+def test_an_unreadable_arrival_is_reported_as_broken_not_ok() -> None:
     """Arrived-and-unreadable is WORSE than not arriving: the sender believes it
     landed. It must not be reported as a latency result or a pass."""
     src = _source()

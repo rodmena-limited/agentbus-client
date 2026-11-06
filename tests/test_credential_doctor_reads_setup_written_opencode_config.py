@@ -44,7 +44,8 @@ def test_a_setup_written_config_with_an_https_url_is_reported(
 ) -> None:
     _write_global_opencode(tmp_path, "opencode.json", json.dumps(SETUP_SHAPED, indent=2))
     lines = _opencode_lines(monkeypatch, tmp_path)
-    assert lines and lines[0].startswith("opencode opencode.json agentbus MCP: send"), lines
+    assert lines, lines
+    assert lines[0].startswith("opencode opencode.json agentbus MCP: send"), lines
 
 
 def test_jsonc_comments_and_trailing_commas_are_still_accepted(
@@ -59,7 +60,8 @@ def test_jsonc_comments_and_trailing_commas_are_still_accepted(
     )
     _write_global_opencode(tmp_path, "opencode.jsonc", text)
     lines = _opencode_lines(monkeypatch, tmp_path)
-    assert lines and lines[0].startswith("opencode opencode.jsonc agentbus MCP: send"), lines
+    assert lines, lines
+    assert lines[0].startswith("opencode opencode.jsonc agentbus MCP: send"), lines
 
 
 def test_an_unparseable_config_is_reported_not_silently_omitted(
@@ -67,7 +69,8 @@ def test_an_unparseable_config_is_reported_not_silently_omitted(
 ) -> None:
     _write_global_opencode(tmp_path, "opencode.json", '{"mcp": {"agentbus": ')
     lines = _opencode_lines(monkeypatch, tmp_path)
-    assert lines and "NOT CHECKED" in lines[0], lines
+    assert lines, lines
+    assert "NOT CHECKED" in lines[0], lines
 
 
 def test_comment_markers_inside_strings_survive() -> None:

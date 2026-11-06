@@ -26,10 +26,12 @@ def poll(agent: str, wait: int = 0) -> str:
 
 
 rewake._unread_text = poll
-rcs = []
+rcs: list[int] = []
 th = [threading.Thread(target=lambda: rcs.append(rewake._monitor_inner())) for _ in range(2)]
-[t.start() for t in th]
-[t.join() for t in th]
+for t in th:
+    t.start()
+for t in th:
+    t.join()
 print(
     f"two concurrent monitors, one new delivery -> exit codes {sorted(rcs)} (2 = wake)",
     file=sys.stderr,

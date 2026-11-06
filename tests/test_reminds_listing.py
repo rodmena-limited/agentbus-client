@@ -10,9 +10,11 @@ they can't cancel the old ones)".
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
+    import argparse
+
     import pytest
 
 # ------------------------------------------------- listing, live-by-default
@@ -25,9 +27,7 @@ if TYPE_CHECKING:
 # dead rows that read almost identically.
 
 
-def _reminds_output(
-    rows: Any, show_all: bool = False, monkeypatch: pytest.MonkeyPatch = None
-) -> Any:
+def _reminds_output(rows: Any, *, monkeypatch: pytest.MonkeyPatch, show_all: bool = False) -> Any:
     """Render the listing with a stubbed bus.
 
     MONKEYPATCH, NOT A BARE ASSIGNMENT. An earlier version assigned
@@ -37,7 +37,7 @@ def _reminds_output(
     A test that breaks other tests is worse than one that fails: the damage
     lands somewhere nobody is looking, and the file that caused it looks green.
     """
-    from agentbus_client.cli import _remind
+    from agentbus_client.cli import _common, _remind
 
     class _A:
         json = False
@@ -54,7 +54,7 @@ def _reminds_output(
     # regression to local-only filtering pass unnoticed here.
     live = [r for r in rows if r.get("state") == "scheduled"]
 
-    def _page(self, all: bool = False) -> dict[str, Any]:
+    def _page(self: Any, *, all: bool = False) -> dict[str, Any]:  # noqa: A002
         chosen = rows if all else live
         return {
             "reminders": chosen,
@@ -64,13 +64,13 @@ def _reminds_output(
             "limit": 200,
         }
 
-    bus = type(
-        "B",
-        (),
-        {"reminds_page": _page, "reminds": lambda self, all=False: _page(self, all)["reminders"]},
-    )()
-    monkeypatch.setattr(_remind._common, "_bus", lambda args: bus)
-    return _remind.cmd_reminds(_A())
+    methods: dict[str, Any] = {
+        "reminds_page": _page,
+        "reminds": lambda self, all=False: _page(self, all=all)["reminders"],  # noqa: A006
+    }
+    bus = type("B", (), methods)()
+    monkeypatch.setattr(_common, "_bus", lambda args: bus)
+    return _remind.cmd_reminds(cast("argparse.Namespace", _A()))
 
 
 def test_finished_reminders_are_hidden_by_default(

@@ -35,14 +35,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _agent_seen(payload: dict, monkeypatch: pytest.MonkeyPatch) -> str | None:
+def _agent_seen(payload: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str | None:
     """Run the Stop hook and report which agent it polled as."""
     seen: list[str] = []
     from agentbus_client import rewake
 
-    monkeypatch.setattr(
-        rewake, "poll_for_fresh_mail", lambda agent, **k: seen.append(agent) or None
-    )
+    def _record(agent: str, **k: Any) -> None:
+        seen.append(agent)
+
+    monkeypatch.setattr(rewake, "poll_for_fresh_mail", _record)
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     with redirect_stdout(io.StringIO()):
         _antigravity.agy_stop(None)

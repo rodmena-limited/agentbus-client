@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agentbus_client.cli import _sigline
 
 CHECK = "         check it yourself:  agentbus verify-sender DEL"
@@ -70,7 +72,10 @@ def test_thread_caveat_respects_the_flat_signature_field() -> None:
 
 
 def test_thread_caveat_absent_when_served_but_unsigned() -> None:
-    messages = [{"provenance": {"signature": {"signed": False}}}, {"signature": None}]
+    messages: list[dict[str, Any]] = [
+        {"provenance": {"signature": {"signed": False}}},
+        {"signature": None},
+    ]
     assert _sigline.thread_signature_caveat(messages) is None
 
 

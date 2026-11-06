@@ -156,7 +156,7 @@ def test_the_socket_is_closed_when_the_connect_fails(
     warnings-as-errors marker on this test passed against the leaking code."""
     import socket as _socket
 
-    made: list = []
+    made: list[Any] = []
     real = _socket.socket
 
     def tracking(*args: Any, **kwargs: Any) -> Any:

@@ -113,7 +113,7 @@ def test_a_missing_skill_is_missing_not_stale(skill: Any, monkeypatch: pytest.Mo
     assert "agentbus setup claude" in detail
 
 
-def test_an_unreachable_server_is_UNKNOWN_and_never_current(
+def test_an_unreachable_server_is_unknown_and_never_current(
     skill: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """THE ONE THAT MATTERS. The check needs the network; a version of it that
@@ -126,7 +126,7 @@ def test_an_unreachable_server_is_UNKNOWN_and_never_current(
     assert "NOT checked" in detail
 
 
-def test_a_non_200_is_UNKNOWN_and_never_current(
+def test_a_non_200_is_unknown_and_never_current(
     skill: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A 502 from a proxy returns a body. Comparing against it would report a

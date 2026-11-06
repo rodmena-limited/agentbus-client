@@ -25,7 +25,7 @@ import pytest
 
 from agentbus_client import cli as cli_module
 
-SECRET = "ab_sk_0c3ad1f9ebb614ac_SUPERSECRETTAILNOBODYSHOULDSEE"
+SECRET = "ab_sk_0c3ad1f9ebb614ac_SUPERSECRETTAILNOBODYSHOULDSEE"  # noqa: S105
 
 
 def _seed(tmp_path: Path, agents: list[str]) -> Path:

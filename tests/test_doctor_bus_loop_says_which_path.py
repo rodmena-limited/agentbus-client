@@ -35,7 +35,7 @@ class _Bus:
         self._sent = True
         return {"id": "m-1"}
 
-    def read(self, delivery_id: str, raw: bool = False) -> dict[str, Any]:
+    def read(self, delivery_id: str, *, raw: bool = False) -> dict[str, Any]:
         if raw:
             if self._stored is None:
                 msg = "raw read failed"

@@ -31,7 +31,7 @@ def umask_000() -> Iterator[Any]:
 
 
 def _mode(path: Any) -> int:
-    return stat.S_IMODE(os.stat(path).st_mode)
+    return stat.S_IMODE(path.stat().st_mode)
 
 
 @pytest.mark.parametrize(

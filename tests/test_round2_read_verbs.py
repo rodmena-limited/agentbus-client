@@ -20,7 +20,7 @@ PAYLOAD = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) + b"\xff\xfe tail"
 
 class _Bus:
     def __init__(self, inbox: Any = None, labels: Any = None, attachments: Any = None) -> None:
-        self.calls: list[tuple] = []
+        self.calls: list[tuple[Any, ...]] = []
         self._inbox = inbox or []
         self._labels = labels or []
         self._attachments = attachments if attachments is not None else [{"filename": "f.bin"}]
@@ -46,8 +46,8 @@ class _Bus:
         return PAYLOAD
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> list:
-    given: list = []
+def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> list[Any]:
+    given: list[Any] = []
 
     def _factory(args: Any) -> Any:
         given.append(args)

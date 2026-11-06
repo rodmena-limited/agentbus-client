@@ -162,7 +162,12 @@ def test_keys_uses_the_agent_whoami_reports(
     bus = _BoundBus()
     monkeypatch.setattr(_common, "_bus", lambda args: bus)
     seen: list[str] = []
-    monkeypatch.setattr(_keys, "_keys_list", lambda b, a, agent, fp: seen.append(agent) or 0)
+
+    def _record(b: Any, a: Any, agent: str, fp: Any) -> int:
+        seen.append(agent)
+        return 0
+
+    monkeypatch.setattr(_keys, "_keys_list", _record)
     monkeypatch.setattr(_keys, "_this_machines_fingerprint", lambda: None)
     rc, _out, err = _run(["keys", "list"])
     assert rc == 0, err

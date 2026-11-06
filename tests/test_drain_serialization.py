@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import watch
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class _StubBus:
@@ -44,7 +47,9 @@ class _Msg:
         self.raw = {"delivery_id": f"d{seq}", "agent_seq": seq}
 
 
-def _make_watcher(bus: Any, on_message: Any, slow_drain: bool = False) -> watch.Watcher:
+def _make_watcher(
+    monkeypatch: pytest.MonkeyPatch, bus: Any, on_message: Any, *, slow_drain: bool = False
+) -> watch.Watcher:
     """Build a Watcher on a real Watcher class but with a stub bus.
 
     We poke internals directly (agent, state_path=None, workspace) rather than
@@ -66,11 +71,11 @@ def _make_watcher(bus: Any, on_message: Any, slow_drain: bool = False) -> watch.
             time.sleep(0.05)
             return real_drain()
 
-        w._drain = slow
+        monkeypatch.setattr(w, "_drain", slow)
     return w
 
 
-def test_drain_async_and_main_thread_never_interleave() -> None:
+def test_drain_async_and_main_thread_never_interleave(monkeypatch: pytest.MonkeyPatch) -> None:
     """Kick a background drain, immediately call _drain() from the main thread
     (simulating _backoff_and_drain), and assert on_message ran EXACTLY ONCE
     for the single message the stub returned.
@@ -84,7 +89,7 @@ def test_drain_async_and_main_thread_never_interleave() -> None:
     def on_msg(m: dict[str, Any]) -> None:
         calls.append(m)
 
-    w = _make_watcher(bus, on_msg, slow_drain=True)
+    w = _make_watcher(monkeypatch, bus, on_msg, slow_drain=True)
     # Fire the background drain, then immediately do a serialized main-thread
     # drain (the pattern _backoff_and_drain uses).
     w._drain_async()
@@ -101,7 +106,7 @@ def test_drain_async_and_main_thread_never_interleave() -> None:
     assert len(calls) == 1, f"on_message fired {len(calls)} time(s), expected 1"
 
 
-def test_concurrent_drain_async_calls_are_deduped() -> None:
+def test_concurrent_drain_async_calls_are_deduped(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two _drain_async calls at the same instant must produce at most one
     background thread and one drain execution. The second is a no-op."""
     bus = _StubBus()
@@ -110,7 +115,7 @@ def test_concurrent_drain_async_calls_are_deduped() -> None:
     def on_msg(m: dict[str, Any]) -> None:
         calls.append(m)
 
-    w = _make_watcher(bus, on_msg, slow_drain=True)
+    w = _make_watcher(monkeypatch, bus, on_msg, slow_drain=True)
 
     # Fire two _drain_async calls back-to-back.
     threads = []

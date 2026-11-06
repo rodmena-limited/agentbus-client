@@ -72,7 +72,12 @@ def test_sync_reply_refuses_before_any_request(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(bus, "_as_message_id", lambda ident, agent=None: ident)
     monkeypatch.setattr(bus, "_seal_if_needed", _resolved_to_self)
     monkeypatch.setattr(bus, "_sign_if_possible", lambda payload, agent, resolved: payload)
-    monkeypatch.setattr(bus, "_request", lambda *a, **k: posted.append(a[1]) or {})
+
+    def request(*a: Any, **k: Any) -> dict[str, Any]:
+        posted.append(a[1])
+        return {}
+
+    monkeypatch.setattr(bus, "_request", request)
     with pytest.raises(SelfReplyError):
         bus.reply("msg_1", "hello")
     assert posted == [], "the reply must be refused BEFORE the POST"
@@ -107,10 +112,12 @@ def test_async_reply_refuses_before_any_request(monkeypatch: pytest.MonkeyPatch)
 class FakeBus:
     agent = "me"
 
-    def __init__(self, thread_messages: list[dict], *, thread_lookup_fails: bool = False) -> None:
+    def __init__(
+        self, thread_messages: list[dict[str, Any]], *, thread_lookup_fails: bool = False
+    ) -> None:
         self._messages = thread_messages
         self._thread_fails = thread_lookup_fails
-        self.reply_kwargs: dict | None = None
+        self.reply_kwargs: dict[str, Any] | None = None
 
     def read(self, ident: Any, **_: Any) -> dict[str, Any]:
         if ident == "own_1":
@@ -136,7 +143,7 @@ class FakeBus:
         return {"id": "out_1", "recipients": ["me"], "cc": []}
 
 
-def _msg(i: int, sender: str) -> dict:
+def _msg(i: int, sender: str) -> dict[str, Any]:
     return {
         "id": f"msg_{i}",
         "sender_address": f"agentbus+{sender}.ws@mail.test",
@@ -199,5 +206,6 @@ def test_cli_to_self_sends(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = FakeBus([])
     rc, out, _err = _run(monkeypatch, bus, to_self=True)
     assert rc == 0
+    assert bus.reply_kwargs is not None
     assert bus.reply_kwargs["allow_self"] is True
     assert "replied: out_1" in out

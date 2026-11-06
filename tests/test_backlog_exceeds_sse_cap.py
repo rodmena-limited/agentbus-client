@@ -18,12 +18,14 @@ drive real page boundaries through `_drain`.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agentbus_client.watch import Watcher
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentbus_client.client import AgentBus
 
 
 class _Delivery:
@@ -137,7 +139,7 @@ def test_a_failing_handler_does_not_stop_the_backlog_drain(tmp_path: Path) -> No
 
     bus = _PagingBus(total=250)
     w = Watcher(
-        bus,
+        cast("AgentBus", bus),
         agent="test-agent",
         state_path=tmp_path / "state.json",
         on_message=flaky,

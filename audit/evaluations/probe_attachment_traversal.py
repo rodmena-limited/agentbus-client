@@ -10,10 +10,13 @@ import os
 import pathlib
 import sys
 import tempfile
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))
 from agentbus_client import cli
+
+if TYPE_CHECKING:
+    from agentbus_client.client import AgentBus
 
 
 def main() -> int:
@@ -52,7 +55,7 @@ def main() -> int:
         args = argparse.Namespace(
             delivery_id="01D", index=0, output=None, force=False, all=False, agent=None, json=False
         )
-        cli._common._bus = lambda _a: Bus()
+        cli._common._bus = lambda args: cast("AgentBus", Bus())
         cli.cmd_attachment(args)
         if sentinel.exists():
             print("FAIL: attachment escaped the working directory")

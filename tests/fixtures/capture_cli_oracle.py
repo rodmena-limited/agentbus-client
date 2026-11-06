@@ -7,15 +7,18 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import agentbus_client
 from agentbus_client import __version__
 from agentbus_client.cli._parser import build_parser
 
-VALUE = {int: "7", float: "2.5", None: "v1"}
+VALUE: dict[Any, str] = {int: "7", float: "2.5", None: "v1"}
 
 
-def _sub(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+def _sub(
+    parser: argparse.ArgumentParser,
+) -> argparse._SubParsersAction[argparse.ArgumentParser] | None:
     for a in parser._actions:
         if isinstance(a, argparse._SubParsersAction):
             return a
@@ -50,7 +53,7 @@ def _positional_fill(actions: list[argparse.Action]) -> list[str]:
     return out
 
 
-def _record(argv: list[str]) -> dict:
+def _record(argv: list[str]) -> dict[str, Any]:
     err = io.StringIO()
     out = io.StringIO()
     with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
@@ -58,15 +61,14 @@ def _record(argv: list[str]) -> dict:
             ns = build_parser().parse_args(argv)
         except SystemExit as exc:
             return {"argv": argv, "exit": exc.code if isinstance(exc.code, int) else 1}
-    data = {}
-    for k, v in sorted(vars(ns).items()):
-        if k == "func":
-            v = f"{v.__module__}.{v.__qualname__}"
-        data[k] = v
+    data = {
+        k: f"{v.__module__}.{v.__qualname__}" if k == "func" else v
+        for k, v in sorted(vars(ns).items())
+    }
     return {"argv": argv, "namespace": data}
 
 
-def _verb_cases(path: list[str], parser: argparse.ArgumentParser) -> list[list[str]]:
+def _verb_cases(path: list[str], parser: argparse.ArgumentParser) -> list[list[str]]:  # noqa: C901, PLR0912, PLR0915
     cases: list[list[str]] = []
     nested = _sub(parser)
     if nested is not None:
@@ -120,8 +122,7 @@ def _verb_cases(path: list[str], parser: argparse.ArgumentParser) -> list[list[s
                 if isinstance(a, argparse._AppendAction):
                     cases.append([*base, opt, "a1", opt, "a2"])
                 if a.choices:
-                    for c in list(a.choices)[1:]:
-                        cases.append([*base, opt, str(c)])
+                    cases.extend([*base, opt, str(c)] for c in list(a.choices)[1:])
         longest = max(a.option_strings, key=len)
         if a.dest in ("agent", "json"):
             continue
@@ -135,8 +136,10 @@ def _verb_cases(path: list[str], parser: argparse.ArgumentParser) -> list[list[s
             cases.append([*base, abbrev, *extra])
     if all_opts:
         cases.append(base + all_opts)
-    for group in parser._mutually_exclusive_groups:
-        cases.append(base + [g.option_strings[0] for g in group._group_actions])
+    cases.extend(
+        base + [g.option_strings[0] for g in group._group_actions]
+        for group in parser._mutually_exclusive_groups
+    )
     return cases
 
 
@@ -155,15 +158,13 @@ def _global_cases(verbs: list[str]) -> list[list[str]]:
 
 
 def main() -> int:
-    parser = build_parser()
+    parser = cast("argparse.ArgumentParser", build_parser())
     sub = _sub(parser)
     assert sub is not None
     cases: list[list[str]] = []
     for name, sp in sub.choices.items():
         cases.extend(_verb_cases([name], sp))
-    global_cases = []
-    for c in _global_cases(sorted(sub.choices)):
-        global_cases.append(c)
+    global_cases = list(_global_cases(sorted(sub.choices)))
     for v in sorted(sub.choices):
         acts = [a for a in sub.choices[v]._actions if not isinstance(a, argparse._HelpAction)]
         fill = _positional_fill(acts)
@@ -171,14 +172,15 @@ def main() -> int:
         if nested is not None:
             first = next(iter(nested.choices))
             fill = [first, *_positional_fill(list(nested.choices[first]._actions))]
-        for c in (
-            ["--agent", "G", v, *fill],
-            ["--json", v, *fill],
-            [v, *fill, "--agent", "S"],
-            [v, *fill, "--json"],
-            ["--agent", "G", v, *fill, "--agent", "S"],
-        ):
-            global_cases.append(c)
+        global_cases.extend(
+            (
+                ["--agent", "G", v, *fill],
+                ["--json", v, *fill],
+                [v, *fill, "--agent", "S"],
+                [v, *fill, "--json"],
+                ["--agent", "G", v, *fill, "--agent", "S"],
+            )
+        )
     cases.extend(global_cases)
 
     seen = set()
@@ -192,7 +194,7 @@ def main() -> int:
     records = [_record(c) for c in unique]
     source = Path(agentbus_client.__file__).resolve().parent
     sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=source
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=source, check=False
     ).stdout.strip()
     options = {"": _long_options(parser)}
     for name, sp in sub.choices.items():
@@ -215,7 +217,9 @@ def main() -> int:
     target = Path(__file__).with_name("cli_argparse_oracle_0_9_94.json")
     target.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n")
     ok = sum(1 for r in records if "namespace" in r)
-    print(f"{len(records)} cases -> {target.name}: {ok} parsed, {len(records) - ok} exited")
+    sys.stdout.write(
+        f"{len(records)} cases -> {target.name}: {ok} parsed, {len(records) - ok} exited\n"
+    )
     return 0
 
 

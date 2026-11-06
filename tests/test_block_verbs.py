@@ -27,14 +27,14 @@ from typing import Any
 
 import pytest
 
-from agentbus_client.cli import _block
+from agentbus_client.cli import _block, _common
 
 
 class _Bus:
     def __init__(self, rows: Any = None, result: Any = None) -> None:
         self.rows = rows or []
         self.result = result or {}
-        self.calls: list[tuple] = []
+        self.calls: list[tuple[Any, ...]] = []
 
     def block(self, name: str, *, reason: Any = None, for_: Any = None, agent: Any = None) -> Any:
         self.calls.append(("block", name, reason, for_))
@@ -50,7 +50,7 @@ class _Bus:
 
 
 def _run(monkeypatch: pytest.MonkeyPatch, fn: Any, bus: Any, **flags: Any) -> Any:
-    monkeypatch.setattr(_block._common, "_bus", lambda _a: bus)
+    monkeypatch.setattr(_common, "_bus", lambda _a: bus)
     args = argparse.Namespace(
         name=flags.get("name"),
         reason=flags.get("reason"),

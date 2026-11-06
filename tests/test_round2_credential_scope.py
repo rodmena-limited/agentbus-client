@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 
-from agentbus_client.client import sync_client
 from agentbus_client.onboarding import _credentials
 
 if TYPE_CHECKING:
@@ -40,11 +39,11 @@ def bus(monkeypatch: pytest.MonkeyPatch) -> FakeBus:
     fake = FakeBus()
     real_client = httpx.Client
 
-    def _client(*args: object, **kwargs: object) -> httpx.Client:
+    def _client(*args: Any, **kwargs: Any) -> httpx.Client:
         kwargs["transport"] = httpx.MockTransport(fake.handler)
         return real_client(*args, **kwargs)
 
-    monkeypatch.setattr(sync_client.httpx, "Client", _client)
+    monkeypatch.setattr("agentbus_client.client.sync_client.httpx.Client", _client)
     monkeypatch.setenv("AGENTBUS_SDK_RESILIENCE", "0")
     return fake
 

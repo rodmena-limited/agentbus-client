@@ -47,6 +47,7 @@ def _run_snippet(snippet: str, home: Path, agent: str) -> str:
         text=True,
         env=env,
         timeout=10,
+        check=False,
     )
     return proc.stdout
 

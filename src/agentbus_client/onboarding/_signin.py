@@ -23,7 +23,7 @@ hosts, in one night:
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from agentbus_client.client import AgentBus, AgentBusError
 
@@ -31,11 +31,16 @@ from ._paths import _config_dir, _keys_dir, _say, _signin_state_path, _write_pri
 
 if TYPE_CHECKING:
     import argparse
+    from types import ModuleType
 
 # ---------------------------------------------------------------- signin
 
 
-def _ensure_sealing_key(bus: Any, ui: Any) -> None:
+class _PubkeyBus(Protocol):
+    def _request(self, method: str, path: str, **kwargs: Any) -> object: ...
+
+
+def _ensure_sealing_key(bus: AgentBus, ui: ModuleType) -> None:
     """Provision this machine's sealing key when the workspace is encrypted (#189).
 
     ONE EXTRA LINE OF OUTPUT AND NOTHING ELSE TO DO. Farshid's requirement was
@@ -51,7 +56,7 @@ def _ensure_sealing_key(bus: Any, ui: Any) -> None:
 
     try:
         state = bus._request("GET", "/v1/workspace/pubkeys")
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Not an error: this machine is talking to a deployment that predates
         # encryption, and signin must still work against it.
         return
@@ -71,13 +76,33 @@ def _ensure_sealing_key(bus: Any, ui: Any) -> None:
         registered = bus._request(
             "POST", f"/v1/agents/{bus.agent}/pubkey", json={"public_key": public}
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         ui.fail(f"this workspace is ENCRYPTED but the public key could not be registered: {exc}")
         _say("  Until it is, this agent cannot read sealed mail and peers cannot seal to it.")
         return
     ui.ok("encrypted workspace — sealing key ready")
     ui.item("fingerprint", str(registered.get("fingerprint")))
     ui.item("private key", f"{sealing.key_path(bus.agent)}  (0600, never leaves this machine)")
+
+
+def _store_single_bound_key(key: str, agent: str) -> None:
+    path = _keys_dir() / f"{agent}.env"
+    changed = _write_private(
+        path, f"export AGENTBUS_API_KEY={key}\nexport AGENTBUS_AGENT={agent}\n"
+    )
+    _write_private(
+        _signin_state_path(), json.dumps({"default_agent": agent, "operator": False}) + "\n"
+    )
+    _say(f"  stored:    {path} (0600){'' if changed else '  [unchanged]'}")
+    _say("")
+    _say(f"Next: cd <your-project> && agentbus setup claude   # wires everything for '{agent}'")
+    _say("")
+    _say(f"NOTE: this key is BOUND to '{agent}', so it can only ever serve that")
+    _say("one agent. `agentbus setup` will work in that agent's project and will")
+    _say("REFUSE elsewhere, because a bound key cannot provision anyone else.")
+    _say("Running several agents on this machine? Sign in with the WORKSPACE key")
+    _say("instead — setup then provisions each project its own agent and its own")
+    _say("bound key automatically, and you never type a per-agent secret.")
 
 
 def cmd_signin(args: argparse.Namespace) -> int:
@@ -110,24 +135,7 @@ def cmd_signin(args: argparse.Namespace) -> int:
     ui.item("bound to", ", ".join(bound) if bound else "(unbound — operator credential)")
 
     if len(bound) == 1:
-        agent = bound[0]
-        path = _keys_dir() / f"{agent}.env"
-        changed = _write_private(
-            path, f"export AGENTBUS_API_KEY={key}\nexport AGENTBUS_AGENT={agent}\n"
-        )
-        _write_private(
-            _signin_state_path(), json.dumps({"default_agent": agent, "operator": False}) + "\n"
-        )
-        _say(f"  stored:    {path} (0600){'' if changed else '  [unchanged]'}")
-        _say("")
-        _say(f"Next: cd <your-project> && agentbus setup claude   # wires everything for '{agent}'")
-        _say("")
-        _say(f"NOTE: this key is BOUND to '{agent}', so it can only ever serve that")
-        _say("one agent. `agentbus setup` will work in that agent's project and will")
-        _say("REFUSE elsewhere, because a bound key cannot provision anyone else.")
-        _say("Running several agents on this machine? Sign in with the WORKSPACE key")
-        _say("instead — setup then provisions each project its own agent and its own")
-        _say("bound key automatically, and you never type a per-agent secret.")
+        _store_single_bound_key(key, bound[0])
     elif bound:
         for agent in bound:
             path = _keys_dir() / f"{agent}.env"
@@ -152,7 +160,7 @@ def cmd_signin(args: argparse.Namespace) -> int:
 
 
 def _sealing_publish_with_retry(
-    bus: Any, agent: str, public_key: str, attempts: int = 3
+    bus: _PubkeyBus, agent: str, public_key: str, attempts: int = 3
 ) -> dict[str, Any] | None:
     """POST the sealing pubkey with short exponential backoff.
 
@@ -179,10 +187,11 @@ def _sealing_publish_with_retry(
         if wait > 0:
             _time.sleep(wait)
         try:
-            return bus._request(
-                "POST", f"/v1/agents/{agent}/pubkey", json={"public_key": public_key}
+            return cast(
+                "dict[str, Any]",
+                bus._request("POST", f"/v1/agents/{agent}/pubkey", json={"public_key": public_key}),
             )
-        except Exception:  # retry every failure shape
+        except Exception:  # retry every failure shape  # noqa: BLE001, S112
             continue
     # Signal failure via return None (caller decides how loud); avoid raising
     # here because the whole point is to keep setup running with a visible

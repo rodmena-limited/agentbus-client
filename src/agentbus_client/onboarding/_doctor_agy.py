@@ -73,16 +73,7 @@ def _binary_from(command: str) -> str:
     return command.rsplit(maxsplit=1)[-1]
 
 
-def doctor_wake_agy(agent: str, root: Path) -> int:
-    """Run the real hook against a real payload and report what it resolved."""
-    failures: list[str] = []
-    plugin_dir = agy_plugin_dir()
-    _say(f"  harness: agy (Antigravity), plugin at {plugin_dir}")
-
-    command, why = _hook_command(plugin_dir)
-    if command is None:
-        _say(f"  [FAIL] {why}")
-        return 1
+def _check_hook_binary(command: str, failures: list[str]) -> None:
     binary = _binary_from(command)
     if binary.startswith("/") and not Path(binary).is_file():
         failures.append(
@@ -95,14 +86,8 @@ def doctor_wake_agy(agent: str, root: Path) -> int:
     else:
         _say(f"  [ok] hook binary: {binary}")
 
-    if not agy_is_wired(root):
-        failures.append(
-            f"{root} is not in the agy opt-in list, so the machine-wide hooks "
-            "deliberately ignore it. Run `agentbus setup agy` in this checkout."
-        )
-    else:
-        _say(f"  [ok] opted in: {root}")
 
+def _check_resolved_agent(agent: str, root: Path, failures: list[str]) -> str | None:
     # WHICH AGENT DOES THE HOOK RESOLVE? This is the check that would have
     # caught the real failure: an inherited `AGENTBUS_AGENT` made the hook act as
     # a DIFFERENT agent, poll that agent's inbox, and report no mail while this
@@ -136,7 +121,10 @@ def doctor_wake_agy(agent: str, root: Path) -> int:
                 f"       note: your shell says AGENTBUS_AGENT={agent}, but the hook "
                 f"correctly uses the checkout's own identity. Not a fault."
             )
+    return resolved
 
+
+def _run_hook(command: str, root: Path) -> subprocess.CompletedProcess[str] | None:
     # THE PROBE. Everything above inspects what we wrote; this observes what the
     # hook does when agy runs it. AGENTBUS_REWAKE_WINDOW=0 keeps it to one
     # deterministic pass, and a temp ledger keeps the production one untouched —
@@ -152,18 +140,21 @@ def doctor_wake_agy(agent: str, root: Path) -> int:
             "AGENTBUS_REWAKE_STATE": ledger.name,
         }
         try:
-            proc = subprocess.run(
+            return subprocess.run(
                 ["/bin/sh", "-c", command],
                 input=payload,
                 capture_output=True,
                 text=True,
                 timeout=45,
                 env=env,
+                check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             _say(f"  [FAIL] the hook could not be executed: {exc}")
-            return 1
+            return None
 
+
+def _judge_hook_output(proc: subprocess.CompletedProcess[str], failures: list[str]) -> None:
     out = (proc.stdout or "").strip()
     if not out:
         failures.append(
@@ -181,6 +172,36 @@ def doctor_wake_agy(agent: str, root: Path) -> int:
                 _say("       (it found unread mail and would have woken the session)")
             else:
                 _say("       (nothing unread to claim right now — the lane is still wired)")
+
+
+def doctor_wake_agy(agent: str, root: Path) -> int:
+    """Run the real hook against a real payload and report what it resolved."""
+    failures: list[str] = []
+    plugin_dir = agy_plugin_dir()
+    _say(f"  harness: agy (Antigravity), plugin at {plugin_dir}")
+
+    command, why = _hook_command(plugin_dir)
+    if command is None:
+        _say(f"  [FAIL] {why}")
+        return 1
+
+    _check_hook_binary(command, failures)
+
+    if not agy_is_wired(root):
+        failures.append(
+            f"{root} is not in the agy opt-in list, so the machine-wide hooks "
+            "deliberately ignore it. Run `agentbus setup agy` in this checkout."
+        )
+    else:
+        _say(f"  [ok] opted in: {root}")
+
+    resolved = _check_resolved_agent(agent, root, failures)
+
+    proc = _run_hook(command, root)
+    if proc is None:
+        return 1
+
+    _judge_hook_output(proc, failures)
 
     _say("")
     _say(_WORKSPACE_NOTE)

@@ -22,7 +22,10 @@ hosts, in one night:
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from pathlib import Path
+
+_MIN_SKILL_BYTES = 500
 
 
 def skill_state(base_url: str | None = None) -> tuple[str, str]:
@@ -64,10 +67,10 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
         import httpx
 
         resp = httpx.get(f"{root}/skills/claude-code.md", timeout=10.0)
-        if resp.status_code != 200:
+        if resp.status_code != HTTPStatus.OK:
             return "unknown", f"served {resp.status_code}; NOT checked"
         served = resp.content
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return "unknown", f"could not reach {root}: {str(exc)[:60]} — NOT checked"
 
     if installed == served:
@@ -82,9 +85,11 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
     # from any cwd.
     return (
         "stale",
-        f"installed sha256 {hashlib.sha256(installed).hexdigest()[:12]} != "
-        f"served {hashlib.sha256(served).hexdigest()[:12]} "
-        f"({len(installed)} vs {len(served)} bytes) — refresh: agentbus refresh-skill",
+        (
+            f"installed sha256 {hashlib.sha256(installed).hexdigest()[:12]} != "
+            f"served {hashlib.sha256(served).hexdigest()[:12]} "
+            f"({len(installed)} vs {len(served)} bytes) — refresh: agentbus refresh-skill"
+        ),
     )
 
 
@@ -112,7 +117,7 @@ def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
     url = f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/skills/claude-code.md"
     try:
         resp = httpx.get(url, timeout=15)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return "unreachable", f"could not fetch {url}: {exc}"
 
     # #51: `len(resp.text)` is CHARACTERS. We print the word "bytes", and a
@@ -122,7 +127,7 @@ def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
     # by crypto-trader-manager-6a3048, who saw exactly that 299-byte gap.
     served_bytes = len(resp.text.encode("utf-8"))
 
-    if resp.status_code != 200 or served_bytes <= 500:
+    if resp.status_code != HTTPStatus.OK or served_bytes <= _MIN_SKILL_BYTES:
         return "unreachable", (
             f"served {resp.status_code} ({served_bytes} bytes) at {url}; "
             "refusing to install a suspiciously small body"

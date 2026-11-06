@@ -23,10 +23,10 @@ hosts, in one night:
 from __future__ import annotations
 
 import contextlib
-import os
 import stat
+from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._agy_setup import _setup_agy, teardown_agy_machine
 from ._claude_setup import _setup_claude
@@ -46,6 +46,112 @@ from ._provision import _provision_project_agent
 
 if TYPE_CHECKING:
     import argparse
+
+_MIN_SKILL_CHARS = 500
+
+
+def _merge_mcp_entry(oc_data: dict[str, Any], key_for_mcp: str | None, mcp_url: str) -> bool:
+    existing = oc_data.get("mcp", {}).get("agentbus")
+    changed = False
+    if key_for_mcp:
+        want_auth = f"Bearer {key_for_mcp}"
+        current_auth = None
+        if isinstance(existing, dict):
+            headers = existing.get("headers") or {}
+            current_auth = headers.get("Authorization") if isinstance(headers, dict) else None
+        if current_auth != want_auth:
+            oc_data.setdefault("mcp", {})["agentbus"] = {
+                "type": "remote",
+                "url": mcp_url,
+                "enabled": True,
+                "headers": {"Authorization": want_auth},
+                "oauth": False,
+            }
+            changed = True
+    return changed
+
+
+def _reference_plugin(
+    oc_path: Path, oc_data: dict[str, Any], key_for_mcp: str | None, report: list[str]
+) -> None:
+    # 5. Plugin reference in the project's plugin array. The project file is
+    #    merged over the global one, so a project-level plugin array ADDS to the
+    #    global plugins — it does not replace them. Dedupe so re-runs converge.
+    plugins = oc_data.setdefault("plugin", [])
+    if not isinstance(plugins, list):
+        plugins = [plugins] if isinstance(plugins, str) else []
+        oc_data["plugin"] = plugins
+    if OPENCODE_PLUGIN_NPM not in plugins:
+        plugins.append(OPENCODE_PLUGIN_NPM)
+        _dump_json(oc_path, oc_data, private=bool(key_for_mcp))
+        report.append(
+            f"plugin: {oc_path} -> {OPENCODE_PLUGIN_NPM} "
+            "(installed via `opencode plugin <name>` the first time)"
+        )
+    else:
+        report.append(f"plugin: {OPENCODE_PLUGIN_NPM} (already referenced)")
+
+
+def _ignore_opencode_json(report: list[str]) -> None:
+    gitignore = Path.cwd() / ".gitignore"
+    if (Path.cwd() / ".git").exists():
+        lines = gitignore.read_text().splitlines() if gitignore.exists() else []
+        if "opencode.json" not in lines and "opencode.local.json" not in lines:
+            # The project identity carries a SECRET (the bound key bearer), so
+            # it must never be committed. opencode reads opencode.json; a
+            # project that already tracks one for non-secret settings should
+            # keep it — but this one is ours, and it holds a key.
+            with gitignore.open("a", encoding="utf-8") as fh:
+                fh.write("opencode.json\n")
+            report.append("gitignore: added opencode.json (holds the bound key)")
+
+
+def _install_opencode_skill(base_url: str | None, report: list[str]) -> None:
+    # 7. The skill, served canonically — same managed-artifact rule as claude.
+    skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
+    try:
+        import httpx
+
+        resp = httpx.get(
+            f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/skills/opencode.md",
+            timeout=15,
+        )
+        if resp.status_code == HTTPStatus.OK and len(resp.text) > _MIN_SKILL_CHARS:
+            if not skill_path.exists() or skill_path.read_text() != resp.text:
+                skill_path.parent.mkdir(parents=True, exist_ok=True)
+                if skill_path.exists():
+                    bak = skill_path.with_suffix(".md.bak")
+                    bak.write_text(skill_path.read_text())
+                    report.append(f"skill: previous copy saved to {bak}")
+                skill_path.write_text(resp.text)
+                report.append(f"skill: {skill_path} (installed — MANAGED artifact)")
+            else:
+                report.append(f"skill: {skill_path} (current)")
+        else:
+            report.append(f"skill: NOT installed (served {resp.status_code})")
+    except Exception as exc:  # noqa: BLE001
+        report.append(f"skill: NOT installed ({exc})")
+
+
+def _warn_inherited_credential(base_url: str | None, report: list[str]) -> None:
+    # 8. #64 credential-scope warning — same finding as claude: an inherited
+    #    send-or-above fallback is exactly what this project's own identity is
+    #    meant to stop relying on.
+    try:
+        findings = [ln for ln in doctor_credential_scope(base_url=base_url) if "FINDING" in ln]
+        if findings:
+            _say("WARNING — a send-or-above credential is reachable by inheritance:")
+            for ln in findings:
+                _say(f"  {ln}")
+            _say(
+                "  A fallback slot wants a READ-scope key, nothing above. Replace it "
+                "with a read-scope key from the dashboard, then re-run `agentbus doctor`."
+            )
+            report.append("credential scope: WARNING (inherited send-or-above credential found)")
+        else:
+            report.append("credential scope: ok (no inherited send-or-above credential)")
+    except Exception as exc:  # noqa: BLE001
+        report.append(f"credential scope: not checked ({exc})")
 
 
 def _setup_opencode(args: argparse.Namespace) -> int:
@@ -82,24 +188,7 @@ def _setup_opencode(args: argparse.Namespace) -> int:
     key_for_mcp = _agent_key(name)
     mcp_url = f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/mcp"
 
-    existing = oc_data.get("mcp", {}).get("agentbus")
-    changed = False
-    if key_for_mcp:
-        want_auth = f"Bearer {key_for_mcp}"
-        current_auth = None
-        if isinstance(existing, dict):
-            headers = existing.get("headers") or {}
-            current_auth = headers.get("Authorization") if isinstance(headers, dict) else None
-        if current_auth != want_auth:
-            oc_data.setdefault("mcp", {})["agentbus"] = {
-                "type": "remote",
-                "url": mcp_url,
-                "enabled": True,
-                "headers": {"Authorization": want_auth},
-                "oauth": False,
-            }
-            changed = True
-    if changed:
+    if _merge_mcp_entry(oc_data, key_for_mcp, mcp_url):
         # It carries the bound bearer key: 0600, never the umask default (issuedb #32).
         _dump_json(oc_path, oc_data, private=True)
         report.append(f"project identity: {oc_path} mcp.agentbus (bound key for {name})")
@@ -107,36 +196,10 @@ def _setup_opencode(args: argparse.Namespace) -> int:
         report.append(f"project identity: {oc_path} (already {name})")
     if key_for_mcp and oc_path.exists():
         with contextlib.suppress(OSError):
-            os.chmod(oc_path, stat.S_IRUSR | stat.S_IWUSR)
+            oc_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
-    # 5. Plugin reference in the project's plugin array. The project file is
-    #    merged over the global one, so a project-level plugin array ADDS to the
-    #    global plugins — it does not replace them. Dedupe so re-runs converge.
-    plugins = oc_data.setdefault("plugin", [])
-    if not isinstance(plugins, list):
-        plugins = [plugins] if isinstance(plugins, str) else []
-        oc_data["plugin"] = plugins
-    if OPENCODE_PLUGIN_NPM not in plugins:
-        plugins.append(OPENCODE_PLUGIN_NPM)
-        _dump_json(oc_path, oc_data, private=bool(key_for_mcp))
-        report.append(
-            f"plugin: {oc_path} -> {OPENCODE_PLUGIN_NPM} "
-            "(installed via `opencode plugin <name>` the first time)"
-        )
-    else:
-        report.append(f"plugin: {OPENCODE_PLUGIN_NPM} (already referenced)")
-
-    gitignore = Path.cwd() / ".gitignore"
-    if (Path.cwd() / ".git").exists():
-        lines = gitignore.read_text().splitlines() if gitignore.exists() else []
-        if "opencode.json" not in lines and "opencode.local.json" not in lines:
-            # The project identity carries a SECRET (the bound key bearer), so
-            # it must never be committed. opencode reads opencode.json; a
-            # project that already tracks one for non-secret settings should
-            # keep it — but this one is ours, and it holds a key.
-            with gitignore.open("a", encoding="utf-8") as fh:
-                fh.write("opencode.json\n")
-            report.append("gitignore: added opencode.json (holds the bound key)")
+    _reference_plugin(oc_path, oc_data, key_for_mcp, report)
+    _ignore_opencode_json(report)
 
     # 6. The plugin binary/client. opencode plugins run in Bun and shell out to
     #    the shared `agentbus`/`agentbus-hook` client, so those must be on PATH
@@ -147,50 +210,8 @@ def _setup_opencode(args: argparse.Namespace) -> int:
         "wake: provided by the opencode PLUGIN (SSE stream + "
         "promptAsync) — opencode has no Stop hook, so no re-waker"
     )
-
-    # 7. The skill, served canonically — same managed-artifact rule as claude.
-    skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
-    try:
-        import httpx
-
-        resp = httpx.get(
-            f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/skills/opencode.md",
-            timeout=15,
-        )
-        if resp.status_code == 200 and len(resp.text) > 500:
-            if not skill_path.exists() or skill_path.read_text() != resp.text:
-                skill_path.parent.mkdir(parents=True, exist_ok=True)
-                if skill_path.exists():
-                    bak = skill_path.with_suffix(".md.bak")
-                    bak.write_text(skill_path.read_text())
-                    report.append(f"skill: previous copy saved to {bak}")
-                skill_path.write_text(resp.text)
-                report.append(f"skill: {skill_path} (installed — MANAGED artifact)")
-            else:
-                report.append(f"skill: {skill_path} (current)")
-        else:
-            report.append(f"skill: NOT installed (served {resp.status_code})")
-    except Exception as exc:
-        report.append(f"skill: NOT installed ({exc})")
-
-    # 8. #64 credential-scope warning — same finding as claude: an inherited
-    #    send-or-above fallback is exactly what this project's own identity is
-    #    meant to stop relying on.
-    try:
-        findings = [ln for ln in doctor_credential_scope(base_url=base_url) if "FINDING" in ln]
-        if findings:
-            _say("WARNING — a send-or-above credential is reachable by inheritance:")
-            for ln in findings:
-                _say(f"  {ln}")
-            _say(
-                "  A fallback slot wants a READ-scope key, nothing above. Replace it "
-                "with a read-scope key from the dashboard, then re-run `agentbus doctor`."
-            )
-            report.append("credential scope: WARNING (inherited send-or-above credential found)")
-        else:
-            report.append("credential scope: ok (no inherited send-or-above credential)")
-    except Exception as exc:
-        report.append(f"credential scope: not checked ({exc})")
+    _install_opencode_skill(base_url, report)
+    _warn_inherited_credential(base_url, report)
 
     _say("agentbus setup opencode — everything wired, nothing foreign touched:")
     for line in report:
@@ -201,6 +222,42 @@ def _setup_opencode(args: argparse.Namespace) -> int:
         "package), then restart the opencode session."
     )
     return 0
+
+
+def _drop_settings_identity(local: dict[str, Any], local_path: Path, removed: list[str]) -> None:
+    # Surgical: drop OUR key, keep every foreign setting in the file.
+    del local["env"]["AGENTBUS_AGENT"]
+    if not local["env"]:
+        del local["env"]
+    if local:
+        _dump_json(local_path, local)
+        removed.append(f"{local_path} (AGENTBUS_AGENT entry only)")
+    else:
+        with contextlib.suppress(OSError):
+            local_path.unlink()
+        removed.append(str(local_path))
+
+
+def _purge_agent_keys(agent: str, removed: list[str]) -> None:
+    for suffix in (".env", ".env.dead"):
+        kf = _keys_dir() / f"{agent}{suffix}"
+        if kf.is_file():
+            with contextlib.suppress(OSError):
+                kf.unlink()
+            removed.append(str(kf))
+
+
+def _teardown_machine(removed: list[str]) -> None:
+    import shutil as _shutil
+
+    # #56: the Antigravity plugin is machine-wide, so it belongs to the
+    # machine-scoped teardown and NOT to a per-checkout one — removing it
+    # because one project opted out would unwire every other project.
+    teardown_agy_machine(removed)
+    cfg = _config_dir()
+    if cfg.is_dir():
+        _shutil.rmtree(cfg, ignore_errors=True)
+        removed.append(f"{cfg}/ (machine-level: operator credential, device-id, all keys)")
 
 
 def cmd_teardown(args: argparse.Namespace) -> int:
@@ -241,37 +298,13 @@ def cmd_teardown(args: argparse.Namespace) -> int:
         _shutil.rmtree(agentbus_dir, ignore_errors=True)
         removed.append(f"{agentbus_dir}/")
     if (local.get("env") or {}).get("AGENTBUS_AGENT"):
-        # Surgical: drop OUR key, keep every foreign setting in the file.
-        del local["env"]["AGENTBUS_AGENT"]
-        if not local["env"]:
-            del local["env"]
-        if local:
-            _dump_json(local_path, local)
-            removed.append(f"{local_path} (AGENTBUS_AGENT entry only)")
-        else:
-            with contextlib.suppress(OSError):
-                local_path.unlink()
-            removed.append(str(local_path))
+        _drop_settings_identity(local, local_path, removed)
 
     if getattr(args, "purge_key", False) and agent:
-        for suffix in (".env", ".env.dead"):
-            kf = _keys_dir() / f"{agent}{suffix}"
-            if kf.is_file():
-                with contextlib.suppress(OSError):
-                    kf.unlink()
-                removed.append(str(kf))
+        _purge_agent_keys(agent, removed)
 
     if getattr(args, "machine", False):
-        import shutil as _shutil
-
-        # #56: the Antigravity plugin is machine-wide, so it belongs to the
-        # machine-scoped teardown and NOT to a per-checkout one — removing it
-        # because one project opted out would unwire every other project.
-        teardown_agy_machine(removed)
-        cfg = _config_dir()
-        if cfg.is_dir():
-            _shutil.rmtree(cfg, ignore_errors=True)
-            removed.append(f"{cfg}/ (machine-level: operator credential, device-id, all keys)")
+        _teardown_machine(removed)
 
     if not removed:
         _say("nothing to remove — this project carries no AgentBus wiring.")
@@ -320,7 +353,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return 1
 
 
-def cmd_sibling(args: argparse.Namespace) -> int:
+def cmd_sibling(args: argparse.Namespace) -> int:  # noqa: ARG001
     # DEPRECATED (operator directive, 2026-08-10): the sibling machinery is the
     # wrong answer. Identity is env-var-driven — AGENTBUS_AGENT in the project's
     # .env, or exported for one command — and a customer who wants two agents on

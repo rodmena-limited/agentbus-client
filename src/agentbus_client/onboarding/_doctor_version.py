@@ -32,6 +32,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 
 PYPI_JSON = "https://pypi.org/pypi/rodmena-agentbus/json"
 
@@ -88,12 +89,12 @@ def latest_on_pypi(timeout: float = 4.0) -> tuple[str | None, str]:
     """(version, detail). `None` means we could not tell — never 'up to date'."""
     try:
         with urllib.request.urlopen(PYPI_JSON, timeout=timeout) as response:
-            if response.status != 200:
+            if response.status != HTTPStatus.OK:
                 return None, f"PyPI answered HTTP {response.status}"
             data = json.loads(response.read().decode())
     except urllib.error.URLError as exc:
         return None, f"could not reach PyPI ({exc.reason})"
-    except Exception as exc:  # timeouts, malformed JSON, anything else
+    except Exception as exc:  # timeouts, malformed JSON, anything else  # noqa: BLE001
         return None, f"could not read PyPI ({type(exc).__name__}: {exc})"
     version = (data.get("info") or {}).get("version")
     if not isinstance(version, str) or not version:
@@ -112,6 +113,10 @@ def cli_freshness(installed: str | None, timeout: float = 4.0) -> tuple[str, str
     if latest is None:
         return "unknown", f"{detail} — NOT the same as being up to date"
 
+    return _compare_with_pypi(installed, latest)
+
+
+def _compare_with_pypi(installed: str, latest: str) -> tuple[str, str]:
     here, there = _parse(installed), _parse(latest)
     if here is None or there is None:
         return "unknown", f"cannot compare {installed!r} with {latest!r}"

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from agentbus_client.client import AgentBusError
 
@@ -112,6 +113,19 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
     scope is always the credential's own, and a bound key is never `full`.
     """
     lines: list[str] = []
+    _report_project_wiring(lines)
+    _report_claude_fallback(lines, base_url)
+    _report_opencode_fallback(lines, base_url)
+
+    # 4. The operator credential on disk (deliberate, 0600, not inherited).
+    op_path = _config_dir() / "operator.env"
+    if op_path.exists():
+        scope = "full (operator.env: can MINT — never auto-inherit it)"
+        lines.append(f"operator: {op_path} — {scope}")
+    return lines
+
+
+def _report_project_wiring(lines: list[str]) -> None:
     try:
         # 1. THIS DIRECTORY's own wiring.
         try:
@@ -127,16 +141,18 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
             lines.append(
                 f"project ({_project_claude_dir()}/settings.local.json): agent {proj_agent}"
             )
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
+
+def _report_claude_fallback(lines: list[str], base_url: str | None) -> None:
     # 2. User-scope fallback in ~/.claude.json (Claude). A projects-less MCP
     #    entry is inherited by every directory that has no its-own block.
     try:
         import json as _json
 
         cj = Path.home() / ".claude.json"
-        data: dict = {}
+        data: dict[str, Any] = {}
         if cj.exists():
             try:
                 data = _json.loads(cj.read_text())
@@ -155,9 +171,11 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
                 lines.append(
                     f"user-scope ~/.claude.json agentbus MCP: {scope}" + _inherited_flag(scope)
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
+
+def _report_opencode_fallback(lines: list[str], base_url: str | None) -> None:
     # 3. opencode fallback config.
     try:
         import json as _json
@@ -179,15 +197,16 @@ def doctor_credential_scope(base_url: str | None = None) -> list[str]:
                 scope = _scope_of_bearer(header, base_url)
                 lines.append(f"opencode {name} agentbus MCP: {scope}" + _inherited_flag(scope))
             break
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
-    # 4. The operator credential on disk (deliberate, 0600, not inherited).
-    op_path = _config_dir() / "operator.env"
-    if op_path.exists():
-        scope = "full (operator.env: can MINT — never auto-inherit it)"
-        lines.append(f"operator: {op_path} — {scope}")
-    return lines
+
+def _drop_trailing_comma(out: list[str]) -> None:
+    j = len(out) - 1
+    while j >= 0 and out[j].isspace():
+        j -= 1
+    if j >= 0 and out[j] == ",":
+        del out[j]
 
 
 def _strip_jsonc(text: str) -> str:
@@ -220,11 +239,7 @@ def _strip_jsonc(text: str) -> str:
             i = n if end == -1 else end + 2
             continue
         if ch in "}]":
-            j = len(out) - 1
-            while j >= 0 and out[j].isspace():
-                j -= 1
-            if j >= 0 and out[j] == ",":
-                del out[j]
+            _drop_trailing_comma(out)
         out.append(ch)
         i += 1
     return "".join(out)
@@ -278,7 +293,7 @@ def _scope_of_bearer(bearer: str, base_url: str | None = None) -> str:
         if exc.code in ("invalid_api_key", "forbidden", "not_found"):
             return f"unusable ({exc.code})"
         return f"unreachable ({exc.code})"
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "unknown (resolution failed)"
 
 

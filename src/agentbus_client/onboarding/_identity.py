@@ -227,7 +227,7 @@ def _derived_name(role: str | None) -> str | None:
 
         key = str(identity.describe(None).get("session_key") or "")
         return f"{role}-{key[:6]}" if key else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 

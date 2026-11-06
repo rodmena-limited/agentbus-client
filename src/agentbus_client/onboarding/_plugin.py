@@ -32,8 +32,8 @@ def _tail(proc: subprocess.CompletedProcess[str]) -> str:
 
 
 def _install_outcome(stdout: str) -> tuple[str | None, str]:
-    for line in reversed((stdout or "").splitlines()):
-        line = line.strip()
+    for raw in reversed((stdout or "").splitlines()):
+        line = raw.strip()
         if line.startswith("{"):
             try:
                 result = json.loads(line)

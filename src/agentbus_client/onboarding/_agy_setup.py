@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -95,7 +96,7 @@ def _skill_note(base_url: str) -> str:
         import httpx
 
         resp = httpx.get(f"{base_url}/skills/index.json", timeout=10)
-        if resp.status_code != 200:
+        if resp.status_code != HTTPStatus.OK:
             return (
                 f"skill: NOT checked — /skills/index.json answered {resp.status_code}. "
                 "Not installing rather than guessing."
@@ -106,7 +107,7 @@ def _skill_note(base_url: str) -> str:
         served = aliases.get(_SKILL_HARNESS, _SKILL_HARNESS) in harnesses or (
             _SKILL_HARNESS in harnesses
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return f"skill: NOT checked ({type(exc).__name__}) — not installing rather than guessing."
 
     if not served:
@@ -159,22 +160,7 @@ def _hook_binary() -> tuple[str, str | None]:
     )
 
 
-def _setup_agy(args: argparse.Namespace) -> int:
-    """Wire Antigravity: identity, the catch-up lane and the active wake lane."""
-    report: list[str] = []
-    base_url = (args.base_url or "https://agentbus.rodmena.co.uk").rstrip("/")
-
-    # 1-3. Shared identity resolution, registration, bound-key minting.
-    name = _provision_project_agent(args, report, "agy")
-    if name is None:
-        return 1
-
-    # 4. The canonical, harness-neutral identity declaration. Every host writes
-    #    this; it is what the hooks read when the payload cannot say.
-    _write_worktree_identity(name, report)
-
-    root = _git_root_or_none() or Path.cwd()
-
+def _warn_shared_identity(root: Path, name: str, report: list[str]) -> None:
     # 4a. THE SHARED-IDENTITY HAZARD, reported by the server team with field
     #     evidence the same day (infra-manager-c13110, two live sessions on one
     #     identity): read/ack state is per-delivery-per-AGENT, not per
@@ -194,17 +180,8 @@ def _setup_agy(args: argparse.Namespace) -> int:
             "each host its own checkout (a git worktree) so each derives its own agent."
         )
 
-    # 4b. OPT IN THIS CHECKOUT. The plugin is machine-wide; without this the
-    #     hooks would act in every project that has a `.agentbus/agent` from
-    #     some other harness.
-    added = agy_mark_wired(root)
-    report.append(
-        f"opt-in: {root} {'added to' if added else 'already in'} the agy-wired list "
-        "(the machine-wide hooks act ONLY for listed checkouts)"
-    )
 
-    plugin_dir = agy_plugin_dir()
-
+def _install_manifest(plugin_dir: Path, report: list[str]) -> None:
     # 5. plugin.json — the marker that makes this a plugin at all.
     manifest_path = plugin_dir / "plugin.json"
     manifest = plugin_manifest()
@@ -215,15 +192,101 @@ def _setup_agy(args: argparse.Namespace) -> int:
         report.append(f"plugin: {plugin_dir} (current, MACHINE-WIDE)")
     (plugin_dir / PLUGIN_VERSION_FILENAME).write_text(f"{PLUGIN_VERSION}\n")
 
+
+def _merge_hooks(plugin_dir: Path, hook_bin: str, report: list[str]) -> None:
     # 6. hooks.json — merged, never replaced. agy runs every plugin's named
     #    hooks sequentially, so clobbering a foreign key disables someone
     #    else's tooling.
-    hook_bin, path_warning = _hook_binary()
     hooks_path = plugin_dir / "hooks.json"
     merged, state = ensure_hooks(load_hooks(hooks_path), hooks_config(hook_bin))
     if state != "ok":
         _dump_json(hooks_path, merged)
     report.append(f"hooks: catch-up + wake ({state})")
+
+
+def _publish_sealing_key(base_url: str, name: str, report: list[str]) -> None:
+    # 8. THE SEALING KEY (#189). Omitted from the first version of this module,
+    #    and the field caught it within minutes: on an encrypted workspace an
+    #    agent with no published pubkey CANNOT BE WRITTEN TO AT ALL. The sender
+    #    gets "cannot seal: these recipients have published no public key" — so
+    #    the agent registers fine, reports success, and is unreachable. That is
+    #    the addressable-but-deaf failure this whole harness exists to avoid,
+    #    arriving through the one step that was not copied from the Claude lane.
+    try:
+        bus = AgentBus(base_url=base_url, agent=name)
+        if bus._request("GET", "/v1/workspace/pubkeys").get("encrypted"):
+            from agentbus_client import sealing as _sealing
+
+            _private, public = _sealing.ensure_keypair(name)
+            del _private
+            registered = _sealing_publish_with_retry(bus, name, public)
+            if registered is not None:
+                report.append(
+                    f"sealing key: {_sealing.key_path(name)} (0600) "
+                    f"registered as {registered.get('fingerprint')}"
+                )
+            else:
+                report.append(
+                    f"sealing key: !!! PUBLISH FAILED after retries — agent '{name}' is "
+                    f"REGISTERED but has NO published pubkey. On this encrypted workspace "
+                    f"peers CANNOT seal to '{name}', so it can send but never receive. "
+                    f"Recover with:  agentbus keys rotate"
+                )
+        else:
+            report.append("sealing key: not needed (workspace is not encrypted)")
+    except Exception as exc:  # noqa: BLE001
+        report.append(
+            f"sealing key: !!! NOT REGISTERED ({type(exc).__name__}) — on an encrypted "
+            f"workspace peers cannot seal to '{name}'. Recover with: agentbus keys rotate"
+        )
+
+
+def _audit_inherited_credential(base_url: str, report: list[str]) -> None:
+    # 9. #64 — the same inherited-credential audit every harness runs.
+    try:
+        findings = [ln for ln in doctor_credential_scope(base_url=base_url) if "FINDING" in ln]
+        if findings:
+            _say("WARNING — a send-or-above credential is reachable by inheritance:")
+            for ln in findings:
+                _say(f"  {ln}")
+            report.append("credential scope: WARNING (inherited send-or-above credential found)")
+        else:
+            report.append("credential scope: ok (no inherited send-or-above credential)")
+    except Exception as exc:  # noqa: BLE001
+        report.append(f"credential scope: not checked ({exc})")
+
+
+def _setup_agy(args: argparse.Namespace) -> int:
+    """Wire Antigravity: identity, the catch-up lane and the active wake lane."""
+    report: list[str] = []
+    base_url = (args.base_url or "https://agentbus.rodmena.co.uk").rstrip("/")
+
+    # 1-3. Shared identity resolution, registration, bound-key minting.
+    name = _provision_project_agent(args, report, "agy")
+    if name is None:
+        return 1
+
+    # 4. The canonical, harness-neutral identity declaration. Every host writes
+    #    this; it is what the hooks read when the payload cannot say.
+    _write_worktree_identity(name, report)
+
+    root = _git_root_or_none() or Path.cwd()
+    _warn_shared_identity(root, name, report)
+
+    # 4b. OPT IN THIS CHECKOUT. The plugin is machine-wide; without this the
+    #     hooks would act in every project that has a `.agentbus/agent` from
+    #     some other harness.
+    added = agy_mark_wired(root)
+    report.append(
+        f"opt-in: {root} {'added to' if added else 'already in'} the agy-wired list "
+        "(the machine-wide hooks act ONLY for listed checkouts)"
+    )
+
+    plugin_dir = agy_plugin_dir()
+    _install_manifest(plugin_dir, report)
+
+    hook_bin, path_warning = _hook_binary()
+    _merge_hooks(plugin_dir, hook_bin, report)
     report.append(
         f"wake: Stop hook, {AGY_WAKE_WINDOW_SEC}s window. agy hooks BLOCK the loop "
         "(no asyncRewake), so this is a FOREGROUND pause at each turn end: it "
@@ -264,60 +327,14 @@ def _setup_agy(args: argparse.Namespace) -> int:
         f'      agy mcp add --header "Authorization: Bearer $(grep -h AGENTBUS_API_KEY '
         f'~/.config/agentbus/keys/{name}.env | cut -d= -f2)" agentbus {base_url}/mcp/'
     )
-
-    # 8. THE SEALING KEY (#189). Omitted from the first version of this module,
-    #    and the field caught it within minutes: on an encrypted workspace an
-    #    agent with no published pubkey CANNOT BE WRITTEN TO AT ALL. The sender
-    #    gets "cannot seal: these recipients have published no public key" — so
-    #    the agent registers fine, reports success, and is unreachable. That is
-    #    the addressable-but-deaf failure this whole harness exists to avoid,
-    #    arriving through the one step that was not copied from the Claude lane.
-    try:
-        bus = AgentBus(base_url=base_url, agent=name)
-        if bus._request("GET", "/v1/workspace/pubkeys").get("encrypted"):
-            from agentbus_client import sealing as _sealing
-
-            _private, public = _sealing.ensure_keypair(name)
-            del _private
-            registered = _sealing_publish_with_retry(bus, name, public)
-            if registered is not None:
-                report.append(
-                    f"sealing key: {_sealing.key_path(name)} (0600) "
-                    f"registered as {registered.get('fingerprint')}"
-                )
-            else:
-                report.append(
-                    f"sealing key: !!! PUBLISH FAILED after retries — agent '{name}' is "
-                    f"REGISTERED but has NO published pubkey. On this encrypted workspace "
-                    f"peers CANNOT seal to '{name}', so it can send but never receive. "
-                    f"Recover with:  agentbus keys rotate"
-                )
-        else:
-            report.append("sealing key: not needed (workspace is not encrypted)")
-    except Exception as exc:
-        report.append(
-            f"sealing key: !!! NOT REGISTERED ({type(exc).__name__}) — on an encrypted "
-            f"workspace peers cannot seal to '{name}'. Recover with: agentbus keys rotate"
-        )
+    _publish_sealing_key(base_url, name, report)
 
     report.append(_skill_note(base_url))
     report.append(
         "session-end: agy has NO SessionEnd event, so nothing reaps a stream at "
         "session close on this host. Stated rather than implied."
     )
-
-    # 9. #64 — the same inherited-credential audit every harness runs.
-    try:
-        findings = [ln for ln in doctor_credential_scope(base_url=base_url) if "FINDING" in ln]
-        if findings:
-            _say("WARNING — a send-or-above credential is reachable by inheritance:")
-            for ln in findings:
-                _say(f"  {ln}")
-            report.append("credential scope: WARNING (inherited send-or-above credential found)")
-        else:
-            report.append("credential scope: ok (no inherited send-or-above credential)")
-    except Exception as exc:
-        report.append(f"credential scope: not checked ({exc})")
+    _audit_inherited_credential(base_url, report)
 
     _say("agentbus setup agy — everything wired, nothing foreign touched:")
     for line in report:

@@ -40,7 +40,7 @@ class _PubkeyBus(Protocol):
     def _request(self, method: str, path: str, **kwargs: Any) -> object: ...
 
 
-def _ensure_sealing_key(bus: AgentBus, ui: ModuleType) -> None:
+def _ensure_sealing_key(bus: AgentBus, ui: ModuleType) -> bool:
     """Provision this machine's sealing key when the workspace is encrypted (#189).
 
     ONE EXTRA LINE OF OUTPUT AND NOTHING ELSE TO DO. Farshid's requirement was
@@ -59,18 +59,25 @@ def _ensure_sealing_key(bus: AgentBus, ui: ModuleType) -> None:
     except Exception:  # noqa: BLE001
         # Not an error: this machine is talking to a deployment that predates
         # encryption, and signin must still work against it.
-        return
+        return True
     if not state.get("encrypted"):
-        return
+        return True
 
     if not bus.agent:
         # An unbound operator key has no agent to publish a key FOR. The key is
         # provisioned by `agentbus setup` in each project instead, where the
         # identity exists. Saying so beats a confusing 404.
         ui.item("encrypted workspace", "sealing key is provisioned per agent by `agentbus setup`")
-        return
+        return True
 
-    private, public = sealing.ensure_keypair(bus.agent)
+    try:
+        private, public = sealing.ensure_keypair(bus.agent)
+    except Exception as exc:  # noqa: BLE001
+        where = sealing.key_path(bus.agent)
+        ui.fail(f"this workspace is ENCRYPTED but the sealing key could not be prepared: {exc}")
+        _say("  Until it is, this agent cannot read sealed mail and peers cannot seal to it.")
+        _say(f"  Signin still stores your API key. Fix {where}, then run `agentbus keys rotate`.")
+        return False
     del private  # never transmitted, never logged, never returned
     try:
         registered = bus._request(
@@ -79,10 +86,11 @@ def _ensure_sealing_key(bus: AgentBus, ui: ModuleType) -> None:
     except Exception as exc:  # noqa: BLE001
         ui.fail(f"this workspace is ENCRYPTED but the public key could not be registered: {exc}")
         _say("  Until it is, this agent cannot read sealed mail and peers cannot seal to it.")
-        return
+        return True
     ui.ok("encrypted workspace — sealing key ready")
     ui.item("fingerprint", str(registered.get("fingerprint")))
     ui.item("private key", f"{sealing.key_path(bus.agent)}  (0600, never leaves this machine)")
+    return True
 
 
 def _store_single_bound_key(key: str, agent: str) -> None:
@@ -132,7 +140,7 @@ def cmd_signin(args: argparse.Namespace) -> int:
 
     ui.ok(f"key VERIFIED against {bus.base_url}")
     ui.item("workspace", f"{workspace.get('slug')} ({workspace.get('id')})")
-    _ensure_sealing_key(bus, ui)
+    sealing_ready = _ensure_sealing_key(bus, ui)
     ui.item("scope", f"{scope}  (scopes are cumulative — every scope may read)")
     ui.item("bound to", ", ".join(bound) if bound else "(unbound — operator credential)")
 
@@ -160,7 +168,7 @@ def cmd_signin(args: argparse.Namespace) -> int:
         _say("Operator credential: setup mints each project its own bound key —")
         _say("you never type a per-agent secret.")
         ui.next_steps("cd <your-project>", "agentbus setup claude")
-    return 0
+    return 0 if sealing_ready else 1
 
 
 def _sealing_publish_with_retry(

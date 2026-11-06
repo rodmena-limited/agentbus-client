@@ -41,6 +41,7 @@ from ._paths import (
     _config_dir,
     _dump_json,
     _ensure_hook_entry,
+    _git_root_or_none,
     _keys_dir,
     _load_json,
     _plugin_provides_wake,
@@ -50,6 +51,7 @@ from ._paths import (
 )
 from ._plugin import INSTALL_COMMANDS, PLUGIN_ID, claude_settings_path, install_wake_plugin
 from ._provision import _provision_project_agent
+from ._settings_shape import _object_field
 from ._signin import _sealing_publish_with_retry
 from ._skill import refresh_skill
 
@@ -57,18 +59,20 @@ if TYPE_CHECKING:
     import argparse
 
 
-def _write_project_identity(name: str, report: list[str]) -> None:
+def _refuse_unusable_settings() -> None:
     local_path = _project_claude_dir() / "settings.local.json"
-    local = _load_json(local_path)
-    if (local.get("env") or {}).get("AGENTBUS_AGENT") != name:
-        local.setdefault("env", {})["AGENTBUS_AGENT"] = name
-        _dump_json(local_path, local)
-        report.append(f"project identity: {local_path} env.AGENTBUS_AGENT={name}")
-    else:
-        report.append(f"project identity: {local_path} (already {name})")
-    gitignore = Path.cwd() / ".gitignore"
-    if (Path.cwd() / ".git").exists():
-        lines = gitignore.read_text().splitlines() if gitignore.exists() else []
+    _object_field(_load_json(local_path), "env", local_path)
+    settings_path = claude_settings_path()
+    _object_field(_load_json(settings_path), "hooks", settings_path)
+
+
+def _ignore_identity_files(report: list[str]) -> None:
+    root = _git_root_or_none() or Path.cwd()
+    gitignore = root / ".gitignore"
+    if not (root / ".git").exists():
+        return
+    try:
+        lines = gitignore.read_text(errors="replace").splitlines() if gitignore.exists() else []
         added = [
             entry for entry in (".claude/settings.local.json", ".agentbus/") if entry not in lines
         ]
@@ -77,6 +81,24 @@ def _write_project_identity(name: str, report: list[str]) -> None:
                 for entry in added:
                     fh.write(f"{entry}\n")
             report.append(f"gitignore: added {', '.join(added)}")
+    except OSError as exc:
+        report.append(
+            f"gitignore: !!! NOT updated ({exc}). "
+            f"Add .claude/settings.local.json and .agentbus/ to {gitignore} yourself."
+        )
+
+
+def _write_project_identity(name: str, report: list[str]) -> None:
+    local_path = _project_claude_dir() / "settings.local.json"
+    local = _load_json(local_path)
+    env = _object_field(local, "env", local_path)
+    if env.get("AGENTBUS_AGENT") != name:
+        env["AGENTBUS_AGENT"] = name
+        _dump_json(local_path, local)
+        report.append(f"project identity: {local_path} env.AGENTBUS_AGENT={name}")
+    else:
+        report.append(f"project identity: {local_path} (already {name})")
+    _ignore_identity_files(report)
 
 
 def _install_rewaker(report: list[str]) -> None:
@@ -165,7 +187,7 @@ def _wire_wake(report: list[str]) -> bool:
     else:
         wake_ok = _install_plugin_or_report(settings_path, report)
     settings = _load_json(settings_path)
-    hooks = settings.setdefault("hooks", {})
+    hooks = _object_field(settings, "hooks", settings_path)
     states: dict[str, str] = {}
     if _plugin_provides_wake(settings):
         _defer_hooks_to_plugin(hooks, report)
@@ -193,6 +215,20 @@ def _mcp_add_argv(claude_bin: str, mcp_url: str, key_for_mcp: str) -> list[str]:
         "--header",
         f"Authorization: Bearer {key_for_mcp}",
     ]
+
+
+def _run_claude(argv: list[str], timeout: int) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            cwd=str(Path.cwd()),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def _has_project_mcp_entry(claude_bin: str) -> bool:
@@ -238,36 +274,18 @@ def _refresh_mcp_entry(claude_bin: str, mcp_url: str, key_for_mcp: str, report: 
     # get` does not print headers, so the key cannot be compared in
     # place: remove and re-add with the CURRENT bound key. Idempotent,
     # cheap, and converges the entry on every setup run.
-    subprocess.run(
-        [claude_bin, "mcp", "remove", "-s", "local", "agentbus"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-        cwd=str(Path.cwd()),
-    )
-    readd = subprocess.run(
-        _mcp_add_argv(claude_bin, mcp_url, key_for_mcp),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-        cwd=str(Path.cwd()),
-    )
-    if readd.returncode == 0:
+    _run_claude([claude_bin, "mcp", "remove", "-s", "local", "agentbus"], timeout=60)
+    readd = _run_claude(_mcp_add_argv(claude_bin, mcp_url, key_for_mcp), timeout=120)
+    if readd is not None and readd.returncode == 0:
         report.append("mcp: refreshed with the current key — restart the session to apply")
     else:
         report.append("mcp: entry exists but could not be refreshed — restart and re-run setup")
 
 
 def _add_mcp_entry(claude_bin: str, mcp_url: str, key_for_mcp: str, report: list[str]) -> bool:
-    add = subprocess.run(
-        _mcp_add_argv(claude_bin, mcp_url, key_for_mcp),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+    add = _run_claude(_mcp_add_argv(claude_bin, mcp_url, key_for_mcp), timeout=120)
+    if add is None:
+        return False
     # "already exists" is SUCCESS, whatever the exit code — the state
     # we want is the state that holds.
     if add.returncode == 0 or "already exists" in (add.stdout + add.stderr):
@@ -377,6 +395,7 @@ def _print_report(report: list[str], *, wake_ok: bool) -> None:
 def _setup_claude(args: argparse.Namespace) -> int:
     report: list[str] = []
     base_url = args.base_url
+    _refuse_unusable_settings()
 
     # 1-3. Shared identity resolution, registration, and bound-key minting.
     name = _provision_project_agent(args, report, "claude")
@@ -455,7 +474,7 @@ def _setup_claude(args: argparse.Namespace) -> int:
     #    The fetch/install/backup logic itself lives in `refresh_skill` so
     #    `agentbus refresh-skill` can share the same path without going
     #    through registration (peer agentbus-ui-c760a1's ask).
-    state, detail = refresh_skill(base_url=base_url)
+    state, detail = refresh_skill(base_url=base_url, harness="claude")
     if state in ("updated", "installed"):
         # Mirror the historic setup line ("skill: updated" or "skill: updated,
         # previous saved to SKILL.md.bak") so existing operator eyes still

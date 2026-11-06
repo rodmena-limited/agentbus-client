@@ -28,7 +28,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agentbus_client.client import AgentBus, AgentBusError
 from agentbus_client.identity import config_dir as identity_config_dir
@@ -45,6 +45,7 @@ from ._paths import (
     _plugin_provides_wake,
     _say,
 )
+from ._settings_shape import _command_hooks
 
 if TYPE_CHECKING:
     import argparse
@@ -150,9 +151,11 @@ def _running_watcher_version(agent: str) -> str | None:
     if newest is None:
         return None
     try:
-        return json.loads(Path(newest).read_text()).get("client_version") or None
+        state = json.loads(Path(newest).read_text())
     except (OSError, ValueError):
         return None
+    version = state.get("client_version") if isinstance(state, dict) else None
+    return version if isinstance(version, str) and version else None
 
 
 def _finish_wake_report(
@@ -201,20 +204,23 @@ def _finish_wake_report(
         _say("wake chain PROVEN as far as this host can see: the plugin monitor is")
         _say("running and holds a live stream. Measured on two hosts, a peer's")
         _say("message woke an idle session in 13-19s with no human input.")
-        if loaded:
+        if comparable:
             _say(f"The running watcher reports client {loaded}, matching what is installed.")
+        elif loaded:
+            _say(
+                f"The running watcher reports client {loaded} and the installed client "
+                f"reports {installed or 'no version'}."
+            )
+            _say("These were not compared because a source build or an unknown version")
+            _say("carries no release number to compare.")
         else:
             _say("NOTE: this watcher does not report which client build it loaded")
             _say("(pre-0.4.40), so 'running the current code' is assumed, not shown.")
     return 0
 
 
-def _has_hook(hooks: dict[str, Any], event: str, marker: str) -> bool:
-    return any(
-        marker in str(h.get("command", ""))
-        for g in hooks.get(event, [])
-        for h in g.get("hooks", [])
-    )
+def _has_hook(hooks: object, event: str, marker: str) -> bool:
+    return any(marker in str(h.get("command", "")) for h in _command_hooks(hooks, event))
 
 
 def _report_plugin_wake(name: str, failures: list[str]) -> int:
@@ -294,28 +300,28 @@ def _report_wake_channel(key: str, base_url: str | None, name: str) -> None:
 
 
 def _report_stop_chain_outcome(
-    failures: list[str], *, active: bool, executable: bool, script_current: bool
+    failures: list[str],
+    *,
+    active: bool,
+    executable: bool,
+    script_current: bool,
+    probe_passed: bool,
 ) -> int:
-    if not active or not executable or not script_current:
+    if probe_passed:
         _say("")
-        for f in failures:
-            _say(f"  FAIL: {f}")
+        _say("The Stop re-waker passed its probe up to the harness boundary. That result")
+        _say("assumes your harness runs Stop hooks with asyncRewake, because exit 2 is")
+        _say("what pulls the session back into a turn.")
+    _say("")
+    for f in failures:
+        _say(f"  FAIL: {f}")
+    if not active or not executable or not script_current:
         if not script_current and active:
             _say("STALE re-waker — reinstall with `agentbus setup claude`, then re-run.")
         else:
             _say("PASSIVE ONLY — this agent answers only when a human prompts it.")
             _say("Run `agentbus setup claude` to wire the active trigger.")
-        return 1
-    if failures:
-        _say("")
-        for f in failures:
-            _say(f"  FAIL: {f}")
-        return 1
-    _say("")
-    _say("wake chain PROVEN up to the harness boundary. Remaining assumption,")
-    _say("stated rather than rounded up: your harness invokes Stop hooks with")
-    _say("asyncRewake — exit 2 then pulls the session back into a turn.")
-    return 0
+    return 1
 
 
 def doctor_wake(args: argparse.Namespace) -> int:
@@ -407,6 +413,7 @@ def doctor_wake(args: argparse.Namespace) -> int:
     if key:
         _report_wake_channel(key, args.base_url, name)
 
+    probe_passed = False
     if key and active and executable and script_current:
         # The live half: a self-addressed probe must surface through the
         # re-waker exactly once. A check that cannot go green cannot go red —
@@ -440,8 +447,14 @@ def doctor_wake(args: argparse.Namespace) -> int:
         prod_before = prod_ledger.read_text() if prod_ledger.exists() else ""
 
         bus = AgentBus(api_key=key, base_url=args.base_url, agent=name)
-        failures.extend(_probe_rewake_cycle(bus, name, rewake_path, prod_ledger, prod_before))
+        probe_failures = _probe_rewake_cycle(bus, name, rewake_path, prod_ledger, prod_before)
+        failures.extend(probe_failures)
+        probe_passed = not probe_failures
 
     return _report_stop_chain_outcome(
-        failures, active=active, executable=executable, script_current=script_current
+        failures,
+        active=active,
+        executable=executable,
+        script_current=script_current,
+        probe_passed=probe_passed,
     )

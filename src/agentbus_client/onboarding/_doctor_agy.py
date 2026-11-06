@@ -55,11 +55,14 @@ def _hook_command(plugin_dir: Path) -> tuple[str | None, str | None]:
         return None, f"no hooks.json at {hooks_path} — run `agentbus setup agy`"
     try:
         hooks = json.loads(hooks_path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         return None, f"{hooks_path} is not readable JSON ({exc})"
+    if not isinstance(hooks, dict):
+        return None, f"{hooks_path} does not hold a JSON object. Fix it, then re-run this check."
     for block in hooks.values():
-        for handler in block.get("Stop", []) or []:
-            command = str(handler.get("command", ""))
+        handlers = block.get("Stop") if isinstance(block, dict) else None
+        for handler in handlers if isinstance(handlers, list) else []:
+            command = str(handler.get("command", "")) if isinstance(handler, dict) else ""
             if "agy-stop" in command:
                 return command, None
     return None, "hooks.json carries no agy-stop Stop handler — run `agentbus setup agy`"
@@ -163,15 +166,19 @@ def _judge_hook_output(proc: subprocess.CompletedProcess[str], failures: list[st
         )
     else:
         try:
-            decision = json.loads(out).get("decision")
+            answer = json.loads(out)
         except json.JSONDecodeError:
             failures.append(f"the hook printed non-JSON, which agy cannot read: {out[:160]}")
+            return
+        if not isinstance(answer, dict):
+            failures.append(f"the hook printed JSON that is not an object: {out[:160]}")
+            return
+        decision = answer.get("decision")
+        _say(f"  [ok] hook ran and answered agy: decision={decision!r}")
+        if decision == "continue":
+            _say("       (it found unread mail and would have woken the session)")
         else:
-            _say(f"  [ok] hook ran and answered agy: decision={decision!r}")
-            if decision == "continue":
-                _say("       (it found unread mail and would have woken the session)")
-            else:
-                _say("       (nothing unread to claim right now — the lane is still wired)")
+            _say("       (nothing unread to claim right now — the lane is still wired)")
 
 
 def doctor_wake_agy(agent: str, root: Path) -> int:

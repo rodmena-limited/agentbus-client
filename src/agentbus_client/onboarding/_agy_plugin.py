@@ -210,7 +210,11 @@ def load_hooks(path: Path) -> dict[str, Any]:
     """
     if not path.is_file():
         return {}
-    raw = path.read_text(encoding="utf-8").strip()
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError) as exc:
+        msg = f"refusing to touch {path}: it could not be read ({exc})"
+        raise SystemExit(msg) from None
     if not raw:
         return {}
     try:

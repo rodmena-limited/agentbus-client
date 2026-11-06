@@ -26,7 +26,7 @@ import contextlib
 import stat
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from ._agy_setup import _setup_agy, teardown_agy_machine
 from ._claude_setup import _setup_claude
@@ -43,11 +43,24 @@ from ._paths import (
     canonical_harness,
 )
 from ._provision import _provision_project_agent
+from ._settings_shape import _object_field, _settings_agent
+from ._skill import _opencode_skill_path
 
 if TYPE_CHECKING:
     import argparse
 
 _MIN_SKILL_CHARS = 500
+
+
+def _refuse_unusable_config(oc_path: Path, oc_data: dict[str, Any]) -> None:
+    _object_field(oc_data, "mcp", oc_path)
+    plugin = oc_data.get("plugin")
+    if plugin is not None and not isinstance(plugin, list | str):
+        msg = (
+            f'refusing to touch {oc_path}: "plugin" is not a list of plugins. '
+            "Fix that value, then re-run setup."
+        )
+        raise SystemExit(msg)
 
 
 def _merge_mcp_entry(oc_data: dict[str, Any], key_for_mcp: str | None, mcp_url: str) -> bool:
@@ -93,9 +106,12 @@ def _reference_plugin(
 
 
 def _ignore_opencode_json(report: list[str]) -> None:
-    gitignore = Path.cwd() / ".gitignore"
-    if (Path.cwd() / ".git").exists():
-        lines = gitignore.read_text().splitlines() if gitignore.exists() else []
+    root = _git_root_or_none() or Path.cwd()
+    gitignore = root / ".gitignore"
+    if not (root / ".git").exists():
+        return
+    try:
+        lines = gitignore.read_text(errors="replace").splitlines() if gitignore.exists() else []
         if "opencode.json" not in lines and "opencode.local.json" not in lines:
             # The project identity carries a SECRET (the bound key bearer), so
             # it must never be committed. opencode reads opencode.json; a
@@ -104,11 +120,16 @@ def _ignore_opencode_json(report: list[str]) -> None:
             with gitignore.open("a", encoding="utf-8") as fh:
                 fh.write("opencode.json\n")
             report.append("gitignore: added opencode.json (holds the bound key)")
+    except OSError as exc:
+        report.append(
+            f"gitignore: !!! NOT updated ({exc}). "
+            f"opencode.json holds the bound key, so add it to {gitignore} yourself."
+        )
 
 
 def _install_opencode_skill(base_url: str | None, report: list[str]) -> None:
     # 7. The skill, served canonically — same managed-artifact rule as claude.
-    skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
+    skill_path = _opencode_skill_path()
     try:
         import httpx
 
@@ -173,6 +194,9 @@ def _setup_opencode(args: argparse.Namespace) -> int:
     """
     report: list[str] = []
     base_url = args.base_url
+    oc_path = Path.cwd() / "opencode.json"
+    oc_data = _load_json(oc_path) if oc_path.exists() else {}
+    _refuse_unusable_config(oc_path, oc_data)
 
     # 1-3. Shared identity resolution, registration, and bound-key minting.
     name = _provision_project_agent(args, report, "opencode")
@@ -183,8 +207,6 @@ def _setup_opencode(args: argparse.Namespace) -> int:
     #    config (MCP servers, provider blocks) must survive byte-for-byte, the
     #    same idempotency law that governs the claude harness. opencode itself
     #    is written as opencode.json; both spellings are read, .jsonc first.
-    oc_path = Path.cwd() / "opencode.json"
-    oc_data = _load_json(oc_path) if oc_path.exists() else {}
     key_for_mcp = _agent_key(name)
     mcp_url = f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/mcp"
 
@@ -244,7 +266,7 @@ def _declared_agent(agent_file: Path, local: dict[str, Any]) -> str | None:
             declared = agent_file.read_text().strip()
             if declared:
                 return declared
-    return cast("str | None", (local.get("env") or {}).get("AGENTBUS_AGENT"))
+    return _settings_agent(local)
 
 
 def _is_key_name(agent: str) -> bool:
@@ -313,7 +335,7 @@ def cmd_teardown(args: argparse.Namespace) -> int:
 
         _shutil.rmtree(agentbus_dir, ignore_errors=True)
         removed.append(f"{agentbus_dir}/")
-    if (local.get("env") or {}).get("AGENTBUS_AGENT"):
+    if _settings_agent(local):
         _drop_settings_identity(local, local_path, removed)
 
     if getattr(args, "purge_key", False) and agent:

@@ -96,7 +96,9 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(_claude_setup, "_project_claude_dir", lambda: project / ".claude")
     monkeypatch.setattr(_claude_setup, "_config_dir", lambda: tmp_path / "agentbus-config")
     monkeypatch.setattr(_claude_setup, "AgentBus", _NoNetwork)
-    monkeypatch.setattr(_claude_setup, "refresh_skill", lambda base_url=None: ("current", "stub"))
+    monkeypatch.setattr(
+        _claude_setup, "refresh_skill", lambda base_url=None, harness=None: ("current", "stub")
+    )
     monkeypatch.setattr(_claude_setup, "doctor_credential_scope", lambda base_url=None: [])
     return {"settings": cc / "settings.json", "log": log}
 

@@ -32,6 +32,9 @@ from typing import Any
 
 from agentbus_client.identity import config_dir as identity_config_dir
 
+from ._plugin import claude_settings_path
+from ._settings_shape import _command_hooks
+
 
 def _device_hash(device_id: str | None) -> str:
     """Hash a device id the way the phonebook publishes it (#74).
@@ -346,12 +349,15 @@ def _load_json(path: Path) -> dict[str, Any]:
         return {}
     try:
         data = json.loads(path.read_text())
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         msg = (
             f"refusing to touch {path}: it is not valid JSON ({exc}). "
             "A broken settings file silently disables everything in it — "
             "fix it first, then re-run setup."
         )
+        raise SystemExit(msg) from exc
+    except OSError as exc:
+        msg = f"refusing to touch {path}: it could not be read ({exc}). Fix it and re-run setup."
         raise SystemExit(msg) from exc
     if not isinstance(data, dict):
         msg = f"refusing to touch {path}: expected a JSON object"
@@ -407,8 +413,13 @@ def _remove_hook_entry(hooks: dict[str, Any], event: str, marker: str) -> bool:
         return False
     changed = False
     for group in list(groups):
-        kept = [h for h in group.get("hooks", []) if marker not in str(h.get("command", ""))]
-        if len(kept) != len(group.get("hooks", [])):
+        handlers = group.get("hooks", []) if isinstance(group, dict) else None
+        if not isinstance(handlers, list):
+            continue
+        kept = [
+            h for h in handlers if not (isinstance(h, dict) and marker in str(h.get("command", "")))
+        ]
+        if len(kept) != len(handlers):
             changed = True
             group["hooks"] = kept
         if not group.get("hooks"):
@@ -427,7 +438,9 @@ def _plugin_provides_wake(settings: dict[str, Any]) -> bool:
     the same message would wake the session twice, so setup defers: the plugin
     wins and the Stop hook is not written (SPECS/0022).
     """
-    enabled = settings.get("enabledPlugins") or {}
+    enabled = settings.get("enabledPlugins")
+    if not isinstance(enabled, dict):
+        return False
     return any(str(k).split("@", 1)[0] == "agentbus" and v for k, v in enabled.items())
 
 
@@ -440,22 +453,23 @@ def _ensure_hook_entry(
     carries our marker; foreign entries are never touched.
     """
     marker = _MARKER_REWAKE if _MARKER_REWAKE in command else _MARKER_HOOK
-    groups = hooks.setdefault(event, [])
+    groups = hooks.get(event)
+    if groups is None:
+        groups = hooks[event] = []
     if not isinstance(groups, list):
-        msg = f"hooks.{event} is not a list; refusing to touch it"
+        msg = f"refusing to touch {claude_settings_path()}: hooks.{event} is not a list"
         raise SystemExit(msg)
-    for group in groups:
-        for hook in group.get("hooks", []):
-            if hook.get("type") == "command" and marker in str(hook.get("command", "")):
-                changed = False
-                if hook.get("command") != command:
-                    hook["command"] = command
+    for hook in _command_hooks(hooks, event):
+        if hook.get("type") == "command" and marker in str(hook.get("command", "")):
+            changed = False
+            if hook.get("command") != command:
+                hook["command"] = command
+                changed = True
+            for k, v in (extra or {}).items():
+                if hook.get(k) != v:
+                    hook[k] = v
                     changed = True
-                for k, v in (extra or {}).items():
-                    if hook.get(k) != v:
-                        hook[k] = v
-                        changed = True
-                return "updated" if changed else "ok"
+            return "updated" if changed else "ok"
     entry: dict[str, Any] = {"type": "command", "command": command, "timeout": 15}
     entry.update(extra or {})
     groups.append({"hooks": [entry]})

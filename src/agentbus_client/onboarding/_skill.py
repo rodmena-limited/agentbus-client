@@ -22,10 +22,47 @@ hosts, in one night:
 
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
 
+from ._paths import _git_root_or_none
+from ._settings_shape import _read_object_or_empty, _settings_agent
+
 _MIN_SKILL_BYTES = 500
+
+
+@dataclass(frozen=True)
+class _Flavour:
+    harness: str
+    served_as: str
+    path: Path
+
+
+def _opencode_skill_path() -> Path:
+    config = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(config) if config else Path.home() / ".config"
+    return base / "opencode" / "skills" / "agentbus" / "SKILL.md"
+
+
+def _declares_opencode_mcp(config: Path) -> bool:
+    mcp = _read_object_or_empty(config).get("mcp")
+    return isinstance(mcp, dict) and "agentbus" in mcp
+
+
+def _checkout_harness() -> str:
+    root = _git_root_or_none() or Path.cwd()
+    opencode = any(_declares_opencode_mcp(d / "opencode.json") for d in (Path.cwd(), root))
+    claude = _settings_agent(_read_object_or_empty(root / ".claude" / "settings.local.json"))
+    return "opencode" if opencode and not claude else "claude"
+
+
+def _flavour(harness: str | None) -> _Flavour:
+    if (harness or _checkout_harness()) == "opencode":
+        return _Flavour("opencode", "opencode", _opencode_skill_path())
+    claude_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
+    return _Flavour("claude", "claude-code", claude_path)
 
 
 def skill_state(base_url: str | None = None) -> tuple[str, str]:
@@ -54,19 +91,21 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
     """
     import hashlib
 
-    skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
+    flavour = _flavour(None)
+    skill_path = flavour.path
     root = (base_url or "https://agentbus.rodmena.co.uk").rstrip("/")
     if not skill_path.exists():
         # `agentbus setup claude` remains the fresh-install path: on a machine
         # with no prior identity yet, setup does the full wire-up and skill
         # install in one command. `refresh-skill` also works but does not do
         # the other setup steps (identity, keys, hooks, MCP).
-        return "missing", f"no skill at {skill_path} — run `agentbus setup claude`"
+        return "missing", f"no skill at {skill_path} — run `agentbus setup {flavour.harness}`"
+    where = "" if flavour.harness == "claude" else f"{skill_path}: "
     installed = skill_path.read_bytes()
     try:
         import httpx
 
-        resp = httpx.get(f"{root}/skills/claude-code.md", timeout=10.0)
+        resp = httpx.get(f"{root}/skills/{flavour.served_as}.md", timeout=10.0)
         if resp.status_code != HTTPStatus.OK:
             return "unknown", f"served {resp.status_code}; NOT checked"
         served = resp.content
@@ -74,7 +113,7 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
         return "unknown", f"could not reach {root}: {str(exc)[:60]} — NOT checked"
 
     if installed == served:
-        return "current", f"{len(installed)} bytes, matches the served copy"
+        return "current", f"{where}{len(installed)} bytes, matches the served copy"
     # NAME THE COMMAND THAT WORKS. `agentbus setup claude` used to be the
     # advice, but setup refuses when the current cwd's repo fingerprint does
     # not match the fingerprint the server has on file for this agent
@@ -86,14 +125,14 @@ def skill_state(base_url: str | None = None) -> tuple[str, str]:
     return (
         "stale",
         (
-            f"installed sha256 {hashlib.sha256(installed).hexdigest()[:12]} != "
+            f"{where}installed sha256 {hashlib.sha256(installed).hexdigest()[:12]} != "
             f"served {hashlib.sha256(served).hexdigest()[:12]} "
             f"({len(installed)} vs {len(served)} bytes) — refresh: agentbus refresh-skill"
         ),
     )
 
 
-def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
+def refresh_skill(base_url: str | None = None, harness: str | None = None) -> tuple[str, str]:
     """Fetch the served SKILL.md and install it, without touching registration.
 
     Extracted from `_setup_claude` step 7 so an operator whose repo has
@@ -113,8 +152,10 @@ def refresh_skill(base_url: str | None = None) -> tuple[str, str]:
     """
     import httpx
 
-    skill_path = Path.home() / ".claude" / "skills" / "agentbus" / "SKILL.md"
-    url = f"{(base_url or 'https://agentbus.rodmena.co.uk').rstrip('/')}/skills/claude-code.md"
+    flavour = _flavour(harness)
+    skill_path = flavour.path
+    root = (base_url or "https://agentbus.rodmena.co.uk").rstrip("/")
+    url = f"{root}/skills/{flavour.served_as}.md"
     try:
         resp = httpx.get(url, timeout=15)
     except Exception as exc:  # noqa: BLE001

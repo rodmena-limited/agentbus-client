@@ -23,7 +23,6 @@ hosts, in one night:
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 from pathlib import Path
 
@@ -35,6 +34,7 @@ from ._paths import (
     _load_json,
     _signin_state_path,
 )
+from ._settings_shape import _read_object_or_empty, _settings_agent
 
 # ---------------------------------------------------------------- setup
 
@@ -115,7 +115,7 @@ def _resolve_agent_name(explain: list[str] | None = None) -> str | None:
         return worktree
 
     local = _load_json(_project_claude_dir() / "settings.local.json")
-    name = (local.get("env") or {}).get("AGENTBUS_AGENT")
+    name = _settings_agent(local)
     if name:
         if explain is not None:
             explain.append(f"identity from this project's settings.local.json ({name})")
@@ -195,7 +195,7 @@ def _write_worktree_identity(name: str, report: list[str]) -> None:
     if (root / ".git").exists():
         gitignore = root / ".gitignore"
         with contextlib.suppress(OSError):
-            lines = gitignore.read_text().splitlines() if gitignore.exists() else []
+            lines = gitignore.read_text(errors="replace").splitlines() if gitignore.exists() else []
             if ".agentbus/" not in lines:
                 with gitignore.open("a", encoding="utf-8") as fh:
                     fh.write(".agentbus/\n")
@@ -236,10 +236,7 @@ def _signed_in_bound_agent() -> str | None:
     path = _signin_state_path()
     if not path.exists():
         return None
-    try:
-        state = json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return None
+    state = _read_object_or_empty(path)
     return None if state.get("operator") else state.get("default_agent")
 
 
@@ -267,7 +264,7 @@ def _session_identity() -> str | None:
         return worktree
     try:
         local = _load_json(_project_claude_dir() / "settings.local.json")
-        identity = (local.get("env") or {}).get("AGENTBUS_AGENT")
+        identity = _settings_agent(local)
     except SystemExit:
         identity = None
     if identity:
@@ -292,10 +289,7 @@ def _session_identity() -> str | None:
     # change is that it stops being silent where it can do harm.
     sp = _signin_state_path()
     if sp.exists():
-        try:
-            stored = json.loads(sp.read_text()).get("default_agent")
-        except json.JSONDecodeError:
-            return None
+        stored = _read_object_or_empty(sp).get("default_agent")
         return str(stored) if stored else None
     return None
 

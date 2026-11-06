@@ -32,7 +32,6 @@ WHAT MAKES THIS HARNESS DIFFERENT, and why each difference changed a decision:
 
 from __future__ import annotations
 
-import json
 import shutil
 from http import HTTPStatus
 from pathlib import Path
@@ -185,7 +184,7 @@ def _install_manifest(plugin_dir: Path, report: list[str]) -> None:
     # 5. plugin.json — the marker that makes this a plugin at all.
     manifest_path = plugin_dir / "plugin.json"
     manifest = plugin_manifest()
-    if not manifest_path.is_file() or json.loads(manifest_path.read_text()) != manifest:
+    if load_hooks(manifest_path) != manifest:
         _dump_json(manifest_path, manifest)
         report.append(f"plugin: {plugin_dir} (installed, MACHINE-WIDE)")
     else:
@@ -260,6 +259,9 @@ def _setup_agy(args: argparse.Namespace) -> int:
     """Wire Antigravity: identity, the catch-up lane and the active wake lane."""
     report: list[str] = []
     base_url = (args.base_url or "https://agentbus.rodmena.co.uk").rstrip("/")
+    plugin_dir = agy_plugin_dir()
+    load_hooks(plugin_dir / "plugin.json")
+    load_hooks(plugin_dir / "hooks.json")
 
     # 1-3. Shared identity resolution, registration, bound-key minting.
     name = _provision_project_agent(args, report, "agy")
@@ -282,7 +284,6 @@ def _setup_agy(args: argparse.Namespace) -> int:
         "(the machine-wide hooks act ONLY for listed checkouts)"
     )
 
-    plugin_dir = agy_plugin_dir()
     _install_manifest(plugin_dir, report)
 
     hook_bin, path_warning = _hook_binary()

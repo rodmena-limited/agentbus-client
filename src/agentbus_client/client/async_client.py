@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 from typing_extensions import Self
 
-from ._repeat import _safe_to_repeat, _unsafe_to_repeat
+from ._repeat import _safe_to_repeat, _sdk_max_retries, _unsafe_to_repeat
 from .async_block import AsyncBlockMixin
 from .async_directory import AsyncDirectoryMixin
 from .async_messaging import AsyncMessagingMixin
@@ -209,7 +209,7 @@ class AsyncAgentBus(
         import asyncio
         import random
 
-        max_retries = int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3"))
+        max_retries = _sdk_max_retries()
         # Same backoff shape as the sync SafetyNet: 0.5s..8s exponential, jitter.
         base = 0.5
         cap = 8.0

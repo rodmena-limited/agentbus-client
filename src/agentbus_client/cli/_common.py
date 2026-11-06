@@ -50,6 +50,39 @@ def _parse_duration(value: str) -> datetime.timedelta:
     return _dt.timedelta(seconds=seconds)
 
 
+def _read_problem(exc: OSError | ValueError) -> str:
+    if isinstance(exc, UnicodeDecodeError):
+        return "it is not UTF-8 text"
+    if isinstance(exc, OSError) and exc.strerror:
+        return exc.strerror
+    return str(exc)
+
+
+def _read_stdin() -> str:
+    advice = "Pipe UTF-8 text in, or pass the text on the command line."
+    stream = sys.stdin
+    if stream is None or stream.closed:
+        msg = f"cannot read stdin for '@-': stdin is closed. {advice}"
+        raise SystemExit(msg)
+    try:
+        return stream.read()
+    except (OSError, ValueError) as exc:
+        msg = f"cannot read stdin for '@-': {_read_problem(exc)}. {advice}"
+        raise SystemExit(msg) from exc
+
+
+def _read_file(value: str) -> str:
+    try:
+        with open(value[1:], encoding="utf-8") as handle:  # noqa: PTH123
+            return handle.read()
+    except (OSError, ValueError) as exc:
+        msg = (
+            f"cannot read {value!r}: {_read_problem(exc)}. "
+            "Check the path, or pipe text that starts with @ through @-."
+        )
+        raise SystemExit(msg) from exc
+
+
 def _read_body(value: str | None) -> str | None:
     """Support `@file` and `@-` bodies.
 
@@ -60,10 +93,9 @@ def _read_body(value: str | None) -> str | None:
     if value is None:
         return None
     if value == "@-":
-        return sys.stdin.read()
+        return _read_stdin()
     if value.startswith("@"):
-        with open(value[1:], encoding="utf-8") as handle:  # noqa: PTH123
-            return handle.read()
+        return _read_file(value)
     if os.path.isfile(value) and len(value) < _MAX_LITERAL_PATH and "\n" not in value:  # noqa: PTH113
         msg = (
             f"refusing to send the literal path '{value}'. "

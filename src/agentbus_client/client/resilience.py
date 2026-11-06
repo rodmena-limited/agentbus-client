@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 
 from ._async_breaker import _AsyncCircuitBreaker
-from ._repeat import _is_server_error, _unsafe_to_repeat
+from ._repeat import _is_server_error, _sdk_max_retries, _unsafe_to_repeat
 from .attachments import _encode_attachments  # noqa: F401  (re-export: historical import site)
 from .errors import AgentBusError, ServiceUnavailable, TransportError
 
@@ -309,7 +309,7 @@ def _sdk_safety_net() -> Any:  # noqa: ANN401
                             should_handle=_breaker_should_handle,
                         ),
                         rc.RetryWithBackoffPolicy(
-                            max_retries=int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3")),
+                            max_retries=_sdk_max_retries(),
                             backoff=_cancellable_backoff(
                                 min_delay=_dt.timedelta(milliseconds=500),
                                 max_delay=_dt.timedelta(seconds=8),
@@ -420,13 +420,14 @@ def _run_with_resilience(
     )
 
     cancel = threading.Event()
-    with _INFLIGHT_LOCK:
-        _INFLIGHT.add(cancel)
 
     def _attempt() -> _T:
         return _attempt_once(fn, cancel, idempotent=idempotent)
 
     guarded: Callable[[], _T] = _sdk_safety_net()(_attempt)
+    lane = _sdk_bulkhead()
+    with _INFLIGHT_LOCK:
+        _INFLIGHT.add(cancel)
 
     def _wrapped() -> _T:
         _CURRENT_CANCEL.flag = cancel
@@ -463,7 +464,7 @@ def _run_with_resilience(
                 _INFLIGHT.discard(cancel)
 
     try:
-        future = _sdk_bulkhead().execute(_wrapped)
+        future = lane.execute(_wrapped)
     except bulkman.BulkheadFullError as exc:
         with _INFLIGHT_LOCK:
             _INFLIGHT.discard(cancel)

@@ -1,10 +1,14 @@
-"""VENDORED COPY of agentbus.agefmt — see that file for the full reasoning.
+"""COPY of agentbus.agefmt, the server's module, and no longer identical to it.
 
-The SDK ships independently of the server package, so it carries its own copy
-rather than importing one. Both are byte-identical and both are verified by
-tests/test_age_format.py against age(1) and against committed vectors, so a
-drift between them fails the build rather than producing two incompatible
-implementations.
+The SDK ships independently of the server package and carries its own copy.
+This copy has no `armor()` or `repad_armor()`, since sealing.py builds its own
+armor, and it differs from the server's file in how errors are raised and where
+base64 is imported. No test reads both files. A change to one does not reach the
+other and fails no test.
+
+The server's tests/test_age_format.py imports only the server's module. In this
+repo the code here is driven through sealing.py against the real age(1) by
+tests/test_round2_sealing_armor.py, which skips when age is not installed.
 
 The age v1 file format, X25519 recipients, in pure Python (#189).
 
@@ -18,7 +22,6 @@ to every test that uses both halves.
 age v1 is specified, widely implemented, and `age(1)` exists as an independent
 implementation we can drive. So this module is checked by encrypting here and
 decrypting THERE, and vice versa. That is a cross-implementation proof.
-See tests/test_age_format.py, which refuses to pass without the real binary.
 
 WHY NOT SHELL OUT TO age(1) INSTEAD. The install contract is one curl command
 and no complexity for users. Requiring every machine to have age(1) installed

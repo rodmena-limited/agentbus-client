@@ -187,9 +187,8 @@ def _explain_limit(exc: AgentBusError) -> int | None:
     # error would make the agent guess, and the common guess (truncate) is
     # exactly wrong for the second one.
     code = getattr(exc, "code", "")
-    extra = getattr(exc, "payload", None) or {}
     if code == "memory_full":
-        oldest = extra.get("oldest_seq")
+        oldest = exc.body.get("oldest_seq")
         print(f"memory full: {exc.detail}", file=sys.stderr)
         print(
             "  free space with:  agentbus memory truncate --first 10"

@@ -136,9 +136,6 @@ extend-ignore-names = [
 [tool.ruff.lint.isort]
 combine-as-imports = true
 
-[tool.ruff.lint.pep8-naming]
-extend-ignore-names = ["do_DELETE", "do_GET", "do_HEAD", "do_POST", "do_PUT"]
-
 [tool.mypy]
 python_version = "3.10"
 strict = true
@@ -148,7 +145,7 @@ explicit_package_bases = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN401", "ARG", "E402", "PLR2004", "S101", "SLF001"]
-"audit/**" = ["E402", "INP001", "T201"]
+"audit/**" = ["ANN401", "ARG", "E402", "INP001", "PLR2004", "SLF001", "T201"]
 "scripts/**" = ["INP001", "T201"]
 "src/agentbus_client/_watch_*.py" = ["T201"]
 "src/agentbus_client/cli/**" = ["T201"]

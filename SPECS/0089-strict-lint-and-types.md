@@ -42,7 +42,7 @@ ALTERNATIVES:
 
 ## RESULT
 
-These measurements date from 2026-11-06, on a tree that differs from this commit only in SPECS. The operator withdrew R8 before release. R11 is recorded after the upload.
+These measurements date from 2026-11-06, on a tree that differs from this commit only in SPECS. The operator withdrew R8 before release.
 
 | Req | Status | Measured |
 |---|---|---|
@@ -56,7 +56,7 @@ These measurements date from 2026-11-06, on a tree that differs from this commit
 | R8 | withdrawn | The operator dropped this requirement on 2026-11-06. The run after the refactor had stopped at 1110 of 3036 mutants, killed by the system for low memory, and was not repeated. The partial scores below are kept for the record. |
 | R9 | met | `scripts/check_limits.py` exits 0 in a clean clone, and no tracked Python file is over 500 lines. In a working checkout it can exit 1, because it walks the gitignored `.local` directory. |
 | R10 | met | Parsed with PyYAML: the lint job runs `uv run ruff check .` and `uv run ruff format --check .`, and the types job runs `uv run mypy`. These jobs have not been run on ci.rodmena.co.uk. The tests job still lists Python 3.9 while requires-python is >=3.10. |
-| R11 | open | Publishing follows this commit. |
+| R11 | met | 0.9.106 was uploaded from a clean clone of 686bc36. The wheel and sdist PyPI serves have the same sha256 as the local build (wheel 4ce6f1847bb108aa, sdist f3e132c74e9cd993). Installed from PyPI with no cache into new virtualenvs on Python 3.10.20 and 3.13.14, the import, `--version`, `--help` (78 lines), `whoami --json`, `inbox` and `agentbus-hook pre-tool-use` all exit 0, and the hook returned an allow from the real guard. A bad flag exits 2. The first 3.10 install failed because PyPI's index had not yet listed the version, and the rerun waited for it. |
 
 ### R8 scores
 

@@ -19,9 +19,10 @@ from __future__ import annotations
 import importlib
 import json
 import pathlib
+import sys
 import urllib.request
 
-tomllib = importlib.import_module("tomllib")
+tomllib = importlib.import_module("tomllib" if sys.version_info >= (3, 11) else "tomli")
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OSV_BATCH = "https://api.osv.dev/v1/querybatch"
 CONTROL = ("jinja2", "2.10")

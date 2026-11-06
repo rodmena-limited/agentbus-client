@@ -21,4 +21,4 @@ ALTERNATIVES:
 - Write a pool that does not use private stdlib names [REJECTED: bulkman reads the executor's shape, and this is a larger change for one release].
 - Module: `client/_daemon_pool.py` [CHOSEN, because `resilience.py` would pass the 500 line cap].
 
-RESULTS, measured 2026-11-06: on Python 3.14.7 before the fix, `test_a_worker_blocked_at_exit_does_not_hold_the_interpreter` timed out at 30 seconds and two tests in `test_round2_resilience_bulkhead.py` failed. After the fix those pass on 3.14.7 and 3.13. The full matrix is recorded on the ticket.
+RESULTS, measured 2026-11-06: on Python 3.14.7 before the fix, `test_a_worker_blocked_at_exit_does_not_hold_the_interpreter` timed out at 30 seconds and two tests in `test_round2_resilience_bulkhead.py` failed. After the fix the full suite passes on 3.10.20, 3.11.16, 3.12.13, 3.13.14 and 3.14.7 from a clean clone with locked dependencies, 4,713 tests on each and 4,714 on 3.10.

@@ -56,7 +56,7 @@ ALTERNATIVES:
 - Module: move the input side to `hooks/_gate_input.py` [CHOSEN], because `_gate.py` would have passed the 500 line cap.
 
 RESULTS, measured 2026-11-06:
-- `probe_gate_survives_deep_nesting.py` fails on 0.9.106 and passes 11 of 11 cases on the fix.
+- `probe_gate_survives_deep_nesting.py` fails on 0.9.106 and passes on the fix, 17 of 17 cases on 3.10, 3.11 and 3.14 once the fix was iterative.
 - Real harness, Claude Code 2.1.319, with a local guard that denies everything. On 0.9.106 with no bad setting the tool did not run and the guard was called once. On 0.9.106 with `AGENTBUS_GATE_TIMEOUT=abc` the tool ran and the guard was called 0 times. On the fix the tool did not run in either case. An allow control ran. With the guard unreachable the tool ran UNVETTED.
 - The live guard accepted nesting of 900 with a harmless `ls`, and answered 422 to malformed JSON.
 - Not driven through the harness: deep nesting. A live guard deny was not exercised.

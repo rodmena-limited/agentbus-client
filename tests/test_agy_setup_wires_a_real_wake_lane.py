@@ -194,7 +194,7 @@ def test_teardown_machine_does_remove_it(wired: Any, monkeypatch: pytest.MonkeyP
 # ---------------------------------------------------------------- the merge
 
 
-def _foreign() -> dict:
+def _foreign() -> dict[str, Any]:
     return {"team-linter": {"PostToolUse": [{"matcher": "*", "hooks": [{"command": "./lint.sh"}]}]}}
 
 
@@ -312,7 +312,7 @@ def _index_without_antigravity(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_an_existing_skill_is_reported_as_OK_not_as_missing(
+def test_an_existing_skill_is_reported_as_ok_not_as_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """THE WORDING REGRESSION, and it alarmed a real operator.
@@ -403,7 +403,7 @@ def test_setup_publishes_the_sealing_key_on_an_encrypted_workspace(
     workspace — senders get "cannot seal: these recipients have published no
     public key" — so setup reported success over an agent that could send and
     never receive. Caught within minutes of the first real wiring."""
-    published: list[tuple] = []
+    published: list[tuple[Any, ...]] = []
 
     class _Bus:
         def __init__(self, **kw: Any) -> None:
@@ -412,12 +412,12 @@ def test_setup_publishes_the_sealing_key_on_an_encrypted_workspace(
         def _request(self, *a: Any, **k: Any) -> dict[str, Any]:
             return {"encrypted": True}
 
+    def _publish(bus: Any, agent: Any, pub: Any) -> dict[str, str]:
+        published.append((agent, pub))
+        return {"fingerprint": "fp123"}
+
     monkeypatch.setattr(_agy_setup, "AgentBus", _Bus)
-    monkeypatch.setattr(
-        _agy_setup,
-        "_sealing_publish_with_retry",
-        lambda bus, agent, pub: published.append((agent, pub)) or {"fingerprint": "fp123"},
-    )
+    monkeypatch.setattr(_agy_setup, "_sealing_publish_with_retry", _publish)
     out = _run_setup(monkeypatch)
     assert published
     assert published[0][0] == "alpha"

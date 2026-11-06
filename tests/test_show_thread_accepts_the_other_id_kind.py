@@ -33,13 +33,13 @@ THREAD = {
 
 
 class FakeBus:
-    def __init__(self, *, deliveries: dict[str, dict], threads: dict[str, dict]) -> None:
+    def __init__(self, *, deliveries: dict[str, Any], threads: dict[str, Any]) -> None:
         self._d = deliveries
         self._t = threads
         self.reads: list[str] = []
         self.threads: list[str] = []
 
-    def read(self, ident: Any, raw: bool = False, **_: Any) -> Any:
+    def read(self, ident: Any, *, raw: bool = False, **_: Any) -> Any:
         self.reads.append(ident)
         if ident in self._d:
             return self._d[ident]
@@ -137,7 +137,7 @@ def test_thread_both_unknown_raises_the_original(monkeypatch: pytest.MonkeyPatch
 
 def test_non_404_errors_are_not_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
     class Boom(FakeBus):
-        def read(self, ident: Any, raw: bool = False, **_: Any) -> NoReturn:
+        def read(self, ident: Any, *, raw: bool = False, **_: Any) -> NoReturn:
             msg = "down"
             raise AgentBusError(msg, code="server_error", status=500)
 

@@ -10,17 +10,20 @@ import io
 import socket
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from _common import verdict
 
 from agentbus_client.watch import Watcher
 
+if TYPE_CHECKING:
+    from agentbus_client.client import AgentBus
+
 srv = socket.socket()
 srv.bind(("127.0.0.1", 0))
 srv.listen(128)
 port = srv.getsockname()[1]
-opens = []
+opens: list[float] = []
 
 
 def serve() -> None:
@@ -47,14 +50,14 @@ class Bus:
     agent = "probe"
     base_url = f"http://127.0.0.1:{port}"
 
-    def inbox(s: Any, *a: Any, **k: Any) -> list[Any]:
+    def inbox(self, *a: Any, **k: Any) -> list[Any]:
         return []
 
-    def whoami(s: Any) -> dict[str, Any]:
+    def whoami(self) -> dict[str, Any]:
         return {}
 
 
-w = Watcher(Bus(), "probe", on_message=lambda m: None)
+w = Watcher(cast("AgentBus", Bus()), "probe", on_message=lambda m: None)
 err = io.StringIO()
 
 
@@ -65,7 +68,7 @@ def run() -> None:
 
 threading.Thread(target=run, daemon=True).start()
 time.sleep(8)
-logged = sum(1 for l in err.getvalue().splitlines() if "retrying in" in l)
+logged = sum(1 for line in err.getvalue().splitlines() if "retrying in" in line)
 print(f"stream opens in 8s: {len(opens)}; backoff log lines: {logged}")
 raise SystemExit(
     verdict(

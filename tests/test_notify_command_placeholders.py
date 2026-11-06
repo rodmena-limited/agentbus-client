@@ -54,7 +54,7 @@ def captured_command(monkeypatch: pytest.MonkeyPatch) -> Any:
     command string without actually spawning a shell."""
     calls: list[str] = []
 
-    def fake_run(command: Any, *_a: Any, **_kw: Any) -> subprocess.CompletedProcess:
+    def fake_run(command: Any, *_a: Any, **_kw: Any) -> subprocess.CompletedProcess[Any]:
         calls.append(command)
         return subprocess.CompletedProcess(args=command, returncode=0)
 

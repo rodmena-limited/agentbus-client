@@ -50,14 +50,14 @@ def _lazy_imports() -> list[tuple[str, str, int]]:
                     rel = path.relative_to(ROOT.parent)
                     pkg = ".".join(rel.with_suffix("").parts[:-1])
                     base = pkg
-                    for alias in inner.names:
-                        found.append(
-                            (
-                                base,
-                                "." * inner.level + (inner.module or "") + f".{alias.name}",
-                                inner.lineno,
-                            )
+                    found.extend(
+                        (
+                            base,
+                            "." * inner.level + (inner.module or "") + f".{alias.name}",
+                            inner.lineno,
                         )
+                        for alias in inner.names
+                    )
     return found
 
 

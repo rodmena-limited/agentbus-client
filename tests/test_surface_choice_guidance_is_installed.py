@@ -171,7 +171,7 @@ def test_no_exemption_names_a_capability_that_no_longer_exists() -> None:
     assert not stale, f"EXEMPTIONS names capabilities that no longer exist: {stale}"
 
 
-def test_every_exemption_is_actually_REACHED_by_the_matrix() -> None:
+def test_every_exemption_is_actually_reached_by_the_matrix() -> None:
     """An exemption must be EVALUATED, not merely well-formed.
 
     The stale-exemption test above asks whether an exemption names a live

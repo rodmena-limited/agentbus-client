@@ -9,18 +9,26 @@ from _common import verdict
 
 from agentbus_client.client import resilience
 
-worst = 0
-for _ in range(20):
+
+def distinct_bulkheads() -> int:
     resilience._SDK_BULKHEAD = None
-    ids, gate = set(), threading.Barrier(16)
+    ids: set[int] = set()
+    gate = threading.Barrier(16)
 
     def go() -> None:
         gate.wait()
         ids.add(id(resilience._sdk_bulkhead()))
 
     th = [threading.Thread(target=go) for _ in range(16)]
-    [t.start() for t in th]
-    [t.join() for t in th]
-    worst = max(worst, len(ids))
+    for t in th:
+        t.start()
+    for t in th:
+        t.join()
+    return len(ids)
+
+
+worst = 0
+for _ in range(20):
+    worst = max(worst, distinct_bulkheads())
 print(f"max distinct bulkheads handed to 16 concurrent first callers over 20 rounds: {worst}")
 raise SystemExit(verdict(worst == 1, "lazy singleton races; concurrency cap not enforced"))

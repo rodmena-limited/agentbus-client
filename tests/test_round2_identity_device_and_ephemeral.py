@@ -27,7 +27,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     return monkeypatch
 
 
-def _dockerenv(monkeypatch: pytest.MonkeyPatch, present: bool) -> None:
+def _dockerenv(monkeypatch: pytest.MonkeyPatch, *, present: bool) -> None:
     real_exists = pathlib.Path.exists
 
     def _exists(self: pathlib.Path, *args: object, **kwargs: object) -> bool:
@@ -143,7 +143,7 @@ def test_an_unwritable_config_dir_degrades_to_a_per_process_id(
 
 @pytest.mark.parametrize("marker", MARKERS)
 def test_each_marker_makes_describe_ephemeral(marker: str, clean_env: pytest.MonkeyPatch) -> None:
-    _dockerenv(clean_env, False)
+    _dockerenv(clean_env, present=False)
     clean_env.setenv("AGENTBUS_DEVICE_ID", "dev-1")
     clean_env.setenv(marker, "true")
     assert identity_mod.describe("/w/proj")["ephemeral"] is True
@@ -151,7 +151,7 @@ def test_each_marker_makes_describe_ephemeral(marker: str, clean_env: pytest.Mon
 
 
 def test_a_clean_environment_is_not_ephemeral(clean_env: pytest.MonkeyPatch) -> None:
-    _dockerenv(clean_env, False)
+    _dockerenv(clean_env, present=False)
     assert identity_mod.describe("/w/proj")["ephemeral"] is False
     assert identity_mod.is_ephemeral() is False
     clean_env.setenv("AGENTBUS_DEVICE_ID", "dev-1")
@@ -163,7 +163,7 @@ def test_a_clean_environment_is_not_ephemeral(clean_env: pytest.MonkeyPatch) -> 
 def test_truthy_flag_spellings_are_ephemeral(
     name: str, value: str, clean_env: pytest.MonkeyPatch
 ) -> None:
-    _dockerenv(clean_env, False)
+    _dockerenv(clean_env, present=False)
     clean_env.setenv(name, value)
     assert identity_mod.is_ephemeral() is True
 
@@ -173,7 +173,7 @@ def test_truthy_flag_spellings_are_ephemeral(
 def test_other_flag_spellings_are_not_ephemeral(
     name: str, value: str, clean_env: pytest.MonkeyPatch
 ) -> None:
-    _dockerenv(clean_env, False)
+    _dockerenv(clean_env, present=False)
     clean_env.setenv(name, value)
     assert identity_mod.is_ephemeral() is False
 
@@ -183,26 +183,26 @@ def test_other_flag_spellings_are_not_ephemeral(
 def test_provider_markers_count_by_presence(
     marker: str, value: str, clean_env: pytest.MonkeyPatch
 ) -> None:
-    _dockerenv(clean_env, False)
+    _dockerenv(clean_env, present=False)
     clean_env.setenv(marker, value)
     assert identity_mod.is_ephemeral() is True
 
 
 @pytest.mark.parametrize("marker", MARKERS[2:])
 def test_an_empty_provider_marker_is_absent(marker: str, clean_env: pytest.MonkeyPatch) -> None:
-    _dockerenv(clean_env, False)
+    _dockerenv(clean_env, present=False)
     clean_env.setenv(marker, "")
     assert identity_mod.is_ephemeral() is False
 
 
 def test_a_container_without_a_device_file_is_ephemeral(clean_env: pytest.MonkeyPatch) -> None:
-    _dockerenv(clean_env, True)
+    _dockerenv(clean_env, present=True)
     assert not _device_file().exists()
     assert identity_mod.is_ephemeral() is True
 
 
 def test_a_container_with_a_persisted_device_file_is_not(clean_env: pytest.MonkeyPatch) -> None:
-    _dockerenv(clean_env, True)
+    _dockerenv(clean_env, present=True)
     _device_file().parent.mkdir(parents=True, exist_ok=True)
     _device_file().write_text("persisted\n")
     assert identity_mod.is_ephemeral() is False
@@ -211,12 +211,12 @@ def test_a_container_with_a_persisted_device_file_is_not(clean_env: pytest.Monke
 def test_describe_in_a_container_with_a_fleet_device_id_is_ephemeral(
     clean_env: pytest.MonkeyPatch,
 ) -> None:
-    _dockerenv(clean_env, True)
+    _dockerenv(clean_env, present=True)
     clean_env.setenv("AGENTBUS_DEVICE_ID", "fleet-7")
     assert identity_mod.describe("/w/proj")["ephemeral"] is True
 
 
 def test_describe_in_a_fresh_container_is_ephemeral(clean_env: pytest.MonkeyPatch) -> None:
-    _dockerenv(clean_env, True)
+    _dockerenv(clean_env, present=True)
     assert not _device_file().exists()
     assert identity_mod.describe("/w/proj")["ephemeral"] is True

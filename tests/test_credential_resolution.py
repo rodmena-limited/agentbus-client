@@ -42,7 +42,7 @@ def _with(
     monkeypatch: pytest.MonkeyPatch, *, identity: Any = None, keys: Any = None, operator: Any = None
 ) -> None:
     monkeypatch.setattr(_credentials, "_session_identity", lambda: identity)
-    monkeypatch.setattr(_credentials, "_agent_key", lambda name: (keys or {}).get(name))
+    monkeypatch.setattr(_credentials, "_agent_key", (keys or {}).get)
     monkeypatch.setattr(_credentials, "_operator_key", lambda: operator)
 
 
@@ -51,7 +51,7 @@ def test_this_sessions_own_bound_key_is_loaded(monkeypatch: pytest.MonkeyPatch) 
     assert _credentials.resolve_credentials() == ("ab_sk_mine", "me")
 
 
-def test_asking_to_act_as_a_PEER_never_loads_the_peers_bound_key(
+def test_asking_to_act_as_a_peer_never_loads_the_peers_bound_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """THE PRIVILEGE BOUNDARY. runflow's reproduction, pinned."""
@@ -62,7 +62,7 @@ def test_asking_to_act_as_a_PEER_never_loads_the_peers_bound_key(
     assert agent is None
 
 
-def test_acting_as_a_peer_IS_allowed_with_an_operator_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_acting_as_a_peer_is_allowed_with_an_operator_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Known-negative for the boundary: it must not block the legitimate route.
 
     Without this, the assertion above would also pass in a world where acting as
@@ -73,7 +73,7 @@ def test_acting_as_a_peer_IS_allowed_with_an_operator_key(monkeypatch: pytest.Mo
     assert _credentials.resolve_credentials(preferred_agent="peer") == ("ab_sk_op", "peer")
 
 
-def test_asking_for_your_OWN_name_explicitly_still_loads_your_key(
+def test_asking_for_your_own_name_explicitly_still_loads_your_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`--agent me` when you ARE me is not impersonation."""
@@ -92,7 +92,7 @@ def test_the_env_var_names_the_session_identity_when_nothing_else_does(
     assert _credentials.resolve_credentials() == ("ab_sk_c", "containerized")
 
 
-def test_the_env_var_does_NOT_unlock_a_peers_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_env_var_does_not_unlock_a_peers_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """The container path must not become a way around the boundary."""
     monkeypatch.setenv("AGENTBUS_AGENT", "me")
     _with(monkeypatch, identity=None, keys={"me": "ab_sk_mine", "peer": "ab_sk_PEER"})

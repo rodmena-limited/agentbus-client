@@ -3,12 +3,16 @@ from __future__ import annotations
 import io
 import json
 import sys
-from typing import Any
+import urllib.request
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
+
+if TYPE_CHECKING:
+    import argparse
 
 
 class _Resp:
@@ -46,13 +50,13 @@ def _run(
         return _Resp(guard_body)
 
     monkeypatch.setattr(hk._gate, "_bus_reachable", lambda *_a, **_k: (True, ""))
-    monkeypatch.setattr(hk._gate.urllib.request, "urlopen", _urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
     monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_test")
     monkeypatch.setenv("AGENTBUS_AGENT", "json-agent")
     monkeypatch.setenv("AGENTBUS_BASE_URL", "https://bus.invalid")
     monkeypatch.setattr(sys, "stdout", _Out())
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
-    rc = hk.pre_tool_use(None)
+    rc = hk.pre_tool_use(cast("argparse.Namespace", None))
     line = next(chunk for chunk in out if "hookSpecificOutput" in chunk)
     return rc, json.loads(line)["hookSpecificOutput"]
 

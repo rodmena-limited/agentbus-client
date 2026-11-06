@@ -24,12 +24,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agentbus_client import cli as cli_module
 
 if TYPE_CHECKING:
     import pytest
+
+    from agentbus_client.client import AgentBus
 
 
 def _write_state(cfg_dir: Path, name: str, version: str) -> Path:
@@ -231,7 +233,7 @@ def test_watcher_stamps_its_own_pid(tmp_path: Path) -> None:
             return []
 
     state = tmp_path / "s.json"
-    w = Watcher(_Bus(), agent="a", state_path=state)
+    w = Watcher(cast("AgentBus", _Bus()), agent="a", state_path=state)
     w._save_cursor()
 
     data = json.loads(state.read_text())

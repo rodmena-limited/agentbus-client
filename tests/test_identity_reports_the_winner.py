@@ -59,7 +59,7 @@ def _agent_line(out: str) -> str:
     return ""
 
 
-def _run(as_json: bool = False) -> Any:
+def _run(*, as_json: bool = False) -> Any:
     buf = io.StringIO()
     with redirect_stdout(buf):
         assert _identity_cmd.cmd_identity(argparse.Namespace(json=as_json, workdir=None)) == 0

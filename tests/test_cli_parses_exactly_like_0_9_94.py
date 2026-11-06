@@ -16,7 +16,7 @@ VERBS = set(ORACLE["verbs"])
 OPTIONS = {path: set(opts) for path, opts in ORACLE["options"].items()}
 TAKES_VALUE = {"--agent", "--api-key", "--base-url"}
 CASES = ORACLE["cases"]
-ADDED_AFTER_0_9_94 = {
+ADDED_AFTER_0_9_94: dict[str, dict[str, Any]] = {
     "drafts": {"delete": None},
     "send": {"allow_empty": False},
     "reply": {"allow_empty": False},
@@ -42,14 +42,14 @@ def delta(argv: list[str]) -> str | None:
             return "no-verb"
         return None
     known = OPTIONS[path]
-    for token in argv[start:]:
-        if token == "--":
+    for word in argv[start:]:
+        if word == "--":
             break
         if (
-            token.startswith("--")
-            and "=" not in token
-            and token not in known
-            and any(option.startswith(token) for option in known)
+            word.startswith("--")
+            and "=" not in word
+            and word not in known
+            and any(option.startswith(word) for option in known)
         ):
             return "abbreviation"
     return None
@@ -60,11 +60,10 @@ def _observe(argv: list[str]) -> str:
         ns = parse_args(argv)
     except SystemExit as exc:
         return json.dumps({"exit": exc.code if isinstance(exc.code, int) else 1})
-    data = {}
-    for key, value in sorted(vars(ns).items()):
-        if key == "func":
-            value = f"{value.__module__}.{value.__qualname__}"
-        data[key] = value
+    data = {
+        key: f"{value.__module__}.{value.__qualname__}" if key == "func" else value
+        for key, value in sorted(vars(ns).items())
+    }
     command = data.get("command")
     added = ADDED_AFTER_0_9_94.get(command, {}) if isinstance(command, str) else {}
     for key, default in added.items():
@@ -73,7 +72,7 @@ def _observe(argv: list[str]) -> str:
     return json.dumps({"namespace": data}, sort_keys=True)
 
 
-def _expected(case: dict) -> str:
+def _expected(case: dict[str, Any]) -> str:
     return json.dumps({k: v for k, v in case.items() if k != "argv"}, sort_keys=True)
 
 

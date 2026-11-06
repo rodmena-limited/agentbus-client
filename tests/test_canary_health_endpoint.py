@@ -91,7 +91,7 @@ class _FakeBus:
     def __init__(self, response: Any = None, raises: Any = None) -> None:
         self._response = response
         self._raises = raises
-        self.agent = "me"
+        self.agent: str | None = "me"
 
     def health(self, target_agent: Any, agent: Any = None) -> Any:
         if self._raises:
@@ -191,6 +191,6 @@ def test_cli_health_verb_registered_in_parser() -> None:
 
 def _cli_source() -> str:
     """The CLI is a package now (one module per command family): read all of it."""
-    from pathlib import Path as _P
+    from pathlib import Path
 
-    return "".join(f.read_text() for f in sorted(_P(cli_module.__file__).parent.glob("*.py")))
+    return "".join(f.read_text() for f in sorted(Path(cli_module.__file__).parent.glob("*.py")))

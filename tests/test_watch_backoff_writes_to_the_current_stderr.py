@@ -3,12 +3,14 @@ from __future__ import annotations
 import io
 import sys
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
+
+    from agentbus_client.client import AgentBus
 
 
 class _Bus:
@@ -20,10 +22,11 @@ class _Bus:
         return []
 
 
-def _watcher(tmp_path: Path) -> Any:  # type: ignore[no-untyped-def]
+def _watcher(tmp_path: Path) -> Any:
     from agentbus_client import watch as watch_module
 
-    return watch_module, watch_module.Watcher(_Bus(), agent="a", state_path=tmp_path / "s.json")
+    bus = cast("AgentBus", _Bus())
+    return watch_module, watch_module.Watcher(bus, agent="a", state_path=tmp_path / "s.json")
 
 
 def test_backoff_announces_on_the_stderr_current_at_call_time(

@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 BODY = "héllo wörld — ünïcode\nline two\n"
 
 
-def _delivery(**over: Any) -> dict:
-    base = {
+def _delivery(**over: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
         "message_id": "msg_1",
         "thread_id": "th_1",
         "subject": "quarterly numbers",
@@ -35,11 +35,17 @@ def _delivery(**over: Any) -> dict:
 
 
 class _Bus:
-    def __init__(self, delivery: dict, thread: dict | None = None, missing: bool = False) -> None:
+    def __init__(
+        self,
+        delivery: dict[str, Any],
+        thread: dict[str, Any] | None = None,
+        *,
+        missing: bool = False,
+    ) -> None:
         self.delivery = delivery
         self.thread_result = thread or {"thread_id": "th_1", "messages": []}
         self.missing = missing
-        self.calls: list[tuple] = []
+        self.calls: list[tuple[Any, ...]] = []
 
     def read(self, *args: Any, **kwargs: Any) -> Any:
         self.calls.append(("read", args, kwargs))
@@ -53,8 +59,8 @@ class _Bus:
         return self.thread_result
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> list:
-    given: list = []
+def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> list[Any]:
+    given: list[Any] = []
 
     def _factory(args: Any) -> Any:
         given.append(args)

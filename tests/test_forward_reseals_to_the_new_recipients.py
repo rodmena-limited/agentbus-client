@@ -29,7 +29,7 @@ class FakeBus:
     agent = "me"
 
     def __init__(self) -> None:
-        self.sent: dict | None = None
+        self.sent: Any = None
 
     def read(self, _delivery_id: Any) -> dict[str, Any]:
         # `read` unseals on the way through, so this is the plaintext this
@@ -106,7 +106,7 @@ def test_an_unreadable_message_is_refused_not_forwarded_empty(
     """If this agent cannot unseal it, there is nothing to re-seal. Sending an
     empty forward would look like a delivered message with no content."""
     bus = FakeBus()
-    bus.read = lambda _d: {"text_body": "", "subject": "x"}
+    monkeypatch.setattr(bus, "read", lambda _d: {"text_body": "", "subject": "x"})
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     rc, _ = _forward(["carol"])
     assert rc == 1
@@ -132,7 +132,9 @@ def test_an_already_forwarded_subject_is_not_double_prefixed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bus = FakeBus()
-    bus.read = lambda _d: {"text_body": "x", "subject": "Fwd: budget", "sender_display": "a"}
+    monkeypatch.setattr(
+        bus, "read", lambda _d: {"text_body": "x", "subject": "Fwd: budget", "sender_display": "a"}
+    )
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
     _forward(["carol"])
     assert bus.sent["subject"] == "Fwd: budget"

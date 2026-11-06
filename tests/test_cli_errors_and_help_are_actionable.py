@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
 
-from agentbus_client.cli import _read, _threads
+from agentbus_client.cli import _common, _read
 from agentbus_client.cli._app import BusArgument
 from agentbus_client.cli._parser import build, verbs
 from agentbus_client.client import NotFoundError
@@ -38,6 +38,7 @@ def _cli(tmp_path: Path, *argv: str, **env: str) -> subprocess.CompletedProcess[
         env=environment,
         cwd=str(work),
         timeout=60,
+        check=False,
     )
 
 
@@ -158,7 +159,7 @@ def _inbox(monkeypatch: pytest.MonkeyPatch, deliveries: Any, **flags: Any) -> An
         def inbox(self, cursor: Any, **kw: Any) -> Any:
             return deliveries
 
-    monkeypatch.setattr(_read._common, "_bus", lambda args: _Bus())
+    monkeypatch.setattr(_common, "_bus", lambda args: _Bus())
     args = argparse.Namespace(cursor=0, limit=50, label=None, wait=0, unread=False, json=False)
     for key, value in flags.items():
         setattr(args, key, value)
@@ -198,7 +199,7 @@ def test_a_bad_thread_id_prints_one_explanation(monkeypatch: pytest.MonkeyPatch)
 
     from agentbus_client.cli import main
 
-    monkeypatch.setattr(_threads._common, "_bus", lambda args: _Bus())
+    monkeypatch.setattr(_common, "_bus", lambda args: _Bus())
     err = io.StringIO()
     with redirect_stderr(err):
         rc = main(["thread", "01X"])

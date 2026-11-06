@@ -9,7 +9,7 @@ arrived.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -20,9 +20,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _write(path: Any, size: int) -> None:
+def _write(path: Path, size: int) -> None:
     """A file of `size` bytes without reading it into Python RAM."""
-    with open(path, "wb") as f:
+    with path.open("wb") as f:
         f.seek(size - 1)
         f.write(b"\0")
 

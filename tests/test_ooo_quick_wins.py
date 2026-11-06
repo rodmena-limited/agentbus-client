@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 # --------------------------------------------------------------------- F8
 
 PAYLOADS = [b"one" * 10, b"two" * 20, b"three" * 30]
-METAS = [
+METAS: list[dict[str, Any]] = [
     {"filename": "a.bin", "size": len(PAYLOADS[0])},
     {"filename": "b.bin", "size": len(PAYLOADS[1])},
     {"filename": "c.bin", "size": len(PAYLOADS[2])},
@@ -40,7 +40,7 @@ class _MultiBus:
         self._datas = datas if datas is not None else PAYLOADS
         self.calls: list[tuple[str, int]] = []
 
-    def read(self, _delivery_id: Any, raw: bool = False) -> dict[str, Any]:
+    def read(self, _delivery_id: Any, *, raw: bool = False) -> dict[str, Any]:
         return {"attachments": self._metas}
 
     def attachment(self, delivery_id: str, index: Any) -> Any:
@@ -72,7 +72,7 @@ def test_all_flag_fetches_every_attachment(
     assert cli.cmd_attachment(_attach_args(all=True)) == 0
 
     # Every payload landed on disk under its original filename.
-    for meta, payload in zip(METAS, PAYLOADS):
+    for meta, payload in zip(METAS, PAYLOADS, strict=True):
         target = tmp_path / meta["filename"]
         assert target.exists(), f"{meta['filename']} was not written"
         assert target.read_bytes() == payload
@@ -207,7 +207,7 @@ class _ShowBus:
     def __init__(self, delivery: Any) -> None:
         self._delivery = delivery
 
-    def read(self, _delivery_id: Any, raw: bool = False) -> Any:
+    def read(self, _delivery_id: Any, *, raw: bool = False) -> Any:
         return self._delivery
 
 

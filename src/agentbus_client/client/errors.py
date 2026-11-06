@@ -89,7 +89,7 @@ def _raise_for(response: httpx.Response) -> None:
         return
     try:
         parsed = response.json()
-    except ValueError:
+    except (ValueError, RecursionError):
         parsed = None
     body = parsed if isinstance(parsed, dict) else {}
     code = body.get("code", "error")

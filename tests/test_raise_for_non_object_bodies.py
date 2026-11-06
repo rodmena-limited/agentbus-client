@@ -52,6 +52,7 @@ NOT_OBJECTS = [
     pytest.param(b"null", id="null"),
     pytest.param(b"true", id="bool"),
 ]
+TOO_DEEP = b"[" * 200_000 + b"]" * 200_000
 TYPED = [
     (400, AgentBusError),
     (401, AuthError),
@@ -150,6 +151,35 @@ def test_every_status_keeps_its_typed_error(
     assert caught.value.code == "error"
     assert caught.value.body == {}
     assert caught.value.detail == raw.decode()
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (400, AgentBusError),
+        (404, NotFoundError),
+        (429, QuotaExceeded),
+        (502, AgentBusError),
+        (503, ServiceUnavailable),
+    ],
+)
+def test_a_list_nested_too_deep_to_parse_keeps_the_typed_error(
+    status: int, expected: type[AgentBusError]
+) -> None:
+    with pytest.raises(AgentBusError) as caught:
+        _raise_for(_reply(status, TOO_DEEP))
+    assert type(caught.value) is expected
+    assert caught.value.status == status
+    assert caught.value.body == {}
+    assert caught.value.detail == "[" * 300
+
+
+@pytest.mark.parametrize("call", TWINS)
+def test_a_list_nested_too_deep_still_retries(call: Any) -> None:
+    seen, outcome = call([_reply(503, TOO_DEEP)])
+    assert seen == [PATH] * 4
+    assert type(outcome) is ServiceUnavailable
+    assert outcome.status == 503
 
 
 @pytest.mark.parametrize("call", TWINS)

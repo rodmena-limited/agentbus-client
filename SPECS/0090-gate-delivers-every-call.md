@@ -53,3 +53,10 @@ ALTERNATIVES:
 - Answer with no verdict: treat as no answer [CHOSEN], per #107. It was a client-side deny.
   Keep the deny [REJECTED: only a verified deny blocks. A future blocking verdict must be added to this client on purpose].
 - Module: move the input side to `hooks/_gate_input.py` [CHOSEN], because `_gate.py` would have passed the 500 line cap.
+
+RESULTS, measured 2026-11-06:
+- `probe_gate_survives_deep_nesting.py` fails on 0.9.106 and passes 11 of 11 cases on the fix.
+- Real harness, Claude Code 2.1.319, with a local guard that denies everything. On 0.9.106 with no bad setting the tool did not run and the guard was called once. On 0.9.106 with `AGENTBUS_GATE_TIMEOUT=abc` the tool ran and the guard was called 0 times. On the fix the tool did not run in either case. An allow control ran. With the guard unreachable the tool ran UNVETTED.
+- The live guard accepted nesting of 900 with a harmless `ls`, and answered 422 to malformed JSON.
+- Not driven through the harness: deep nesting. A live guard deny was not exercised.
+- Existing tests changed on purpose: `not json{` is now delivered as text, and `{"decision":"maybe"}` and `{}` left the deny table. `test_an_answer_with_no_verdict_never_blocks` covers them.

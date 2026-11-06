@@ -12,6 +12,43 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.107] — 2026-11-06
+
+The gate now hands each tool call to the guard, and only a verified `deny` from the guard stops a call (#90). AgentBus carries the question and the guard decides. This release also closes a path traversal in `teardown --purge-key` (#92) and stops the async client repeating unsafe POSTs (#91). The smaller defects in #93 and #94 are fixed too.
+
+### Security
+- `agentbus teardown --purge-key` could delete a file outside the keys directory. A cloned repo that set its agent name to `../operator` pointed the delete at `operator.env`. A name that is not a key name now stops the purge with exit 1, and nothing is deleted. `signin` and `setup` now keep their key paths inside the keys directory as well (#92).
+- An unusable setting no longer bypasses the guard. On 0.9.106, `AGENTBUS_GATE_TIMEOUT=abc` crashed the hook, Claude Code ran the tool, and the guard was never asked. We measured this against a deny-all guard. The gate now uses its default for that setting, says so in the decision reason, and asks the guard (#90).
+
+### Changed
+- A guard answer that is neither `allow` nor `deny` now runs the call with the UNVETTED warning and a degraded record. The client used to turn that answer into a deny. Only a verified `deny` blocks (#90).
+- Hook input that does not decode to a JSON object reaches the guard as `tool_input: {"unreadable_tool_call": "<raw text>"}`. The gate takes `tool_name` from the raw text when it can find it. Rules that read the decoded fields will match this input only through a pattern on the text (#90).
+- Input nested past 512 levels reaches the guard with the deeper levels replaced by a marker string and `truncated: true` (#90).
+- A base URL that is not http or https counts as unreachable in the gate, and the call runs UNVETTED (#93).
+- `agentbus watch --exec`: a field value with shell meaning now reaches your command through an environment variable, `AGENTBUS_FIELD_n`, and the command holds a reference to it. The timeout line shows that reference. Quotes around a placeholder in your template are safe now. A template that hands a placeholder to a second shell (`sh -c`, `eval`, `ssh`) still evaluates it there, as it did before (#93).
+- The opencode skill moves to `$XDG_CONFIG_HOME/opencode/skills/agentbus/SKILL.md`, the directory opencode reads. opencode will not list it until the server adds frontmatter to `/skills/opencode.md`, and that server fix has not shipped. If you repaired your copy by hand, the refresh replaces it and keeps the old file as `SKILL.md.bak`. A checkout wired only for opencode reports the skill as `missing` until you run `agentbus refresh-skill` (#93, #94).
+- `agentbus signin` exits 1 when the sealing key cannot be prepared or the public key cannot be published. The credential is still stored (#93, #94).
+- `agentbus doctor` reports a running monitor process and no longer claims it holds a live stream. It prints "matching what is installed" only after comparing two release versions (#93, #94).
+- `AGENTBUS_SDK_*`, `AGENTBUS_EXEC_TIMEOUT` and `AGENTBUS_REWAKE_*` values that cannot be used fall back to the default with one line on stderr. `AGENTBUS_SDK_MAX_RETRIES=-1` means no retries on both clients (#93, #94).
+- `AGENTBUS_AGENT` in a settings file that is not a string now reads as absent. A value of `5` used to become the agent `5` (#94).
+- `agentbus join` accepts only http and https URLs with a host (#93).
+
+### Fixed
+- The async client tries a non-idempotent POST once when it gets a 5xx, the same as the sync client. It used to make up to four attempts without an idempotency key. Reads and POSTs with an idempotency key are still retried (#91).
+- A 2xx response whose body is not JSON, such as a captive portal page, raises `AgentBusError` with code `unreadable_response`. It used to escape every `except AgentBusError` (#94).
+- An error body that is JSON but not an object keeps its typed error and its status (#94).
+- `null` for `env`, `hooks` or `mcp` in an operator's settings reads as absent. A wrong type or a broken file is refused by name before anything is provisioned (#93).
+- `register`, the identity banner, the hooks and teardown no longer crash on an unexpected `env` value or a broken settings file (#93, #94).
+- A `.gitignore` with no final newline no longer has an entry glued to its last line, which broke both patterns. `setup` run from a subdirectory now uses the git root's `.gitignore` (#93, #94).
+- `@missing`, `@` and `@dir` as a message body print one line and exit 1 (#93).
+- `agentbus memory` limit errors show the oldest sequence number when the server sends it (#93).
+- `setup` reports a settings file it cannot write in one line, and a failed `claude mcp add` or `remove` no longer stops the run with a traceback (#93, #94).
+- Hooks no longer stop on a subject the terminal cannot encode, and one bad line in the wake file no longer hides the others (#94).
+- Non-UTF-8 content in `.agentbus/agent` reads as no identity (#94).
+
+### Not changed
+- `_request` still claims to return a dict although it can return `None` or a list. That item is closed as wont-do because an accurate annotation costs 155 mypy errors and the public methods would stay as they are (#93).
+
 ## [0.9.106] — 2026-11-06
 
 The client now passes ruff with `select = ["ALL"]`, minus seven rules and the docstring

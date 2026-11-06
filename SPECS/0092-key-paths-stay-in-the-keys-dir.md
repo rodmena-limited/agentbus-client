@@ -21,3 +21,5 @@ ALTERNATIVES:
 - Refuse when the sanitiser would change the name [CHOSEN], then build the path through the sanitiser.
   Purge the sanitised name [REJECTED: `a/b` becomes `a_b`, which can be another agent's real key].
   Resolve and compare against the keys directory [REJECTED: a second implementation of the same guard].
+
+RESULTS, measured 2026-11-06: `probe_purge_key_stays_in_keys_dir.py` fails on 0.9.106 and passes on the fix, with `../operator` refused and `operator.env` intact. A real agent's key is still purged, and without the purge flag a bad name still unwires the project. Eight key path sites were in scope: 2 rename, 4 write, 1 check and 1 print. A hostile name through the `agentbus setup` read path was not reproduced.

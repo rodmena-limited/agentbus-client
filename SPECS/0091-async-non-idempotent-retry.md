@@ -22,3 +22,5 @@ SOLUTION DOMAINS:
 ALTERNATIVES:
 - One classifier in `client/_repeat.py`, used by both clients [CHOSEN].
   A parallel async copy [REJECTED: twin copies are what produced this defect].
+
+RESULTS, measured 2026-11-06: `probe_async_post_not_repeated.py` fails on 0.9.106 and passes on the fix with 1 attempt. Both directions are tested: a read and a POST with an idempotency key still make 4 attempts, on one key.

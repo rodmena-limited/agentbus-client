@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import plistlib
 import re
 from contextlib import redirect_stdout
 from typing import Any
@@ -28,8 +29,10 @@ import pytest
 
 from agentbus_client import cli
 
+from .test_service_manager_detection import _daemon_words, _flag_value
 
-def _emit(manager: str) -> str:
+
+def _emit_streams(manager: str) -> tuple[str, str]:
     args = argparse.Namespace(
         agent="probe-agent", manager=manager, base_url="https://bus.test", json=False
     )
@@ -39,7 +42,19 @@ def _emit(manager: str) -> str:
 
     with redirect_stdout(buf), contextlib.redirect_stderr(err):
         cli.cmd_service(args)
-    return buf.getvalue() + err.getvalue()
+    return buf.getvalue(), err.getvalue()
+
+
+def _emit(manager: str) -> str:
+    return "".join(_emit_streams(manager))
+
+
+def _launchd_throttle() -> int:
+    return int(plistlib.loads(_emit_streams("launchd")[0].encode())["ThrottleInterval"])
+
+
+def _rc_restart_delay() -> int:
+    return int(_flag_value(_daemon_words(_emit_streams("rc.d")[0]), "-R"))
 
 
 def test_systemd_refuses_to_restart_a_permanent_auth_failure() -> None:
@@ -73,14 +88,12 @@ def test_a_manager_without_exit_status_suppression_says_so(manager: Any) -> None
     assert "revoked" in out, "must name the exit status and what causes it"
 
 
-@pytest.mark.parametrize(
-    ("manager", "needle"),
-    [("launchd", "ThrottleInterval"), ("rc.d", "-R 60")],
-)
-def test_the_unsuppressable_managers_are_throttled(manager: Any, needle: Any) -> None:
+@pytest.mark.parametrize("seconds_between_restarts", [_launchd_throttle, _rc_restart_delay])
+def test_the_unsuppressable_managers_are_throttled(seconds_between_restarts: Any) -> None:
     """If the loop cannot be prevented it must at least be paced: one attempt a
-    minute instead of twelve turns 24,324 requests a day into ~1,440."""
-    assert needle in _emit(manager)
+    minute instead of twelve turns 24,324 requests a day into ~1,440. The value
+    comes from the plist launchd loads and the arguments daemon(8) receives."""
+    assert seconds_between_restarts() == 60
 
 
 def test_a_crash_loop_on_any_other_status_is_also_capped() -> None:

@@ -156,9 +156,10 @@ def test_out_of_range_index_lists_what_is_actually_there(
 
 def test_the_verb_is_registered_in_the_parser() -> None:
     """A command nobody can invoke is not a command."""
-    parser = cli.build_parser() if hasattr(cli, "build_parser") else None
-    if parser is None:
-        assert '"attachment"' in _cli_source(), "the subparser is not registered"
+    args = cli.build_parser().parse_args(["attachment", "01D", "--index", "2"])
+    assert args.func is cli.cmd_attachment
+    assert args.delivery_id == "01D"
+    assert args.index == 2
 
 
 # ------------------------------------------------------ filename traversal guard
@@ -216,8 +217,3 @@ def _args(**over: Any) -> argparse.Namespace:
     }
     base.update(over)
     return argparse.Namespace(**base)
-
-
-def _cli_source() -> str:
-    """The CLI is a package now (one module per command family): read all of it."""
-    return "".join(f.read_text() for f in sorted(Path(cli.__file__).parent.glob("*.py")))

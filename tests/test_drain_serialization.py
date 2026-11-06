@@ -10,12 +10,17 @@ duplicate-wake incident (#88) would have reappeared exactly here.
 This test proves the current design serializes ALL drain call sites through
 one lock — a second drain launched (via _drain_async OR directly) while a
 first is in-flight either waits (blocking acquire) or skips (non-blocking).
+
+The double serves every message past the cursor it is given, as the server does,
+and holds the first fetch open until a second fetch arrives or OVERLAP_WAIT runs
+out. A second drain that reaches the server while the first is in flight therefore
+gets the same message, and each drain hands it to on_message.
 """
 
 from __future__ import annotations
 
+import contextlib
 import threading
-import time
 from typing import TYPE_CHECKING, Any
 
 from agentbus_client import watch
@@ -23,22 +28,9 @@ from agentbus_client import watch
 if TYPE_CHECKING:
     import pytest
 
-
-class _StubBus:
-    """Minimal AgentBus stand-in that returns one batch of one message the first
-    call, then always empty. Enough for _drain() to run one iteration."""
-
-    def __init__(self) -> None:
-        self.api_key = "ab_sk_stub"
-        self.base_url = "https://stub"
-        self.calls = 0
-
-    def inbox(self, cursor: int, limit: int = 100, agent: str | None = None) -> list[Any]:
-        self.calls += 1
-        # First call: hand back one message with seq=1 so the cursor advances.
-        if self.calls == 1:
-            return [_Msg(seq=1)]
-        return []
+OVERLAP_WAIT = 0.5
+FIRST_FETCH_DEADLINE = 5.0
+JOIN_DEADLINE = 5.0
 
 
 class _Msg:
@@ -47,87 +39,117 @@ class _Msg:
         self.raw = {"delivery_id": f"d{seq}", "agent_seq": seq}
 
 
-def _make_watcher(
-    monkeypatch: pytest.MonkeyPatch, bus: Any, on_message: Any, *, slow_drain: bool = False
-) -> watch.Watcher:
-    """Build a Watcher on a real Watcher class but with a stub bus.
+class _CursorBus:
+    """The server's inbox contract, plus a window in which two fetches can meet."""
+
+    def __init__(self) -> None:
+        self.api_key = "ab_sk_stub"
+        self.base_url = "https://stub"
+        self.messages = [_Msg(seq=1)]
+        self.fetching = threading.Event()
+        self.peak_fetches = 0
+        self._active_fetches = 0
+        self._count_lock = threading.Lock()
+        self._second_fetch = threading.Barrier(2)
+
+    def inbox(self, cursor: int, limit: int = 100, agent: str | None = None) -> list[Any]:
+        batch = [m for m in self.messages if m.seq > cursor][:limit]
+        with self._count_lock:
+            self._active_fetches += 1
+            self.peak_fetches = max(self.peak_fetches, self._active_fetches)
+        self.fetching.set()
+        with contextlib.suppress(threading.BrokenBarrierError):
+            self._second_fetch.wait(timeout=OVERLAP_WAIT)
+        with self._count_lock:
+            self._active_fetches -= 1
+        return batch
+
+
+def _make_watcher(monkeypatch: pytest.MonkeyPatch, bus: Any) -> tuple[watch.Watcher, list[str]]:
+    """A real Watcher on the double, with the reconnect backoff at zero.
 
     We poke internals directly (agent, state_path=None, workspace) rather than
     going through construction paths that would need a real credential.
     """
+    monkeypatch.setattr(watch, "RECONNECT_BACKOFF", (0,))
+    delivered: list[str] = []
     w = watch.Watcher(
         bus=bus,
         agent="test-agent",
         state_path=None,
         workspace="test-workspace",
-        on_message=on_message,
+        on_message=lambda m: delivered.append(m["delivery_id"]),
     )
-    if slow_drain:
-        # Wrap the real _drain in a slow one — sleep 50 ms so a racing caller
-        # would deterministically overlap without the lock.
-        real_drain = w._drain
+    return w, delivered
 
-        def slow() -> Any:
-            time.sleep(0.05)
-            return real_drain()
 
-        monkeypatch.setattr(w, "_drain", slow)
-    return w
+def _start_background_drain(w: watch.Watcher, bus: _CursorBus) -> threading.Thread:
+    w._drain_async()
+    assert w._drain_thread is not None, "the background drain did not start"
+    assert bus.fetching.wait(timeout=FIRST_FETCH_DEADLINE), "the drain never reached the server"
+    return w._drain_thread
+
+
+def _finish(thread: threading.Thread) -> None:
+    thread.join(timeout=JOIN_DEADLINE)
+    assert not thread.is_alive(), "the background drain did not finish"
 
 
 def test_drain_async_and_main_thread_never_interleave(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Kick a background drain, immediately call _drain() from the main thread
-    (simulating _backoff_and_drain), and assert on_message ran EXACTLY ONCE
-    for the single message the stub returned.
+    """A reconnect arrives while a background drain is inside the server call.
+    The message reaches on_message exactly once and the two drains never overlap."""
+    bus = _CursorBus()
+    w, delivered = _make_watcher(monkeypatch, bus)
 
-    Without the lock the main-thread call and the background call would each
-    invoke on_message once, producing two calls for one message.
-    """
-    bus = _StubBus()
-    calls: list[dict[str, Any]] = []
+    background = _start_background_drain(w, bus)
+    w._backoff_and_drain("stream dropped")
+    _finish(background)
 
-    def on_msg(m: dict[str, Any]) -> None:
-        calls.append(m)
+    assert delivered == ["d1"], f"on_message fired {len(delivered)} time(s), expected 1"
+    assert bus.peak_fetches == 1
 
-    w = _make_watcher(monkeypatch, bus, on_msg, slow_drain=True)
-    # Fire the background drain, then immediately do a serialized main-thread
-    # drain (the pattern _backoff_and_drain uses).
-    w._drain_async()
-    with w._drain_lock:
-        w._drain()
-    # Join the background thread if it exists.
-    if w._drain_thread is not None:
-        w._drain_thread.join(timeout=2.0)
 
-    # Exactly ONE on_message call — no duplicate. If the lock weren't held for
-    # the duration of _drain, we'd see two, because the stub returned one
-    # message and the cursor would advance on both calls before either sees
-    # the empty second batch.
-    assert len(calls) == 1, f"on_message fired {len(calls)} time(s), expected 1"
+def test_the_startup_drain_waits_for_a_background_drain(monkeypatch: pytest.MonkeyPatch) -> None:
+    bus = _CursorBus()
+    w, delivered = _make_watcher(monkeypatch, bus)
+
+    background = _start_background_drain(w, bus)
+    assert w._startup_drain() == 0
+    _finish(background)
+
+    assert delivered == ["d1"], f"on_message fired {len(delivered)} time(s), expected 1"
+    assert bus.peak_fetches == 1
 
 
 def test_concurrent_drain_async_calls_are_deduped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two _drain_async calls at the same instant must produce at most one
-    background thread and one drain execution. The second is a no-op."""
-    bus = _StubBus()
-    calls: list[dict[str, Any]] = []
+    """A _drain_async call made while one is in flight is a no-op: it starts no
+    thread and the first drain delivers the message alone."""
+    bus = _CursorBus()
+    w, delivered = _make_watcher(monkeypatch, bus)
 
-    def on_msg(m: dict[str, Any]) -> None:
-        calls.append(m)
+    background = _start_background_drain(w, bus)
+    w._drain_async()
+    assert w._drain_thread is background, "a second drain thread started"
+    _finish(background)
 
-    w = _make_watcher(monkeypatch, bus, on_msg, slow_drain=True)
+    assert delivered == ["d1"], f"on_message fired {len(delivered)} time(s), expected 1"
+    assert bus.peak_fetches == 1
 
-    # Fire two _drain_async calls back-to-back.
-    threads = []
-    for _ in range(2):
-        t = threading.Thread(target=w._drain_async, daemon=True)
-        t.start()
-        threads.append(t)
-    for t in threads:
-        t.join(timeout=1.0)
-    if w._drain_thread is not None:
-        w._drain_thread.join(timeout=2.0)
 
-    # The stub's single message must reach on_message exactly once even
-    # though two _drain_async calls happened.
-    assert len(calls) == 1, f"on_message fired {len(calls)} time(s), expected 1"
+def test_mail_after_a_finished_drain_is_delivered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The lock comes back: both call sites drain again once the first is done."""
+    bus = _CursorBus()
+    w, delivered = _make_watcher(monkeypatch, bus)
+
+    _finish(_start_background_drain(w, bus))
+    assert delivered == ["d1"]
+
+    bus.messages.append(_Msg(seq=2))
+    w._backoff_and_drain("stream dropped")
+    assert delivered == ["d1", "d2"]
+
+    bus.messages.append(_Msg(seq=3))
+    w._drain_async()
+    assert w._drain_thread is not None
+    _finish(w._drain_thread)
+    assert delivered == ["d1", "d2", "d3"]

@@ -15,6 +15,8 @@ test_f7_server_cap_check.py.
 
 from __future__ import annotations
 
+import contextlib
+import sys
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -23,9 +25,36 @@ from agentbus_client import client as client_module, sealing as _sealing
 from agentbus_client.client import AgentBusError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 _AGE_PUBLIC_KEY = _sealing.generate_keypair()[1]  # a real, valid age public key
+
+_open_recorders: list[list[str]] = []
+
+
+def _on_audit_event(event: str, args: tuple[Any, ...]) -> None:
+    if event == "open":
+        for recorder in _open_recorders:
+            recorder.append(str(args[0]))
+
+
+sys.addaudithook(_on_audit_event)
+
+
+@contextlib.contextmanager
+def _recorded_opens() -> Iterator[list[str]]:
+    """Every path the interpreter opens inside the block, by any route.
+
+    The `open` audit event fires for builtins.open, io.open, os.open and
+    pathlib alike, so this does not depend on which module holds the encoder.
+    """
+    opened: list[str] = []
+    _open_recorders.append(opened)
+    try:
+        yield opened
+    finally:
+        _open_recorders.remove(opened)
 
 
 def _write(path: Path, size: int) -> None:
@@ -110,22 +139,24 @@ def test_the_oversize_check_does_not_open_the_file(
     big = tmp_path / "big.bin"
     _write(big, 60 * 1024 * 1024)
 
-    opened: list[str] = []
-    real_open = open
-
-    def tracking_open(path: Any, *args: Any, **kwargs: Any) -> Any:
-        opened.append(str(path))
-        return real_open(path, *args, **kwargs)
-
-    # Patch builtins.open only within client_module's namespace so the test
-    # framework itself keeps using the real open. Since _encode_attachments
-    # calls `open(...)` as a bare builtin, we patch the module's __builtins__.
-    monkeypatch.setattr(client_module.resilience, "open", tracking_open, raising=False)
-
-    with pytest.raises(AgentBusError):
+    with _recorded_opens() as opened, pytest.raises(AgentBusError):
         client_module._encode_attachments([str(big)])
     # The refusal must have happened BEFORE any open() call touched the file.
     assert str(big) not in opened, f"cap check opened the file it was about to refuse: {opened}"
+
+
+def test_the_open_recorder_sees_a_file_the_encoder_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Known positive for the check above: a file under the cap is opened, and
+    the recorder reports it."""
+    monkeypatch.delenv("AGENTBUS_MAX_ATTACHMENT_BYTES", raising=False)
+    small = tmp_path / "small.bin"
+    small.write_bytes(b"under the cap")
+
+    with _recorded_opens() as opened:
+        client_module._encode_attachments([str(small)])
+    assert str(small) in opened
 
 
 # ------------------------------------------------------ post-seal inflation (F7 follow-up)

@@ -18,6 +18,7 @@ import argparse
 import contextlib
 import io
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -72,20 +73,38 @@ def test_linux_with_systemd_still_gets_a_unit() -> None:
     assert "ExecStart=" in out
 
 
+def _shell_lines(script: str) -> list[str]:
+    return [line for line in script.splitlines() if not line.lstrip().startswith("#")]
+
+
+def _daemon_words(script: str) -> list[str]:
+    """The words of the script's command_args assignment, which is what daemon(8) receives."""
+    match = re.search(
+        r'^command_args="(.*?)"$', "\n".join(_shell_lines(script)), re.MULTILINE | re.DOTALL
+    )
+    assert match, "the rc.d script assigns no command_args"
+    return shlex.split(match.group(1).replace("\\\n", " "))
+
+
+def _flag_value(words: list[str], flag: str) -> str:
+    assert flag in words, f"daemon(8) is not given {flag}: {words}"
+    return words[words.index(flag) + 1]
+
+
 def test_explicit_rcd_emits_an_rc_script_not_a_unit() -> None:
     code, out, err = _invoke("rc.d", _FREEBSD)
     assert code == 0, "an explicitly requested rc.d script must be emitted"
     assert "[Unit]" not in out
-    assert "run_rc_command" in out
-    assert "rc.subr" in out
+    assert 'run_rc_command "$1"' in _shell_lines(out)
+    assert ". /etc/rc.subr" in _shell_lines(out)
+    words = _daemon_words(out)
     # the supervisor/child pidfile split — using only one means `service stop`
     # kills the wrong process and daemon(8) restarts the watcher being stopped
-    assert "-P " in out, "daemon(8) needs BOTH pidfiles (-P supervisor, -p child)"
-    assert "-p " in out, "daemon(8) needs BOTH pidfiles (-P supervisor, -p child)"
-    assert "-r" in out, "-r must pair with -R or a config error hot-loops"
-    _m = re.search(r"-R (\d+)", out)
-    assert _m, "-r without -R is a hot loop"
-    assert int(_m.group(1)) >= 60, (
+    assert 'pidfile="/var/run/${name}.pid"' in _shell_lines(out)
+    assert _flag_value(words, "-P") == "${pidfile}", "-P names the pidfile rc.subr stops"
+    assert _flag_value(words, "-p") == "/var/run/${name}.child.pid"
+    assert "-r" in words, "-r must pair with -R or a config error hot-loops"
+    assert int(_flag_value(words, "-R")) >= 60, (
         "daemon(8) cannot suppress a restart per exit status, so a revoked key loops "
         "here forever; #58 raised the interval to cap that at ~1,440 requests a day "
         "instead of the 24,324 measured on a 5s interval"

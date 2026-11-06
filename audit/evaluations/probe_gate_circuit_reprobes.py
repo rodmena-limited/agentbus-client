@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import http.server
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -12,8 +13,14 @@ import threading
 import time
 from typing import Any
 
-ROOT = str(pathlib.Path(__file__).resolve().parents[2])
-HOOK = f"{ROOT}/.venv/bin/agentbus-hook"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or str(ROOT / "src")
+PY = os.environ.get("PYTHON") or sys.executable
+HOOK = (
+    PY,
+    "-c",
+    "from agentbus_client.hooks.claude_code import main; raise SystemExit(main(['pre-tool-use']))",
+)
 mode = {"v": "down"}
 hits: list[tuple[float, str, str]] = []
 
@@ -51,6 +58,7 @@ COOLDOWN = 5
 env = {
     "PATH": "/usr/bin:/bin",
     "HOME": home,
+    "PYTHONPATH": SRC,
     "AGENTBUS_CONFIG_DIR": f"{home}/.config/agentbus",
     "AGENTBUS_API_KEY": "ab_test_key",
     "AGENTBUS_AGENT": "repro-agent",
@@ -63,7 +71,7 @@ payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}
 def call(label: Any) -> Any:
     before = len(hits)
     out = subprocess.run(
-        [HOOK, "pre-tool-use"],
+        HOOK,
         input=payload,
         capture_output=True,
         text=True,

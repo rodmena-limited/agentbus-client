@@ -36,7 +36,6 @@ import atexit
 import concurrent.futures as _cf
 import contextlib
 import logging
-import os
 import sys
 import threading
 import weakref
@@ -45,8 +44,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
+from agentbus_client._env_numbers import env_int, env_seconds
+
 from ._async_breaker import _AsyncCircuitBreaker
-from ._repeat import _is_server_error, _sdk_max_retries, _unsafe_to_repeat
+from ._repeat import _is_server_error, _sdk_max_concurrent, _sdk_max_retries, _unsafe_to_repeat
 from .attachments import _encode_attachments  # noqa: F401  (re-export: historical import site)
 from .errors import AgentBusError, ServiceUnavailable, TransportError
 
@@ -86,9 +87,13 @@ class _AbandonedError(Exception):
 def _sdk_cb_limits() -> tuple[int, int]:
     """Breaker burst thresholds from env — SHARED by the sync and async breakers (A1)."""
     return (
-        max(1, int(os.environ.get("AGENTBUS_SDK_CB_FAILURE_LIMIT", "5"))),
-        max(1, int(os.environ.get("AGENTBUS_SDK_CB_SUCCESS_LIMIT", "2"))),
+        env_int("AGENTBUS_SDK_CB_FAILURE_LIMIT", 5, below=1),
+        env_int("AGENTBUS_SDK_CB_SUCCESS_LIMIT", 2, below=1),
     )
+
+
+def _sdk_cb_cooldown() -> float:
+    return env_seconds("AGENTBUS_SDK_CB_COOLDOWN", 30.0)
 
 
 def _cb_window(n: int) -> Fraction:
@@ -262,12 +267,12 @@ def _sdk_bulkhead() -> BulkheadThreading:
             if _SDK_BULKHEAD is None:
                 import bulkman
 
-                workers = int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8"))
+                workers = _sdk_max_concurrent()
                 bulkhead = bulkman.BulkheadThreading(
                     bulkman.BulkheadConfig(
                         name="agentbus-sdk",
                         max_concurrent_calls=workers,
-                        max_queue_size=int(os.environ.get("AGENTBUS_SDK_MAX_QUEUE", "100")),
+                        max_queue_size=env_int("AGENTBUS_SDK_MAX_QUEUE", 100, minimum=0),
                         circuit_breaker_enabled=False,  # NEVER True — see module docstring
                     )
                 )
@@ -303,9 +308,7 @@ def _sdk_safety_net() -> Any:  # noqa: ANN401
                             storage=InMemoryStorage(),
                             failure_limit=_cb_window(break_fail),
                             success_limit=_cb_window(close_success),
-                            cooldown=_dt.timedelta(
-                                seconds=int(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30"))
-                            ),
+                            cooldown=_dt.timedelta(seconds=_sdk_cb_cooldown()),
                             should_handle=_breaker_should_handle,
                         ),
                         rc.RetryWithBackoffPolicy(
@@ -363,6 +366,11 @@ def _attempt_once(fn: Callable[[], _T], cancel: threading.Event, *, idempotent: 
         raise
 
 
+def _forget_inflight(cancel: threading.Event) -> None:
+    with _INFLIGHT_LOCK:
+        _INFLIGHT.discard(cancel)
+
+
 def _settled_value(
     future: _cf.Future[ExecutionResult], cancel: threading.Event, timeout: float | None
 ) -> object:
@@ -378,7 +386,8 @@ def _settled_value(
         # and the watcher died during the exact outage its reconnect loop existed for.
         cancel.set()
         with contextlib.suppress(Exception):
-            future.cancel()
+            if future.cancel():
+                _forget_inflight(cancel)
         msg = (
             f"agentbus SDK call did not complete within {timeout}s "
             f"({type(exc).__name__} — likely a transient network stall). "
@@ -460,14 +469,12 @@ def _run_with_resilience(
             raise TransportError(msg) from exc
         finally:
             _CURRENT_CANCEL.flag = None
-            with _INFLIGHT_LOCK:
-                _INFLIGHT.discard(cancel)
+            _forget_inflight(cancel)
 
     try:
         future = lane.execute(_wrapped)
     except bulkman.BulkheadFullError as exc:
-        with _INFLIGHT_LOCK:
-            _INFLIGHT.discard(cancel)
+        _forget_inflight(cancel)
         msg = (
             f"agentbus SDK bulkhead full ({exc}); raise AGENTBUS_SDK_MAX_CONCURRENT "
             "or AGENTBUS_SDK_MAX_QUEUE if this is a legitimate high-fan-out caller."
@@ -486,6 +493,6 @@ def _async_circuit_breaker() -> _AsyncCircuitBreaker:
                 _ASYNC_CIRCUIT_BREAKER = _AsyncCircuitBreaker(
                     failure_limit=fail_n,
                     success_limit=succ_n,
-                    cooldown=float(os.environ.get("AGENTBUS_SDK_CB_COOLDOWN", "30")),
+                    cooldown=_sdk_cb_cooldown(),
                 )
     return _ASYNC_CIRCUIT_BREAKER

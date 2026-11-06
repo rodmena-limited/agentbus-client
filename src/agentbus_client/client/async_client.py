@@ -11,7 +11,13 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 from typing_extensions import Self
 
-from ._repeat import _safe_to_repeat, _sdk_max_retries, _unsafe_to_repeat
+from ._repeat import (
+    _connection_limits,
+    _safe_to_repeat,
+    _sdk_max_concurrent,
+    _sdk_max_retries,
+    _unsafe_to_repeat,
+)
 from .async_block import AsyncBlockMixin
 from .async_directory import AsyncDirectoryMixin
 from .async_messaging import AsyncMessagingMixin
@@ -72,13 +78,7 @@ class AsyncAgentBus(
         super().__init__(*args, **kwargs)
         # Same pool caps as the sync client (SEV-1-C, #234) — the async fan-out
         # is precisely the case a bulkhead-shaped connection cap protects.
-        limits = httpx.Limits(
-            max_connections=int(os.environ.get("AGENTBUS_MAX_CONNECTIONS", "20")),
-            max_keepalive_connections=int(
-                os.environ.get("AGENTBUS_MAX_KEEPALIVE_CONNECTIONS", "10")
-            ),
-            keepalive_expiry=float(os.environ.get("AGENTBUS_KEEPALIVE_EXPIRY", "30")),
-        )
+        limits = _connection_limits()
         self._client = httpx.AsyncClient(
             base_url=self.base_url, timeout=self.timeout, limits=limits
         )
@@ -159,7 +159,7 @@ class AsyncAgentBus(
         loop_id = id(loop)
         sem = bulkheads.get(loop_id)
         if sem is None:
-            sem = asyncio.Semaphore(int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8")))
+            sem = asyncio.Semaphore(_sdk_max_concurrent())
             bulkheads[loop_id] = sem
             # When the loop is garbage-collected, drop the dead entry so a
             # long-lived AsyncAgentBus used across many short-lived loops

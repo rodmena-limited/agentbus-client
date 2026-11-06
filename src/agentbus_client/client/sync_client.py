@@ -10,7 +10,7 @@ from typing import Any, cast
 import httpx
 from typing_extensions import Self
 
-from ._repeat import _safe_to_repeat
+from ._repeat import _connection_limits, _safe_to_repeat
 from .base import _Base
 from .errors import (
     TransportError,
@@ -40,13 +40,7 @@ class AgentBus(
         # SEV-1-C (#234): cap the connection pool so a stalled bus cannot
         # back-pressure into the caller's own thread pool. Defaults chosen for a
         # sensible SDK footprint; override via env for high-fan-out services.
-        limits = httpx.Limits(
-            max_connections=int(os.environ.get("AGENTBUS_MAX_CONNECTIONS", "20")),
-            max_keepalive_connections=int(
-                os.environ.get("AGENTBUS_MAX_KEEPALIVE_CONNECTIONS", "10")
-            ),
-            keepalive_expiry=float(os.environ.get("AGENTBUS_KEEPALIVE_EXPIRY", "30")),
-        )
+        limits = _connection_limits()
         self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout, limits=limits)
         # Closed by the resilience layer's shutdown hook so an in-flight socket
         # read cannot hold the interpreter open (issuedb #26).

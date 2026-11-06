@@ -40,6 +40,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ._env_numbers import LONGEST_SECONDS, env_int
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -161,8 +163,8 @@ def _monitor_inner() -> int:
     if not agent:
         return 0
 
-    window = int(os.environ.get("AGENTBUS_REWAKE_WINDOW", "600"))
-    interval = max(1, int(os.environ.get("AGENTBUS_REWAKE_INTERVAL", "15")))
+    window = env_int("AGENTBUS_REWAKE_WINDOW", 600, minimum=0, maximum=LONGEST_SECONDS)
+    interval = env_int("AGENTBUS_REWAKE_INTERVAL", 15, maximum=LONGEST_SECONDS, below=1)
     text = poll_for_fresh_mail(agent, window=window, interval=interval)
     if text is None:
         return 0
@@ -333,7 +335,10 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
                 failure_limit=_cb_window(5),
                 success_limit=_cb_window(2),
                 cooldown=_dt.timedelta(
-                    seconds=max(5, int(os.environ.get("AGENTBUS_REWAKE_INTERVAL", "15")))
+                    seconds=max(
+                        5,
+                        env_int("AGENTBUS_REWAKE_INTERVAL", 15, maximum=LONGEST_SECONDS, below=1),
+                    )
                 ),
                 should_handle=_is_transient_rewake_error,
             ),

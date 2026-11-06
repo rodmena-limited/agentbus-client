@@ -1,10 +1,14 @@
-"""Per-message sender signatures (#173) — VENDORED COPY.
+"""Per-message sender signatures (#173). COPY of agentbus.signing, the server's module.
 
-Byte-identical to src/agentbus/signing.py except for the import of the bech32
-helpers, and a test fails the build if the two drift. The SDK ships alone, so it
-carries its own copy for the same reason _agefmt.py does: a client whose crypto
-depends on the server package being importable runs different code in a
-developer checkout than a customer gets.
+The SDK ships alone and carries its own copy, as it does with _agefmt.py. A
+client whose crypto depends on the server package being importable runs
+different code in a developer checkout than a customer gets.
+
+This copy no longer matches the server's file. It raises `BadSignatureError`
+where the server raises `BadSignature`, and its `verify` refuses a signature or
+public key that is not text. No test reads both files. A change to one does not
+reach the other and fails no test. In this repo the code here is pinned against
+fixed answers by tests/test_round2_signing_known_answers.py.
 
 
 WHAT CHANGES. Until now the answer to "did this agent really send this" was

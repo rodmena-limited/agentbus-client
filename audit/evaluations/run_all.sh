@@ -3,7 +3,9 @@
 # A probe that FAILS is an OPEN finding; a previously-failing probe that PASSES is the fix verification.
 set -u
 cd "$(dirname "$0")"
-PY="${PYTHON:-$(cd ../.. && pwd)/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
+. ./_python.sh
+PY=$(audit_python "$(cd ../.. && pwd)")
+export PYTHON="$PY"
 ok=1
 for probe in probe_*.py probe_*.sh; do
     [ -e "$probe" ] || continue

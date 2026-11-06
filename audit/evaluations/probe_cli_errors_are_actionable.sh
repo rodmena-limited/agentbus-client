@@ -1,7 +1,8 @@
 #!/bin/sh
 set -u
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-PY="${PYTHON:-$REPO/.venv/bin/python}"
+. "$REPO/audit/evaluations/_python.sh"
+PY=$(audit_python "$REPO")
 SRC="${AGENTBUS_CLIENT_SRC:-$REPO/src}"
 HOME_DIR=$(mktemp -d)
 mkdir -p "$HOME_DIR/work"

@@ -12,7 +12,7 @@ from typing import Any, cast
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or str(REPO / "src")
-PY = os.environ.get("PYTHON") or str(REPO / ".venv" / "bin" / "python")
+PY = os.environ.get("PYTHON") or sys.executable
 LIMIT = 4096
 
 

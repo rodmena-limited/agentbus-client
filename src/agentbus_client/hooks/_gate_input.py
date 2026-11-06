@@ -10,24 +10,37 @@ GUARD_FIELD_LIMIT = 4096
 GUARD_DEPTH_LIMIT = 512
 UNREADABLE_CALL = "unreadable_tool_call"
 _GUARD_KEEP = 2000
+_PAST_THE_DEPTH_LIMIT = (
+    f"...[nesting past {GUARD_DEPTH_LIMIT} levels elided by the AgentBus gate]..."
+)
 _LARGEST_SETTING = 3600.0
 _TOOL_NAME = re.compile(r'"tool_name"\s*:\s*("(?:[^"\\]|\\.)*")')
 
 
-def fit_to_guard_limit(value: object, depth: int = 0) -> Any:  # noqa: ANN401
-    if isinstance(value, str):
-        if len(value) <= GUARD_FIELD_LIMIT:
-            return value
-        elided = len(value) - 2 * _GUARD_KEEP
-        marker = f"\n...[{elided} characters elided by the AgentBus gate]...\n"
-        return value[:_GUARD_KEEP] + marker + value[-_GUARD_KEEP:]
-    if isinstance(value, (dict, list)) and depth >= GUARD_DEPTH_LIMIT:
-        return f"...[nesting past {GUARD_DEPTH_LIMIT} levels elided by the AgentBus gate]..."
-    if isinstance(value, dict):
-        return {key: fit_to_guard_limit(item, depth + 1) for key, item in value.items()}
-    if isinstance(value, list):
-        return [fit_to_guard_limit(item, depth + 1) for item in value]
-    return value
+def _fit_text(text: str) -> str:
+    if len(text) <= GUARD_FIELD_LIMIT:
+        return text
+    elided = len(text) - 2 * _GUARD_KEEP
+    marker = f"\n...[{elided} characters elided by the AgentBus gate]...\n"
+    return text[:_GUARD_KEEP] + marker + text[-_GUARD_KEEP:]
+
+
+def fit_to_guard_limit(value: object) -> Any:  # noqa: ANN401
+    holder: list[Any] = [value]
+    pending: list[tuple[Any, Any, int]] = [(holder, 0, 0)]
+    while pending:
+        parent, key, depth = pending.pop()
+        item = parent[key]
+        if isinstance(item, str):
+            parent[key] = _fit_text(item)
+        elif isinstance(item, (dict, list)):
+            if depth >= GUARD_DEPTH_LIMIT:
+                parent[key] = _PAST_THE_DEPTH_LIMIT
+                continue
+            parent[key] = copied = item.copy()
+            keys = copied if isinstance(copied, dict) else range(len(copied))
+            pending.extend((copied, inner, depth + 1) for inner in keys)
+    return holder[0]
 
 
 def _bus_reachable(base: str, timeout: float) -> tuple[bool, str]:

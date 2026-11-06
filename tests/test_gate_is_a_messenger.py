@@ -119,14 +119,23 @@ def test_the_guard_can_allow_a_call_the_gate_could_not_read_in_full(
     assert out["permissionDecisionReason"] == "GUARD-ALLOW"
 
 
-@pytest.mark.parametrize("depth", [1100, 200_000])
-def test_a_call_cut_down_for_the_guard_is_flagged_and_keeps_its_command(
-    gate: _Harness, depth: int
-) -> None:
+@pytest.mark.parametrize("depth", [520, 700, 900])
+def test_a_call_past_the_depth_limit_is_flagged_on_every_python(gate: _Harness, depth: int) -> None:
     gate.run(nested(depth))
     sent = gate.asked[0]
     assert sent["truncated"] is True
-    assert "rm -rf /" in json.dumps(sent["tool_input"])
+    assert "unreadable_tool_call" not in sent["tool_input"]
+
+
+def test_a_call_too_large_to_send_whole_is_flagged(gate: _Harness) -> None:
+    gate.run(nested(200_000))
+    assert gate.asked[0]["truncated"] is True
+
+
+@pytest.mark.parametrize("depth", [520, 900, 1100, 200_000])
+def test_a_deep_call_keeps_its_command(gate: _Harness, depth: int) -> None:
+    gate.run(nested(depth))
+    assert "rm -rf /" in json.dumps(gate.asked[0]["tool_input"])
 
 
 def test_a_call_within_the_depth_limit_is_sent_whole(gate: _Harness) -> None:
@@ -146,6 +155,28 @@ def test_the_depth_limit_is_exact() -> None:
     limit = _gate_input.GUARD_DEPTH_LIMIT
     assert _gate.fit_to_guard_limit(deep(limit)) == deep(limit)
     assert _gate.fit_to_guard_limit(deep(limit + 1)) != deep(limit + 1)
+
+
+def test_the_depth_limit_applies_to_dicts_and_lists_alike() -> None:
+    value: Any = "leaf"
+    for level in range(_gate_input.GUARD_DEPTH_LIMIT + 8):
+        value = {"k": value} if level % 2 else [value]
+    fitted = _gate.fit_to_guard_limit(value)
+    for _ in range(_gate_input.GUARD_DEPTH_LIMIT):
+        fitted = fitted["k"] if isinstance(fitted, dict) else fitted[0]
+    assert isinstance(fitted, str)
+    assert "nesting past" in fitted
+
+
+def test_the_fit_leaves_the_caller_value_alone() -> None:
+    long = "x" * (_gate_input.GUARD_FIELD_LIMIT + 1)
+    value = {"a": [long], "b": {"c": long}, "n": 1, "z": None}
+    fitted = _gate.fit_to_guard_limit(value)
+    assert value == {"a": [long], "b": {"c": long}, "n": 1, "z": None}
+    assert list(fitted) == ["a", "b", "n", "z"]
+    assert fitted["a"][0] != long
+    assert fitted["b"]["c"] != long
+    assert (fitted["n"], fitted["z"]) == (1, None)
 
 
 @pytest.mark.parametrize("depth", [1100, 200_000])

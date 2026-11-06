@@ -88,7 +88,10 @@ def main() -> int:
     }
     plain = json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}})
     cases: list[tuple[str, dict[str, str], str]] = [("control plain", env, plain)]
-    cases += [(f"nesting {d}", env, nested(d)) for d in (50, 900, 1100, 5000, 200_000)]
+    cases += [
+        (f"nesting {d}", env, nested(d))
+        for d in (50, 480, 500, 520, 700, 900, 980, 990, 1100, 5000, 200_000)
+    ]
     cases.append(("not json", env, "{not json"))
     cases += [(f"{k}={v}", {**env, k: v}, plain) for k, v in SETTINGS.items()]
     failed = 0

@@ -46,8 +46,9 @@ ALTERNATIVES:
 - Undecodable input: send it to the guard as text [CHOSEN]. It keeps the decision with the guard, and a rule still matches a tool name or a pattern in the text.
   Deny it in the client [REJECTED: the client would be deciding, against the ruling, and a garbled call would block].
   Allow it with a warning [REJECTED: skips the guard when it could have been asked].
-- Depth: bound the fit at 512 [CHOSEN]. It sits below the interpreter's recursion limit on 3.10 to 3.13 and well inside the 900 the live guard accepted.
-  Walk iteratively with no bound [REJECTED: `json.dumps` and the comparison recurse anyway].
+- Depth: an iterative walk bounded at 512 [CHOSEN]. The bound sits well inside the 900 the live guard accepted, and `json.dumps` and the comparison, which recurse in C, stay below the recursion limit on 3.10 to 3.14.
+  A recursive walk bounded at 512 [REJECTED after measurement: the first version of this fix. A comprehension costs a second frame per level on 3.10 and 3.11, because 3.12 inlined them, so the fit raised RecursionError near 490 levels and the crash handler ran a denied call UNVETTED. The matrix on 3.10 and 3.11 caught it before release].
+  An iterative walk with no bound [REJECTED: `json.dumps` and the comparison recurse anyway].
 - Bad setting: fall back to the default and say so in the reason [CHOSEN].
   Degraded record, as the first draft of this spec said [REJECTED: the guard's verdict clears the record in the same call, so it would never be seen, and counting it would move the fast-fail circuit towards skipping the guard].
 - Answer with no verdict: treat as no answer [CHOSEN], per #107. It was a client-side deny.
@@ -60,3 +61,4 @@ RESULTS, measured 2026-11-06:
 - The live guard accepted nesting of 900 with a harmless `ls`, and answered 422 to malformed JSON.
 - Not driven through the harness: deep nesting. A live guard deny was not exercised.
 - Existing tests changed on purpose: `not json{` is now delivered as text, and `{"decision":"maybe"}` and `{}` left the deny table. `test_an_answer_with_no_verdict_never_blocks` covers them.
+- `json.loads` parsed 994 levels on 3.10 and 3.11, 9,997 on 3.12 and 57,930 on 3.14. Input deeper than that reaches the guard as text, with `truncated` set only when the text itself was cut. Input the interpreter can parse is cut at 512 levels and flagged. The guard gets the call either way.

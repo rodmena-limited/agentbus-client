@@ -20,13 +20,13 @@ concurrency:
 
 jobs:
   tests:
-    # THE MATRIX IS THE POINT. pyproject declares requires-python = ">=3.9" and
-    # the suite had only ever run on one interpreter, so four of the five
+    # THE MATRIX IS THE POINT. pyproject declares requires-python = ">=3.10" and
+    # the suite had only ever run on one interpreter, so three of the four
     # claimed versions were an untested promise.
     name: "Tests (py${{ matrix.python }})"
     image: rodmenalimited/ci-python:${{ matrix.python }}
     matrix:
-      python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+      python: ["3.10", "3.11", "3.12", "3.13"]
     timeout_minutes: 20
     steps:
       - name: Install

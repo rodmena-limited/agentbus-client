@@ -5,13 +5,27 @@
 # this probe starts. AGENTBUS_BIN selects the CLI under test.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
-BIN="${AGENTBUS_BIN:-$HERE/../../.venv/bin/agentbus}"; [ -x "$BIN" ] || BIN=agentbus
+REPO=$(cd "$HERE/../.." && pwd)
+. "$HERE/_python.sh"
+PY=$(audit_python "$REPO")
+SRC="${AGENTBUS_CLIENT_SRC:-$REPO/src}"
+cli() {
+    if [ -n "${AGENTBUS_BIN:-}" ]; then
+        "$AGENTBUS_BIN" "$@"
+    else
+        PYTHONPATH="$SRC" "$PY" -m agentbus_client.cli "$@"
+    fi
+}
+if ! cli --version >/dev/null 2>&1; then
+    echo "HARNESS-FAILED: the CLI under test did not run ($PY, $SRC)"
+    exit 2
+fi
 export AGENTBUS_CONFIG_DIR=$(mktemp -d)
 mkdir -p "$AGENTBUS_CONFIG_DIR/watchers"
 sleep 300 & SP=$!
 echo $SP > "$AGENTBUS_CONFIG_DIR/watchers/probe-agent-probe.json.pid"
-"$BIN" watch-status --agent probe-agent >/dev/null 2>&1; ST=$?
-"$BIN" watch-stop --agent probe-agent >/dev/null 2>&1
+cli watch-status --agent probe-agent >/dev/null 2>&1; ST=$?
+cli watch-stop --agent probe-agent >/dev/null 2>&1
 sleep 0.5
 if kill -0 $SP 2>/dev/null; then kill $SP; rm -rf "$AGENTBUS_CONFIG_DIR"; echo "PASS"; exit 0; fi
 rm -rf "$AGENTBUS_CONFIG_DIR"

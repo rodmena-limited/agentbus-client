@@ -21,11 +21,13 @@ Exit 0 when every mutation is caught.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
 SIG = ROOT / "src/agentbus_client/cli/_sigline.py"
 READ = ROOT / "src/agentbus_client/cli/_read.py"
 
@@ -141,7 +143,23 @@ MUTATIONS: list[tuple[pathlib.Path, str, str, str]] = [
 ]
 
 
+def _run_tests() -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", *TESTS, "-q", "--no-header"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        env=ENV,
+        check=False,
+    )
+
+
 def main() -> int:
+    unmutated = _run_tests()
+    if unmutated.returncode != 0:
+        print(f"HARNESS-FAILED: the tests exit {unmutated.returncode} on unmutated source")
+        print((unmutated.stdout + unmutated.stderr).strip()[-300:])
+        return 2
     results = []
     for path, old, new, label in MUTATIONS:
         original = path.read_text()
@@ -151,17 +169,10 @@ def main() -> int:
             continue
         path.write_text(original.replace(old, new))
         try:
-            proc = subprocess.run(
-                [sys.executable, "-m", "pytest", *TESTS, "-q", "--no-header"],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                check=False,
-            )
+            proc = _run_tests()
             tail = [ln for ln in proc.stdout.splitlines() if "passed" in ln or "failed" in ln]
-            results.append(
-                (label, "BIT" if proc.returncode else "SURVIVED", tail[-1] if tail else "")
-            )
+            verdict = {0: "SURVIVED", 1: "BIT"}.get(proc.returncode, "HARNESS-FAILED")
+            results.append((label, verdict, tail[-1] if tail else ""))
         finally:
             path.write_text(original)
 

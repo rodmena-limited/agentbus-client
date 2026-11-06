@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Claude Code hooks for AgentBus.
 
 Two jobs, deliberately separate:
@@ -61,6 +60,8 @@ from ._state import EXIT_NOT_WIRED, _hook_warn, _wake_file, _warn_if_shadow_queu
 
 if TYPE_CHECKING:
     import argparse
+
+_CLAIM_ALARM_WINDOW_SECONDS = 43200
 
 
 def _is_self_send(sender_display: str) -> bool:
@@ -181,7 +182,7 @@ def _identity_held_live(agent: str, session: str) -> bool:
         from agentbus_client.onboarding import _monitor_pids
 
         return bool(_monitor_pids(agent, session=session))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -291,7 +292,7 @@ def _warn_if_identity_shared(agent: str) -> None:
     # the command that settles it. It is cheap now precisely because SessionEnd
     # releases the claim (#126): a leftover claim means a crash, a kill, or a live
     # session with no monitor — all worth a factual line, none worth an alarm.
-    if other and other != session and (now - seen) < 43200:
+    if other and other != session and (now - seen) < _CLAIM_ALARM_WINDOW_SECONDS:
         mins = int((now - seen) // 60)
         if _identity_held_live(agent, other):
             print(
@@ -435,7 +436,7 @@ def session_start(_: argparse.Namespace) -> int:
         wake = _wake_file(agent)
         if wake.exists():
             wake.unlink(missing_ok=True)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _hook_warn("check the inbox at session start", exc)
         return 0
     return 0

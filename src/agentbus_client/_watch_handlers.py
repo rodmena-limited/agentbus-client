@@ -111,9 +111,9 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
             envelope_kind=shlex.quote(str(message.get("kind") or "")),
             # Persona lanes (SPECS/0021, SEV-2 fix). TWO distinct fields:
             #   {lane}    = the SENDER's persona, enriched by backend #267
-            #               ("who sent this")
+            #               (who sent this)
             #   {my_lane} = the ACTING AGENT's own persona, injected by
-            #               cmd_watch ("who am I / what is my lane")
+            #               cmd_watch (who am I / what is my lane)
             # They are different things and must not be conflated. 0.9.34
             # stamped my_lane onto lane, clobbering the sender's — that is
             # the SEV-2 this separation fixes. Empty string when unset.
@@ -137,11 +137,13 @@ def notify_command(template: str) -> Callable[[dict[str, Any]], None]:
         # override with AGENTBUS_EXEC_TIMEOUT for genuinely slow commands.
         _timeout = float(os.environ.get("AGENTBUS_EXEC_TIMEOUT", "5"))
         try:
-            subprocess.run(command, shell=True, check=False, timeout=_timeout)
+            subprocess.run(command, shell=True, check=False, timeout=_timeout)  # noqa: S602
         except subprocess.TimeoutExpired:
             print(
-                f"agentbus watch: --exec timed out after {_timeout}s (command was: {command[:80]}...);"
-                " arrival was still recorded to the wake file. Raise AGENTBUS_EXEC_TIMEOUT if this is genuine.",
+                f"agentbus watch: --exec timed out after {_timeout}s "
+                f"(command was: {command[:80]}...);"
+                " arrival was still recorded to the wake file. "
+                "Raise AGENTBUS_EXEC_TIMEOUT if this is genuine.",
                 file=sys.stderr,
             )
 

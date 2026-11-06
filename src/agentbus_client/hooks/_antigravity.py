@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 # required field.
 _STOP = {"decision": "stop"}
 _NOOP: dict[str, Any] = {}
+_MAIL_SUMMARY_CHARS = 900
 
 
 def _emit(payload: dict[str, Any]) -> int:
@@ -193,7 +194,7 @@ def _with_credential(agent: str) -> bool:
         return True
     try:
         _adopt_credential_for(agent)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
     return bool(os.environ.get("AGENTBUS_API_KEY"))
 
@@ -201,8 +202,8 @@ def _with_credential(agent: str) -> bool:
 def _mail_summary(text: str) -> str:
     """Trim polled mail into something that reads as a system message."""
     cleaned = " ".join(text.split())
-    if len(cleaned) > 900:
-        cleaned = cleaned[:900] + " […]"
+    if len(cleaned) > _MAIL_SUMMARY_CHARS:
+        cleaned = cleaned[:_MAIL_SUMMARY_CHARS] + " […]"
     return cleaned
 
 
@@ -236,7 +237,7 @@ def agy_stop(_args: object = None) -> int:
         from agentbus_client.rewake import poll_for_fresh_mail
 
         text = poll_for_fresh_mail(agent, window=window, interval=interval)
-    except Exception:
+    except Exception:  # noqa: BLE001
         # A bus failure must never hold the loop or look like a harness fault.
         return _emit(_STOP)
     if not text:
@@ -276,7 +277,7 @@ def agy_preinvocation(_args: object = None) -> int:
         # window=0 -> one deterministic pass. This runs before EVERY model call;
         # holding here would put the whole window on the front of every turn.
         text = poll_for_fresh_mail(agent, window=0, interval=1)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return _emit(_NOOP)
     if not text:
         return _emit(_NOOP)
@@ -289,7 +290,7 @@ def agy_preinvocation(_args: object = None) -> int:
     )
 
 
-def add_commands(sub: argparse._SubParsersAction) -> None:
+def add_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Wire the Antigravity hooks into `agentbus-hook`."""
     p = sub.add_parser("agy-stop", help="Antigravity Stop hook (active re-wake)")
     p.set_defaults(func=agy_stop)

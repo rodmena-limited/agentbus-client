@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Claude Code hooks for AgentBus.
 
 Two jobs, deliberately separate:
@@ -70,6 +69,8 @@ from ._state import (
 if TYPE_CHECKING:
     import argparse
 
+_UNREAD_PREVIEW_LINES = 10
+
 
 def notify(args: argparse.Namespace) -> int:
     """Record an arrival for the session to pick up on its next turn."""
@@ -97,7 +98,7 @@ def notify(args: argparse.Namespace) -> int:
         # Only after the wake is actually on disk. Clearing earlier would let a
         # path that did no work erase evidence of one that failed.
         clear_notify_failure(agent)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         # A failed capture is a LOST wake, not a no-op: the arrival that
         # triggered this hook is now recorded nowhere.
         _hook_warn("record an arrival (this wake is lost)", exc)
@@ -107,6 +108,79 @@ def notify(args: argparse.Namespace) -> int:
                 record_notify_failure(resolved, f"{type(exc).__name__}: {exc}")
         return 0
     return 0
+
+
+def _fetch_unread(agent: str) -> tuple[list[str], int, bool]:
+    unread: list[str] = []
+    count = 0
+    server_ok = False
+    try:
+        from agentbus_client.client import AgentBus
+
+        bus = AgentBus(agent=agent)
+        # `whoami` is the authoritative count; the unread listing is the
+        # preview. Paging from cursor 0 and filtering locally is NOT a way to
+        # find unread mail: that window goes blind once history outgrows it,
+        # which is how this hook's sibling shipped permanently silent.
+        count = int(((bus.whoami().get("unread") or {}).get("count")) or 0)
+        server_ok = True
+        if count:
+            unread.extend(
+                f"  {message.sender}: {message.subject}  (agentbus show {message.delivery_id})"
+                for message in bus.inbox(limit=25, unread=True)
+            )
+    except Exception as exc:  # noqa: BLE001
+        # and a reachability failure here is not evidence of an empty inbox.
+        # Fall through to the wake file rather than reporting silence — but SAY
+        # the server could not be asked, or a locally-empty wake file reads as
+        # an authoritative "nothing waiting".
+        _hook_warn("reach the bus (falling back to locally captured wakes)", exc)
+    return unread, count, server_ok
+
+
+def _print_unread(unread: list[str], count: int) -> bool:
+    total = max(count, len(unread))
+    if not total:
+        return False
+    print(f"AgentBus: {total} unread message(s) waiting:")
+    for line in unread[:_UNREAD_PREVIEW_LINES]:
+        print(line)
+    if not unread:
+        print("  read them: agentbus inbox --unread")
+    elif total > _UNREAD_PREVIEW_LINES:
+        print(f"  ... and {total - _UNREAD_PREVIEW_LINES} more")
+        # #205, same reasoning as the session-start notifier above: name
+        # which ten, and name the verb that clears them.
+        print("  (the oldest ten; the list does not change until they are read)")
+        print("  mark read without opening: agentbus ack <delivery-id> [<id> ...]")
+    if unread:
+        print("  reply to one: agentbus reply <delivery-id> -b '...'")
+    return True
+
+
+def _print_stale_wakes(wake: Path) -> bool:
+    # Server unreachable: the capture file is the only signal there is.
+    # Say what it is — possibly stale — and PRESERVE it, so the claim can
+    # be reconciled against the server on the next successful run instead
+    # of being destroyed by this one.
+    stale: list[str] = []
+    with contextlib.suppress(Exception):
+        for line in wake.read_text().splitlines():
+            if line.strip():
+                entry = json.loads(line)
+                stale.append(
+                    f"  {entry.get('sender')}: {entry.get('subject')}"
+                    f"  (agentbus show {entry.get('delivery_id')})"
+                )
+    if not stale:
+        return False
+    print(
+        f"AgentBus: server unreachable; {len(stale)} captured arrival(s) "
+        "in the local wake file (may already be read):"
+    )
+    for line in stale[:10]:
+        print(line)
+    return True
 
 
 def pending(_: argparse.Namespace) -> int:
@@ -162,48 +236,8 @@ def pending(_: argparse.Namespace) -> int:
         return EXIT_NOT_WIRED
     _warn_if_shadow_queue()
 
-    unread: list[str] = []
-    count = 0
-    server_ok = False
-    try:
-        from agentbus_client.client import AgentBus
-
-        bus = AgentBus(agent=agent)
-        # `whoami` is the authoritative count; the unread listing is the
-        # preview. Paging from cursor 0 and filtering locally is NOT a way to
-        # find unread mail: that window goes blind once history outgrows it,
-        # which is how this hook's sibling shipped permanently silent.
-        count = int(((bus.whoami().get("unread") or {}).get("count")) or 0)
-        server_ok = True
-        if count:
-            for message in bus.inbox(limit=25, unread=True):
-                unread.append(
-                    f"  {message.sender}: {message.subject}  (agentbus show {message.delivery_id})"
-                )
-    except Exception as exc:
-        # and a reachability failure here is not evidence of an empty inbox.
-        # Fall through to the wake file rather than reporting silence — but SAY
-        # the server could not be asked, or a locally-empty wake file reads as
-        # an authoritative "nothing waiting".
-        _hook_warn("reach the bus (falling back to locally captured wakes)", exc)
-
-    total = max(count, len(unread))
-    printed_warning = False
-    if total:
-        print(f"AgentBus: {total} unread message(s) waiting:")
-        for line in unread[:10]:
-            print(line)
-        if not unread:
-            print("  read them: agentbus inbox --unread")
-        elif total > 10:
-            print(f"  ... and {total - 10} more")
-            # #205, same reasoning as the session-start notifier above: name
-            # which ten, and name the verb that clears them.
-            print("  (the oldest ten; the list does not change until they are read)")
-            print("  mark read without opening: agentbus ack <delivery-id> [<id> ...]")
-        if unread:
-            print("  reply to one: agentbus reply <delivery-id> -b '...'")
-        printed_warning = True
+    unread, count, server_ok = _fetch_unread(agent)
+    printed_warning = _print_unread(unread, count)
 
     wake = _wake_file(agent)
     if server_ok:
@@ -215,28 +249,8 @@ def pending(_: argparse.Namespace) -> int:
         # consumer could eat a UserPromptSubmit consumer's queue (ticket #27).
         with contextlib.suppress(OSError):
             wake.unlink(missing_ok=True)
-    elif wake.exists():
-        # Server unreachable: the capture file is the only signal there is.
-        # Say what it is — possibly stale — and PRESERVE it, so the claim can
-        # be reconciled against the server on the next successful run instead
-        # of being destroyed by this one.
-        stale: list[str] = []
-        with contextlib.suppress(Exception):
-            for line in wake.read_text().splitlines():
-                if line.strip():
-                    entry = json.loads(line)
-                    stale.append(
-                        f"  {entry.get('sender')}: {entry.get('subject')}"
-                        f"  (agentbus show {entry.get('delivery_id')})"
-                    )
-        if stale:
-            print(
-                f"AgentBus: server unreachable; {len(stale)} captured arrival(s) "
-                "in the local wake file (may already be read):"
-            )
-            for line in stale[:10]:
-                print(line)
-            printed_warning = True
+    elif wake.exists() and _print_stale_wakes(wake):
+        printed_warning = True
 
     if printed_warning:
         print()
@@ -262,7 +276,7 @@ def _session_id_from_stdin() -> str | None:
             return None
         value = json.loads(raw).get("session_id")
         return value if isinstance(value, str) and value else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -349,6 +363,6 @@ def session_end(_: argparse.Namespace) -> int:
             claim = _session._identity_claim_path(agent)
             if claim.exists() and str(json.loads(claim.read_text()).get("session")) == session:
                 claim.unlink(missing_ok=True)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _hook_warn("reap this session's stream (it may be left subscribed)", exc)
     return 0

@@ -208,7 +208,8 @@ def main(argv: list[str] | None = None) -> int:
     if not getattr(args, "command", None):
         parser.print_help(sys.stderr)
         return 2
-    return args.func(args)
+    rc: int = args.func(args)
+    return rc
 
 
 if __name__ == "__main__":

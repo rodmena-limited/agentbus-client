@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Claude Code hooks for AgentBus.
 
 Two jobs, deliberately separate:
@@ -183,7 +182,7 @@ def _warn_if_shadow_queue() -> None:
                 "READING THEM. Fix that hook's environment, then delete the file.",
                 file=sys.stderr,
             )
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
 
@@ -277,7 +276,7 @@ def record_gate_degraded(agent: str, reason: str, detail: str) -> None:
                 prior = {}
                 try:
                     prior = json.loads(path.read_text())
-                except Exception:
+                except Exception:  # noqa: BLE001
                     prior = {}
                 count = int(prior.get("count") or 0) + 1
                 now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

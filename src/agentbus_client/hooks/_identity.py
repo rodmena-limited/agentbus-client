@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Claude Code hooks for AgentBus.
 
 Two jobs, deliberately separate:
@@ -255,7 +254,7 @@ def _worktree_identity_bleed(env_agent: str) -> str | None:
                 check=False,
                 cwd=str(root),
             ).stdout.strip()
-        except Exception:
+        except Exception:  # noqa: BLE001
             common = ""
         if not common:
             # #42: git could not answer. The FILESYSTEM can: `.git` is a
@@ -271,7 +270,7 @@ def _worktree_identity_bleed(env_agent: str) -> str | None:
             if not common_path.is_absolute():
                 common_path = (root / common_path).resolve()
         return _bleed_verdict(root, common_path, env_agent)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -319,9 +318,9 @@ def _agent_from_worktree() -> str | None:
         if not declared.is_file():
             return None
         name = declared.read_text().strip()
-        return name or None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
+    return name or None
 
 
 # SEV-3 (#234): process-lifetime cache for the git-root lookup.
@@ -336,7 +335,7 @@ _REPO_ROOT_CACHE: dict[str, Path | None] = {}
 
 def _repo_root() -> Path | None:
     """The top of this git worktree, or None outside one. Cached per-cwd."""
-    cwd = os.getcwd()
+    cwd = str(Path.cwd())
     if cwd in _REPO_ROOT_CACHE:
         return _REPO_ROOT_CACHE[cwd]
     # #44: THE FILESYSTEM IS THE PRIMARY SOURCE, not the fallback. #42 fixed
@@ -371,13 +370,12 @@ def _repo_root() -> Path | None:
         top = out.stdout.strip()
         result = Path(top) if top else None
         _REPO_ROOT_CACHE[cwd] = result
-        return result
-    except Exception:
+    except Exception:  # noqa: BLE001
         # #42: DO NOT CACHE A SUBPROCESS FAILURE AS "not a repo". Fall back to
         # the filesystem, which can answer this without git running at all.
         result = _repo_root_from_filesystem()
         _REPO_ROOT_CACHE[cwd] = result
-        return result
+    return result
 
 
 def _common_dir_from_filesystem(root: Path) -> Path | None:
@@ -429,7 +427,7 @@ def _repo_root_from_filesystem() -> Path | None:
     required a subprocess.
     """
     try:
-        here = Path(os.getcwd()).resolve()
+        here = Path.cwd().resolve()
         for candidate in (here, *here.parents):
             if (candidate / ".git").exists():
                 return candidate
@@ -460,5 +458,5 @@ def _agent_from_project_settings() -> str | None:
         data = json.loads(local.read_text())
         name = (data.get("env") or {}).get("AGENTBUS_AGENT")
         return str(name) if name else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None

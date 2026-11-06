@@ -44,6 +44,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _SHOW_RE = re.compile(r"agentbus show ([A-Za-z0-9_-]+)")
+_LEDGER_MAX_LINES = 1000
+_LEDGER_KEEP_LINES = 500
 
 
 def _is_transient_rewake_error(exc: BaseException) -> bool:
@@ -126,9 +128,10 @@ def _unread_text(agent: str, wait: int = 0) -> str:
             count = int(((bus.whoami().get("unread") or {}).get("count")) or 0)
             if not count:
                 return ""
-        lines = []
-        for m in bus.inbox(limit=25, unread=True, wait=wait):
-            lines.append(f"  {m.sender}: {m.subject}  (agentbus show {m.delivery_id})")
+        lines = [
+            f"  {m.sender}: {m.subject}  (agentbus show {m.delivery_id})"
+            for m in bus.inbox(limit=25, unread=True, wait=wait)
+        ]
         return "\n".join(lines)
 
 
@@ -136,7 +139,7 @@ def monitor(_args: object = None) -> int:
     """Return 2 (with new mail on stdout) to re-wake, else 0. Never raises."""
     try:
         return _monitor_inner()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(f"agentbus monitor: giving up cleanly ({type(exc).__name__}: {exc})", file=sys.stderr)
         return 0
 
@@ -260,10 +263,10 @@ def _claim_fresh(ledger: Path, keys: list[str]) -> list[str]:
                     fh.flush()
                     fh.seek(0)
                     lines = fh.read().split()
-                    if len(lines) > 1000:
+                    if len(lines) > _LEDGER_MAX_LINES:
                         fh.seek(0)
                         fh.truncate()
-                        fh.write("\n".join(lines[-500:]) + "\n")
+                        fh.write("\n".join(lines[-_LEDGER_KEEP_LINES:]) + "\n")
                 return fresh
             finally:
                 fcntl.flock(fh, fcntl.LOCK_UN)
@@ -349,13 +352,12 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
     def resilient() -> str:
         try:
             result: str = guarded()
-            return result
         except ProtectionException:
             # Retries exhausted or breaker open — a transient outage, not an
             # error to surface. The next interval tries again; the wall-clock
             # deadline still bounds the whole thing.
             return ""
-        except BaseException as exc:  # deliberate, see below
+        except BaseException as exc:  # deliberate, see below  # noqa: BLE001
             # MAKE THE DOCUMENTED GUARANTEE REAL.
             #
             # `poll()`'s call site carries the comment `# already
@@ -366,7 +368,7 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
             # "socket","ssl","dns"). Classifying by name substring means every
             # TYPED api error slips through:
             #
-            #   ServiceUnavailable (503), QuotaExceeded / RateLimited (429),
+            #   503 ServiceUnavailable, 429 QuotaExceeded / RateLimited,
             #   NotFoundError (404), ValidationError (422), and a BARE
             #   AgentBusError — which is what 500/502/504 become, since they
             #   are absent from client._ERRORS.
@@ -392,5 +394,6 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
                 flush=True,
             )
             return ""
+        return result
 
     return resilient

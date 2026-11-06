@@ -28,11 +28,12 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client.client import AgentBus, AgentBusError
 from agentbus_client.identity import config_dir as identity_config_dir
 
+from ._doctor_probe import _probe_rewake_cycle
 from ._identity import _agent_key, _resolve_agent_name
 from ._paths import (
     _MARKER_HOOK,
@@ -47,6 +48,8 @@ from ._paths import (
 
 if TYPE_CHECKING:
     import argparse
+
+_MIN_REWAKE_SCRIPT_VERSION = 2
 
 # ---------------------------------------------------------------- doctor --wake
 
@@ -120,7 +123,7 @@ def _installed_version() -> str | None:
         from agentbus_client import __version__
 
         return str(__version__)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -135,11 +138,11 @@ def _running_watcher_version(agent: str) -> str | None:
     import glob
 
     newest, newest_mtime = None, -1.0
-    for path in glob.glob(str(identity_config_dir() / f"monitor-{agent}-*.json")) + glob.glob(
+    for path in glob.glob(str(identity_config_dir() / f"monitor-{agent}-*.json")) + glob.glob(  # noqa: PTH207
         str(identity_config_dir() / f"watch-*-{agent}.json")
     ):
         try:
-            mtime = os.path.getmtime(path)
+            mtime = Path(path).stat().st_mtime
         except OSError:
             continue
         if mtime > newest_mtime:
@@ -153,7 +156,7 @@ def _running_watcher_version(agent: str) -> str | None:
 
 
 def _finish_wake_report(
-    failures: list[str], plugin_wake: bool = False, agent: str | None = None
+    failures: list[str], *, plugin_wake: bool = False, agent: str | None = None
 ) -> int:
     if failures:
         _say("")
@@ -206,6 +209,115 @@ def _finish_wake_report(
     return 0
 
 
+def _has_hook(hooks: dict[str, Any], event: str, marker: str) -> bool:
+    return any(
+        marker in str(h.get("command", ""))
+        for g in hooks.get(event, [])
+        for h in g.get("hooks", [])
+    )
+
+
+def _report_plugin_wake(name: str, failures: list[str]) -> int:
+    _say("  [ok] passive hooks: provided by the agentbus PLUGIN")
+    running = _monitor_pids(name)
+    if running:
+        _say(
+            f"  [ok] active trigger: plugin MONITOR, running (pid {running[0]}) "
+            "— a stream held for the whole session"
+        )
+    else:
+        failures.append(
+            "the agentbus plugin is enabled but its monitor is NOT running. "
+            "Monitors start at SESSION START — restart this session. If it "
+            "still does not appear, check `claude plugin list`."
+        )
+    return _finish_wake_report(failures, plugin_wake=True, agent=name)
+
+
+def _rewake_script_is_current(rewake_path: Path, failures: list[str]) -> bool:
+    # D9: a client upgrade leaves the SCRIPT on disk stale, so the ledger-
+    # isolation override silently no-ops and the doctor poisons the very ledger
+    # it claims to protect while printing green. Refuse to trust a script that
+    # predates the override rather than run a check that cannot go red.
+    script_current = False
+    if rewake_path.exists():
+        body = rewake_path.read_text()
+        marker = "agentbus-rewake-version:"
+        ver = 0
+        if marker in body:
+            with contextlib.suppress(ValueError):
+                ver = int(body.split(marker, 1)[1].split("\n", 1)[0].strip())
+        script_current = ver >= _MIN_REWAKE_SCRIPT_VERSION
+        if not script_current:
+            failures.append(
+                f"stop-rewake.sh is STALE (version {ver or 'unstamped'} < 2); a "
+                "client upgrade did not refresh it, so its ledger isolation is a "
+                "no-op. Run `agentbus setup claude` to reinstall it before trusting "
+                "this check."
+            )
+    return script_current
+
+
+def _report_wake_channel(key: str, base_url: str | None, name: str) -> None:
+    # D7 (david): the Stop chain passing is NOT the same as being notifiable.
+    # Report the platform's own wake_channel fact so a green re-waker and a
+    # send-time "no_wake_channel" warning can never contradict unnoticed.
+    try:
+        probe = AgentBus(api_key=key, base_url=base_url, agent=name)
+        roster = probe.phonebook()
+        me = next((a for a in roster if a.get("name") == name), None)
+        wc = me.get("wake_channel") if me else None
+        # #49: wake_channel is now 4-state (live | stale | webhook | none),
+        # replacing the boolean. Truthy means "something attached"; stale is
+        # an attached subscriber with no recent sign of life — still not
+        # "none", but worth saying so.
+        if wc in (True, "live", "webhook"):
+            _say(
+                "  [ok] wake_channel: a live subscriber/webhook is attached (peers can be notified)"
+            )
+        elif wc == "stale":
+            _say(
+                "  [--] wake_channel: STALE — a subscriber is attached but "
+                "nothing has moved in a while. It may be an orphaned stream. "
+                "The Stop re-waker still answers at turn boundaries, but "
+                "peers' send responses may warn 'no_wake_channel'."
+            )
+        elif wc in (False, "none", None):
+            _say(
+                "  [--] wake_channel: NONE attached. The Stop re-waker makes "
+                "THIS session answer at turn boundaries, but peers' send "
+                "responses will warn 'no_wake_channel'. For always-attached "
+                "reachability run a supervised watcher: agentbus service."
+            )
+    except AgentBusError:
+        pass
+
+
+def _report_stop_chain_outcome(
+    failures: list[str], *, active: bool, executable: bool, script_current: bool
+) -> int:
+    if not active or not executable or not script_current:
+        _say("")
+        for f in failures:
+            _say(f"  FAIL: {f}")
+        if not script_current and active:
+            _say("STALE re-waker — reinstall with `agentbus setup claude`, then re-run.")
+        else:
+            _say("PASSIVE ONLY — this agent answers only when a human prompts it.")
+            _say("Run `agentbus setup claude` to wire the active trigger.")
+        return 1
+    if failures:
+        _say("")
+        for f in failures:
+            _say(f"  FAIL: {f}")
+        return 1
+    _say("")
+    _say("wake chain PROVEN up to the harness boundary. Remaining assumption,")
+    _say("stated rather than rounded up: your harness invokes Stop hooks with")
+    _say("asyncRewake — exit 2 then pulls the session back into a turn.")
+    return 0
+
+
 def doctor_wake(args: argparse.Namespace) -> int:
     """Prove the wake chain, link by link, ending with the honest sentence.
 
@@ -231,7 +343,8 @@ def doctor_wake(args: argparse.Namespace) -> int:
     name = _resolve_agent_name(explain=provenance)
     if not name:
         _say(
-            "wake: cannot tell which agent this project is (no AGENTBUS_AGENT, no setup). Run `agentbus setup claude` first."
+            "wake: cannot tell which agent this project is (no AGENTBUS_AGENT, no setup). "
+            "Run `agentbus setup claude` first."
         )
         return 1
     _say(f"wake: agent {name}")
@@ -263,13 +376,6 @@ def doctor_wake(args: argparse.Namespace) -> int:
     settings = _load_json(settings_path)
     hooks = settings.get("hooks", {})
 
-    def _has(event: str, marker: str) -> bool:
-        return any(
-            marker in str(h.get("command", ""))
-            for g in hooks.get(event, [])
-            for h in g.get("hooks", [])
-        )
-
     # THE PLUGIN CASE FIRST. When the plugin owns the wake, setup has correctly
     # REMOVED our hooks — so a doctor that only looks at settings.json reports
     # "PASSIVE ONLY" on the recommended configuration, and tells the user to run
@@ -279,89 +385,27 @@ def doctor_wake(args: argparse.Namespace) -> int:
     # earlier. Consult the same predicate setup uses, then verify the monitor is
     # genuinely RUNNING rather than merely declared.
     if _plugin_provides_wake(settings):
-        _say("  [ok] passive hooks: provided by the agentbus PLUGIN")
-        running = _monitor_pids(name)
-        if running:
-            _say(
-                f"  [ok] active trigger: plugin MONITOR, running (pid {running[0]}) "
-                "— a stream held for the whole session"
-            )
-        else:
-            failures.append(
-                "the agentbus plugin is enabled but its monitor is NOT running. "
-                "Monitors start at SESSION START — restart this session. If it "
-                "still does not appear, check `claude plugin list`."
-            )
-        return _finish_wake_report(failures, plugin_wake=True, agent=name)
+        return _report_plugin_wake(name, failures)
 
     failures.append(
         f"the agentbus plugin is not enabled in {settings_path}, so nothing wakes a "
         "session nobody has typed into — the Stop re-waker only answers after a first "
         "turn. Fix: `agentbus setup claude` (it installs the plugin)."
     )
-    passive = _has("SessionStart", _MARKER_HOOK) and _has("UserPromptSubmit", _MARKER_HOOK)
-    active = _has("Stop", _MARKER_REWAKE)
+    passive = _has_hook(hooks, "SessionStart", _MARKER_HOOK) and _has_hook(
+        hooks, "UserPromptSubmit", _MARKER_HOOK
+    )
+    active = _has_hook(hooks, "Stop", _MARKER_REWAKE)
     _say(f"  [{'ok' if passive else '!!'}] passive hooks (SessionStart + UserPromptSubmit)")
     _say(f"  [{'ok' if active else '!!'}] active trigger (Stop re-waker)")
     rewake_path = _config_dir() / "stop-rewake.sh"
     executable = rewake_path.exists() and os.access(rewake_path, os.X_OK)
     _say(f"  [{'ok' if executable else '!!'}] {rewake_path} executable")
 
-    # D9: a client upgrade leaves the SCRIPT on disk stale, so the ledger-
-    # isolation override silently no-ops and the doctor poisons the very ledger
-    # it claims to protect while printing green. Refuse to trust a script that
-    # predates the override rather than run a check that cannot go red.
-    script_current = False
-    if rewake_path.exists():
-        body = rewake_path.read_text()
-        marker = "agentbus-rewake-version:"
-        ver = 0
-        if marker in body:
-            with contextlib.suppress(ValueError):
-                ver = int(body.split(marker, 1)[1].split("\n", 1)[0].strip())
-        script_current = ver >= 2
-        if not script_current:
-            failures.append(
-                f"stop-rewake.sh is STALE (version {ver or 'unstamped'} < 2); a "
-                "client upgrade did not refresh it, so its ledger isolation is a "
-                "no-op. Run `agentbus setup claude` to reinstall it before trusting "
-                "this check."
-            )
+    script_current = _rewake_script_is_current(rewake_path, failures)
 
-    # D7 (david): the Stop chain passing is NOT the same as being notifiable.
-    # Report the platform's own wake_channel fact so a green re-waker and a
-    # send-time "no_wake_channel" warning can never contradict unnoticed.
     if key:
-        try:
-            probe = AgentBus(api_key=key, base_url=args.base_url, agent=name)
-            roster = probe.phonebook()
-            me = next((a for a in roster if a.get("name") == name), None)
-            wc = me.get("wake_channel") if me else None
-            # #49: wake_channel is now 4-state (live | stale | webhook | none),
-            # replacing the boolean. Truthy means "something attached"; stale is
-            # an attached subscriber with no recent sign of life — still not
-            # "none", but worth saying so.
-            if wc in (True, "live", "webhook"):
-                _say(
-                    "  [ok] wake_channel: a live subscriber/webhook is attached "
-                    "(peers can be notified)"
-                )
-            elif wc == "stale":
-                _say(
-                    "  [--] wake_channel: STALE — a subscriber is attached but "
-                    "nothing has moved in a while. It may be an orphaned stream. "
-                    "The Stop re-waker still answers at turn boundaries, but "
-                    "peers' send responses may warn 'no_wake_channel'."
-                )
-            elif wc in (False, "none", None):
-                _say(
-                    "  [--] wake_channel: NONE attached. The Stop re-waker makes "
-                    "THIS session answer at turn boundaries, but peers' send "
-                    "responses will warn 'no_wake_channel'. For always-attached "
-                    "reachability run a supervised watcher: agentbus service."
-                )
-        except AgentBusError:
-            pass
+        _report_wake_channel(key, args.base_url, name)
 
     if key and active and executable and script_current:
         # The live half: a self-addressed probe must surface through the
@@ -374,8 +418,6 @@ def doctor_wake(args: argparse.Namespace) -> int:
         # ISOLATED seen-ledger so the production Stop hook still wakes for
         # everything else, and reports the foreign unread it deliberately
         # left alone.
-        import tempfile
-
         from agentbus_client import rewake as _rewake
 
         # ASK THE RE-WAKER WHERE ITS LEDGER IS — do not rebuild the path here.
@@ -398,91 +440,8 @@ def doctor_wake(args: argparse.Namespace) -> int:
         prod_before = prod_ledger.read_text() if prod_ledger.exists() else ""
 
         bus = AgentBus(api_key=key, base_url=args.base_url, agent=name)
-        try:
-            sent = bus.send(
-                name, subject="doctor --wake probe", text="Wake-chain probe; read and forget."
-            )
-            probe_delivery = None
-            bystanders = 0
-            for delivery in bus.inbox(limit=200, unread=True):
-                if delivery.message_id == sent["id"]:
-                    probe_delivery = delivery.delivery_id
-                else:
-                    bystanders += 1
-            if probe_delivery is None:
-                failures.append("probe message did not appear in the unread list")
+        failures.extend(_probe_rewake_cycle(bus, name, rewake_path, prod_ledger, prod_before))
 
-            with tempfile.NamedTemporaryFile(prefix="rewake-doctor-") as ledger:
-                # WINDOW=0 -> one deterministic pass, not a 10-minute hold; the
-                # isolated ledger keeps the production seen-list untouched.
-                env = dict(
-                    os.environ,
-                    AGENTBUS_AGENT=name,
-                    AGENTBUS_REWAKE_STATE=ledger.name,
-                    AGENTBUS_REWAKE_WINDOW="0",
-                )
-                run1 = subprocess.run(
-                    [str(rewake_path)],
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    check=False,
-                )
-                if run1.returncode == 2 and probe_delivery and probe_delivery in run1.stdout:
-                    _say("  [ok] probe surfaced by the re-waker (exit 2)")
-                else:
-                    failures.append(f"re-waker did not surface the probe (exit {run1.returncode})")
-                if probe_delivery:
-                    bus.read(probe_delivery)
-                run2 = subprocess.run(
-                    [str(rewake_path)],
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    check=False,
-                )
-            if run2.returncode == 0 and not run2.stdout:
-                _say("  [ok] re-waker silent on second run (dedupe holds)")
-            else:
-                failures.append("re-waker fired twice for one probe — dedupe broken")
-            # D9 verification: prove the override actually took, by confirming
-            # the PRODUCTION ledger did not move. This is the by-hand check that
-            # caught the stale-script no-op; now it runs every time.
-            prod_after = prod_ledger.read_text() if prod_ledger.exists() else ""
-            if prod_after == prod_before:
-                _say("  [ok] production wake-ledger untouched (isolation verified)")
-            else:
-                failures.append(
-                    "doctor POISONED the production wake-ledger — the "
-                    "isolation override did not take (stale script?)"
-                )
-            if bystanders:
-                _say(
-                    f"  [ok] {bystanders} other unread message(s) UNTOUCHED — "
-                    "read them: agentbus inbox --unread"
-                )
-        except (AgentBusError, OSError, subprocess.SubprocessError) as exc:
-            failures.append(f"probe cycle failed: {exc}")
-
-    if not active or not executable or not script_current:
-        _say("")
-        for f in failures:
-            _say(f"  FAIL: {f}")
-        if not script_current and active:
-            _say("STALE re-waker — reinstall with `agentbus setup claude`, then re-run.")
-        else:
-            _say("PASSIVE ONLY — this agent answers only when a human prompts it.")
-            _say("Run `agentbus setup claude` to wire the active trigger.")
-        return 1
-    if failures:
-        _say("")
-        for f in failures:
-            _say(f"  FAIL: {f}")
-        return 1
-    _say("")
-    _say("wake chain PROVEN up to the harness boundary. Remaining assumption,")
-    _say("stated rather than rounded up: your harness invokes Stop hooks with")
-    _say("asyncRewake — exit 2 then pulls the session back into a turn.")
-    return 0
+    return _report_stop_chain_outcome(
+        failures, active=active, executable=executable, script_current=script_current
+    )

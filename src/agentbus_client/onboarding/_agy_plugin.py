@@ -146,7 +146,7 @@ def mcp_config(url: str, key: str) -> dict[str, Any]:
 _OUR_MARKERS = (_MARKER_HOOK, "agy-stop", "agy-preinvocation")
 
 
-def _is_ours(entry: Any) -> bool:
+def _is_ours(entry: object) -> bool:
     """A hooks.json entry is ours iff a handler invokes agentbus tooling.
 
     Recognition by CONTENT, never by name or position — so an operator who

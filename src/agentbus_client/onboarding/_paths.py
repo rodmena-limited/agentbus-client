@@ -83,7 +83,9 @@ _SESSION_START_CMD = (
     '[ -n "${AGENTBUS_AGENT:-}" ] || exit 0; '
     'case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) exit 0;; esac; '
     '[ -n "${AGENTBUS_API_KEY:-}" ] || { set -a; '
-    '[ -f "${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}/keys/${AGENTBUS_AGENT}.env" ] && . "${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}/keys/${AGENTBUS_AGENT}.env" 2>/dev/null; set +a; } || true; '
+    '[ -f "${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}/keys/${AGENTBUS_AGENT}.env" ] && '
+    '. "${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}/keys/${AGENTBUS_AGENT}.env" 2>/dev/null; '
+    "set +a; } || true; "
     "agentbus-hook session-start || true"
 )
 _PENDING_CMD = _SESSION_START_CMD.replace("session-start", "pending")
@@ -113,7 +115,7 @@ REWAKE_HOOK_TIMEOUT_SEC = 600  # invariant: strictly greater
 # pulled back later, so holding 540s costs the operator nothing. Antigravity has
 # no such flag, and its own docs say so under "Current Limitations", verbatim:
 #
-#     "Hooks run synchronously and block the agent loop (no async execution)."
+#     > "Hooks run synchronously and block the agent loop (no async execution)."
 #
 # So the window here is a FOREGROUND PAUSE after every single turn. A Claude-
 # sized 540s hold would look exactly like a nine-minute hang. The bound is
@@ -241,7 +243,8 @@ _STOP_CMD = (
 # STOP_REWAKE_VERSION is stamped so `doctor --wake` can refuse to trust a stale
 # copy left behind by a client upgrade (david D9).
 STOP_REWAKE_VERSION = 4
-STOP_REWAKE_SH = r"""#!/bin/sh
+STOP_REWAKE_SH = (
+    r"""#!/bin/sh
 # Stop-hook re-wake for AgentBus (installed by `agentbus setup`; SPECS/0021).
 # agentbus-rewake-version: 4
 #
@@ -261,7 +264,9 @@ set -u
 # The config dir is overridable (AGENTBUS_CONFIG_DIR), the same way every
 # Python path in the client resolves it (review #23, S4).
 AGENTBUS_CFG="${AGENTBUS_CONFIG_DIR:-$HOME/.config/agentbus}"
-if [ -n "${AGENTBUS_AGENT:-}" ] && case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) false;; *) true;; esac && [ -r "$AGENTBUS_CFG/keys/${AGENTBUS_AGENT}.env" ]; then
+if [ -n "${AGENTBUS_AGENT:-}" ] && """
+    r"""case "$AGENTBUS_AGENT" in *[!a-zA-Z0-9._-]*) false;; *) true;; esac && """
+    r"""[ -r "$AGENTBUS_CFG/keys/${AGENTBUS_AGENT}.env" ]; then
     set -a
     . "$AGENTBUS_CFG/keys/${AGENTBUS_AGENT}.env"
     set +a
@@ -270,6 +275,7 @@ else
 fi
 exec agentbus-hook monitor
 """
+)
 
 
 def _config_dir() -> Path:
@@ -312,7 +318,7 @@ def _signin_state_path() -> Path:
 
 
 def _say(msg: str) -> None:
-    print(msg)
+    print(msg)  # noqa: T201
 
 
 def _write_private(path: Path, content: str) -> bool:
@@ -325,7 +331,7 @@ def _write_private(path: Path, content: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.read_text() == content:
         with contextlib.suppress(OSError):
-            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return False
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
     with contextlib.suppress(OSError):

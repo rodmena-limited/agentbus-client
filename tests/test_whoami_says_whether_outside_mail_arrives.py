@@ -32,7 +32,8 @@ LIVE_REFUSED = {
 def _whoami(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    workspace: dict,
+    workspace: dict[str, Any],
+    *,
     qr: bool = False,
 ) -> str:
     class _Bus:

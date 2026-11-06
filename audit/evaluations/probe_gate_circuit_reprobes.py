@@ -15,7 +15,7 @@ from typing import Any
 ROOT = str(pathlib.Path(__file__).resolve().parents[2])
 HOOK = f"{ROOT}/.venv/bin/agentbus-hook"
 mode = {"v": "down"}
-hits = []
+hits: list[tuple[float, str, str]] = []
 
 
 class H(http.server.BaseHTTPRequestHandler):
@@ -45,7 +45,7 @@ class H(http.server.BaseHTTPRequestHandler):
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 home = tempfile.mkdtemp(prefix="gate-repro-")
-atexit.register(shutil.rmtree, home, True)
+atexit.register(shutil.rmtree, home, ignore_errors=True)
 atexit.register(srv.shutdown)
 COOLDOWN = 5
 env = {
@@ -70,14 +70,16 @@ def call(label: Any) -> Any:
         env=env,
         cwd=home,
         timeout=60,
+        check=False,
     )
     try:
         d = json.loads(out.stdout.strip().splitlines()[-1])["hookSpecificOutput"]
         dec, why = d["permissionDecision"], d["permissionDecisionReason"][:70]
-    except Exception:
+    except Exception:  # noqa: BLE001
         dec, why = "UNPARSED", (out.stdout + out.stderr)[:200]
     print(
-        f"t={time.time() - t0:5.1f}s {label:22} decision={dec:5} server_hits+={len(hits) - before} | {why}",
+        f"t={time.time() - t0:5.1f}s {label:22} decision={dec:5} "
+        f"server_hits+={len(hits) - before} | {why}",
         flush=True,
     )
     return dec

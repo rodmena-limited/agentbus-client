@@ -21,7 +21,7 @@ import io
 import json
 import sys
 from contextlib import redirect_stdout
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import pytest
 
@@ -32,7 +32,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _run(handler: Any, payload: dict | None, monkeypatch: pytest.MonkeyPatch) -> dict:
+def _run(
+    handler: Any, payload: dict[str, Any] | None, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, Any]:
     """Drive one hook with a payload on stdin; return the parsed stdout JSON."""
     raw = "" if payload is None else json.dumps(payload)
     monkeypatch.setattr(sys, "stdin", io.StringIO(raw))
@@ -42,7 +44,7 @@ def _run(handler: Any, payload: dict | None, monkeypatch: pytest.MonkeyPatch) ->
     assert rc == 0, "an Antigravity hook must always exit 0; it blocks the agent loop"
     out = buf.getvalue()
     assert out, "a hook must always print one JSON object"
-    return json.loads(out)
+    return cast("dict[str, Any]", json.loads(out))
 
 
 @pytest.fixture

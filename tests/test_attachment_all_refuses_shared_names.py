@@ -45,7 +45,11 @@ def _install(monkeypatch: pytest.MonkeyPatch, bus: _Bus) -> None:
 
 @pytest.mark.parametrize("force", [False, True])
 def test_two_attachments_with_one_name_are_refused_before_any_write(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], force: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    force: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     bus = _Bus(

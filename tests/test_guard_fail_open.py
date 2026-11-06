@@ -24,7 +24,7 @@ import json
 import sys
 import urllib.error
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -34,6 +34,10 @@ sys.path.insert(0, str(REPO / "src"))
 from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
+
+if TYPE_CHECKING:
+    import argparse
+    from email.message import Message
 
 
 class _Resp:
@@ -57,10 +61,16 @@ class _HTTPError(urllib.error.HTTPError):
     catches it exactly as it would catch a live one."""
 
     def __init__(self, code: int, detail: str = "") -> None:
-        super().__init__("https://agentbus.rodmena.co.uk/v1/guard/check", code, "x", None, None)
+        super().__init__(
+            "https://agentbus.rodmena.co.uk/v1/guard/check",
+            code,
+            "x",
+            cast("Message[str, str]", None),
+            None,
+        )
         self._detail = detail
 
-    def read(self) -> bytes:
+    def read(self, n: int = -1) -> bytes:
         return self._detail.encode()
 
 
@@ -70,7 +80,7 @@ class _HTTPError(urllib.error.HTTPError):
 _REACHABLE: dict[str, tuple[bool, str]] = {"value": (True, "")}
 
 
-def _run_hook(monkeypatch: pytest.MonkeyPatch, stdin: str, **env: str) -> dict[str, Any]:
+def _run_hook(monkeypatch: pytest.MonkeyPatch, stdin: str, **env: str) -> int:
     """Invoke pre_tool_use with a mocked stdin and env; capture the decision."""
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
     monkeypatch.setattr(hk._gate, "_bus_reachable", lambda *_a, **_k: _REACHABLE["value"])
@@ -78,7 +88,7 @@ def _run_hook(monkeypatch: pytest.MonkeyPatch, stdin: str, **env: str) -> dict[s
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
-    return hk.pre_tool_use(None)
+    return hk.pre_tool_use(cast("argparse.Namespace", None))
 
 
 def _capture(monkeypatch: pytest.MonkeyPatch, **env: str) -> tuple[dict[str, Any], str]:
@@ -99,12 +109,12 @@ def _capture(monkeypatch: pytest.MonkeyPatch, **env: str) -> tuple[dict[str, Any
 
 def _decision(result: dict[str, Any] | tuple[dict[str, Any], str]) -> str:
     payload = result[0] if isinstance(result, tuple) else result
-    return payload["hookSpecificOutput"]["permissionDecision"]
+    return cast("str", payload["hookSpecificOutput"]["permissionDecision"])
 
 
 def _reason(result: dict[str, Any] | tuple[dict[str, Any], str]) -> str:
     payload = result[0] if isinstance(result, tuple) else result
-    return payload["hookSpecificOutput"]["permissionDecisionReason"]
+    return cast("str", payload["hookSpecificOutput"]["permissionDecisionReason"])
 
 
 # --------------------------------------------------------------------------
@@ -351,7 +361,5 @@ def test_setup_writes_both_identity_sources_from_one_name() -> None:
 
 def _onboarding_source() -> str:
     """onboarding is a package now (one module per concern): read all of it, in a stable order."""
-    from pathlib import Path as _P
-
-    pkg = _P(__file__).resolve().parents[1] / "src" / "agentbus_client" / "onboarding"
+    pkg = Path(__file__).resolve().parents[1] / "src" / "agentbus_client" / "onboarding"
     return "".join(f.read_text() for f in sorted(pkg.glob("*.py")))

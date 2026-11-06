@@ -40,14 +40,22 @@ if args[:3] == ["plugin", "marketplace", "add"]:
     sys.exit(0)
 if args[:2] == ["plugin", "install"]:
     if mode == "fail":
-        print(json.dumps({"command": "install", "outcome": "failed", "message": "Plugin not found in marketplace"}))
+        print(json.dumps({
+            "command": "install",
+            "outcome": "failed",
+            "message": "Plugin not found in marketplace",
+        }))
         sys.exit(1)
     if mode == "ok":
         settings.parent.mkdir(parents=True, exist_ok=True)
         data = json.loads(settings.read_text()) if settings.exists() else {}
         data.setdefault("enabledPlugins", {})["agentbus@rodmena"] = True
         settings.write_text(json.dumps(data))
-    print(json.dumps({"command": "install", "outcome": "ok", "message": "Successfully installed plugin: agentbus@rodmena"}))
+    print(json.dumps({
+        "command": "install",
+        "outcome": "ok",
+        "message": "Successfully installed plugin: agentbus@rodmena",
+    }))
     sys.exit(0)
 sys.exit(0)
 """
@@ -193,7 +201,7 @@ def _doctor_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     settings_path: Path,
-    settings: dict,
+    settings: dict[str, Any],
 ) -> str:
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings))

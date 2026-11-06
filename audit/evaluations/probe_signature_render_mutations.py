@@ -5,10 +5,10 @@ were wrong. This probe breaks the source on purpose, one edit at a time, and
 asserts the suite goes red for each. A mutation that SURVIVES is an assertion
 that was never there.
 
-Found two survivors, in two runs a few minutes apart: `thread_signature_line` rendered a bad verdict as
-VALID with the whole suite still green, because the VALID branch was asserted
-only in the direction where it should be VALID. Same shape
-vellum-api-macbook-team-f82400 hit on `mounted_this_boot` the same evening.
+Found two survivors, in two runs a few minutes apart: `thread_signature_line`
+rendered a bad verdict as VALID with the whole suite still green, because the
+VALID branch was asserted only in the direction where it should be VALID. Same
+shape vellum-api-macbook-team-f82400 hit on `mounted_this_boot` the same evening.
 
 An ambiguous anchor reports HARNESS-FAILED, never SKIP: a mutation that was
 never applied is not a mutation that was caught, and collapsing the two is the
@@ -52,10 +52,15 @@ MUTATIONS: list[tuple[pathlib.Path, str, str, str]] = [
     ),
     (
         SIG,
-        '    if signed and state == "valid":\n        key = f" key {fingerprint}" if fingerprint'
-        ' else ""\n        return f"    signed: the bus says VALID',
-        '    if signed:\n        key = f" key {fingerprint}" if fingerprint'
-        ' else ""\n        return f"    signed: the bus says VALID',
+        (
+            '    if signed and state == "valid":\n'
+            '        key = f" key {fingerprint}" if fingerprint'
+            ' else ""\n        return f"    signed: the bus says VALID'
+        ),
+        (
+            '    if signed:\n        key = f" key {fingerprint}" if fingerprint'
+            ' else ""\n        return f"    signed: the bus says VALID'
+        ),
         "thread line: a bad verdict renders as VALID",
     ),
     (
@@ -84,15 +89,19 @@ MUTATIONS: list[tuple[pathlib.Path, str, str, str]] = [
     ),
     (
         SIG,
-        '        return True, bool(block.get("signed")), block.get("state"),'
-        ' block.get("key_fingerprint")',
+        (
+            '        return True, bool(block.get("signed")), block.get("state"),'
+            ' block.get("key_fingerprint")'
+        ),
         '        return True, bool(block.get("signed")), "valid", block.get("key_fingerprint")',
         "provenance state forced to valid: invalid renders as a pass",
     ),
     (
         SIG,
-        '        return True, bool(block.get("signed")), block.get("state"),'
-        ' block.get("key_fingerprint")',
+        (
+            '        return True, bool(block.get("signed")), block.get("state"),'
+            ' block.get("key_fingerprint")'
+        ),
         '        return True, bool(block.get("signed")), None, block.get("key_fingerprint")',
         "provenance state dropped: an invalid message loses its verdict",
     ),
@@ -122,7 +131,10 @@ MUTATIONS: list[tuple[pathlib.Path, str, str, str]] = [
     ),
     (
         READ,
-        "    for line in _sigline.signature_lines(delivery, args.delivery_id):\n        print(line)",
+        (
+            "    for line in _sigline.signature_lines(delivery, args.delivery_id):\n"
+            "        print(line)"
+        ),
         "    pass",
         "show prints no Signed: line at all (#64)",
     ),
@@ -144,6 +156,7 @@ def main() -> int:
                 capture_output=True,
                 text=True,
                 cwd=ROOT,
+                check=False,
             )
             tail = [ln for ln in proc.stdout.splitlines() if "passed" in ln or "failed" in ln]
             results.append(

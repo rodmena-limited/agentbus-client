@@ -64,7 +64,7 @@ def _worktree_pair(tmp_path: Path) -> Any:
 
 
 def _resolve(
-    monkeypatch: pytest.MonkeyPatch, cwd: Path, env_agent: Any, break_git: bool = False
+    monkeypatch: pytest.MonkeyPatch, cwd: Path, env_agent: Any, *, break_git: bool = False
 ) -> Any:
     monkeypatch.chdir(cwd)
     monkeypatch.setenv("AGENTBUS_AGENT", env_agent)
@@ -150,7 +150,7 @@ def test_misdirected_git_cannot_change_the_sender(
     assert _resolve(monkeypatch, linked, "main-agent") == "linked-agent"
 
 
-def test_git_dir_pointing_at_a_REAL_other_repo_cannot_change_the_sender(
+def test_git_dir_pointing_at_a_real_other_repo_cannot_change_the_sender(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The sharpest form of #44: git succeeds and answers about a VALID other repo.

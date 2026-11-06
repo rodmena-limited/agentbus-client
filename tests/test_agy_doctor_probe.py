@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _hooks(command: str) -> dict:
+def _hooks(command: str) -> dict[str, Any]:
     return {"agentbus-wake": {"Stop": [{"command": command}]}}
 
 

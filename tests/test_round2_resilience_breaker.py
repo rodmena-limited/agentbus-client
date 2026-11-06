@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import time
 from fractions import Fraction
+from typing import Any
 
 import httpx
 import pytest
@@ -37,7 +38,7 @@ def _fresh_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _Resp:
-    def __init__(self, status: int, body: dict) -> None:
+    def __init__(self, status: int, body: dict[str, Any]) -> None:
         import json
 
         self.status_code = status
@@ -45,12 +46,12 @@ class _Resp:
         self.content = json.dumps(body).encode()
         self.text = self.content.decode()
 
-    def json(self) -> dict:
+    def json(self) -> dict[str, Any]:
         return self._body
 
 
 class _Stub:
-    def __init__(self, step: object) -> None:
+    def __init__(self, step: Any) -> None:
         self.step = step
         self.calls = 0
 

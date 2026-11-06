@@ -83,7 +83,7 @@ def test_sync_and_async_breakers_share_cb_env_knobs(monkeypatch: pytest.MonkeyPa
 class _StubClient:
     """Minimal httpx.Client stand-in — records attempts, raises on schedule."""
 
-    def __init__(self, script: list) -> None:
+    def __init__(self, script: list[Any]) -> None:
         # `script` is a list of either an exception to raise or a (status, body)
         # tuple to return as a mock response.
         self.script = list(script)
@@ -102,13 +102,13 @@ class _StubClient:
 
 
 class _StubResp:
-    def __init__(self, status: int, body: bytes | dict) -> None:
+    def __init__(self, status: int, body: bytes | dict[str, Any]) -> None:
         self.status_code = status
         if isinstance(body, dict):
             import json
 
             self.content = json.dumps(body).encode()
-            self._body = body
+            self._body: dict[str, Any] | None = body
         else:
             self.content = body
             self._body = None
@@ -241,7 +241,8 @@ def test_idempotency_key_is_stable_across_retries(monkeypatch: pytest.MonkeyPatc
     bus = _make_bus(client, monkeypatch)
     bus._request("POST", "/v1/messages", idempotent=True)
     assert len(keys_seen) == 2, "expected 2 attempts (1 retry)"
-    assert keys_seen[0] and keys_seen[0] == keys_seen[1], (
+    assert keys_seen[0]
+    assert keys_seen[0] == keys_seen[1], (
         "the same Idempotency-Key must be sent on retry — otherwise the "
         "vendor cannot dedup and a caller who wraps in try/retry duplicates."
     )

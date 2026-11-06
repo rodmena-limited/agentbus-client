@@ -4,13 +4,17 @@ import io
 import json
 import sys
 import urllib.error
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
 from agentbus_client.hooks import _gate
+
+if TYPE_CHECKING:
+    import argparse
+    from email.message import Message
 
 LIMIT = 4096
 
@@ -32,10 +36,16 @@ class _Resp:
 
 class _HTTPError(urllib.error.HTTPError):
     def __init__(self, code: int, body: str) -> None:
-        super().__init__("https://agentbus.rodmena.co.uk/v1/guard/check", code, "x", None, None)
+        super().__init__(
+            "https://agentbus.rodmena.co.uk/v1/guard/check",
+            code,
+            "x",
+            cast("Message[str, str]", None),
+            None,
+        )
         self._body = body
 
-    def read(self) -> bytes:
+    def read(self, n: int = -1) -> bytes:
         return self._body.encode()
 
 
@@ -50,7 +60,7 @@ def _longest_string(value: Any) -> int:
 
 
 def _guard_with_the_servers_contract(sent: list[dict[str, Any]]) -> Any:
-    def fake_urlopen(request: pytest.FixtureRequest, timeout: Any = None) -> Any:
+    def fake_urlopen(request: Any, timeout: Any = None) -> Any:
         body = json.loads(request.data.decode())
         sent.append(body)
         unknown = set(body) - {"tool_name", "tool_input", "truncated"}
@@ -103,7 +113,7 @@ def _decide(
             pass
 
     monkeypatch.setattr(sys, "stdout", _Out())
-    hk.pre_tool_use(None)
+    hk.pre_tool_use(cast("argparse.Namespace", None))
     line = next(chunk for chunk in out if "hookSpecificOutput" in chunk)
     return json.loads(line)["hookSpecificOutput"], sent
 

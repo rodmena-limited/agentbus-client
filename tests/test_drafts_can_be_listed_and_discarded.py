@@ -11,7 +11,7 @@ from agentbus_client.client import AgentBus, AsyncAgentBus
 if TYPE_CHECKING:
     import pytest
 
-REAL_SHAPE = {
+REAL_SHAPE: dict[str, Any] = {
     "id": "01M2BY24DX5GVS6KTGH239RK76",
     "subject": "audit probe: draft shape",
     "recipients": ["agentbus-client-c70fbf"],

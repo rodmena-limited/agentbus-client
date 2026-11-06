@@ -34,10 +34,11 @@ pubs = [p.communicate()[0].strip() for p in procs]
 os.environ["AGENTBUS_CONFIG_DIR"] = cfg
 from agentbus_client import sealing
 
-on_disk = sealing.public_from_private(open(sealing.key_path("probe")).read().strip())
+on_disk = sealing.public_from_private(sealing.key_path("probe").read_text().strip())
 lost = [p for p in pubs if p != on_disk]
 print(
-    f"{len(set(pubs))} distinct keys returned to 8 concurrent first users; {len(lost)} hold a key not on disk"
+    f"{len(set(pubs))} distinct keys returned to 8 concurrent first users; "
+    f"{len(lost)} hold a key not on disk"
 )
 raise SystemExit(
     verdict(

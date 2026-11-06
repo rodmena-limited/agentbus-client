@@ -34,7 +34,7 @@ class _BusRecording:
 
     def __init__(self, responses: Any) -> None:
         self._responses = list(responses)
-        self.calls: list[tuple] = []
+        self.calls: list[tuple[Any, ...]] = []
 
     def _request(self, method: Any, path: Any, json: Any = None, **kw: Any) -> Any:
         self.calls.append((method, path, json))
@@ -54,7 +54,7 @@ def test_first_attempt_succeeds_no_sleep(monkeypatch: pytest.MonkeyPatch) -> Non
     """Common case: the pubkey publish works first time. No backoff on the
     hot path is the whole point of `delays = (0.0, ...)` in the helper."""
     slept: list[float] = []
-    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr("time.sleep", slept.append)
 
     bus = _BusRecording([{"fingerprint": "abc123"}])
     result = onboarding._sealing_publish_with_retry(bus, "ephemeral-agent", "pubkey-bytes")
@@ -65,7 +65,7 @@ def test_first_attempt_succeeds_no_sleep(monkeypatch: pytest.MonkeyPatch) -> Non
     assert bus.calls[0][1] == "/v1/agents/ephemeral-agent/pubkey"
     assert bus.calls[0][2] == {"public_key": "pubkey-bytes"}
     # No sleep on the fast path.
-    assert slept == [0.0] or slept == []
+    assert slept in ([0.0], [])
 
 
 def test_raise_once_then_succeed_retries_and_returns_result(
@@ -109,7 +109,7 @@ def test_backoff_delays_grow(monkeypatch: pytest.MonkeyPatch) -> None:
     setting all delays to 0.0 in a refactor and turning the retry into a
     tight loop that hammers a struggling server."""
     slept: list[float] = []
-    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr("time.sleep", slept.append)
 
     bus = _BusRecording([RuntimeError("f0"), RuntimeError("f1"), {"fingerprint": "z"}])
     result = onboarding._sealing_publish_with_retry(bus, "e", "pk")
@@ -129,10 +129,10 @@ def test_helper_survives_final_failure_being_a_different_exception_shape(
     result in None rather than a raise up the stack."""
     monkeypatch.setattr("time.sleep", lambda s: None)
 
-    class MadeUp(RuntimeError):
+    class MadeUpError(RuntimeError):
         pass
 
-    bus = _BusRecording([OSError("net"), ConnectionError("reset"), MadeUp("weird")])
+    bus = _BusRecording([OSError("net"), ConnectionError("reset"), MadeUpError("weird")])
     result = onboarding._sealing_publish_with_retry(bus, "e", "pk")
     assert result is None
 

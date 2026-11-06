@@ -52,7 +52,7 @@ def _args(name: Any = None, **over: Any) -> argparse.Namespace:
 
 def _run(monkeypatch: pytest.MonkeyPatch, args: Any, key_for_agent: Any, bus: Any = None) -> Any:
     bus = bus or _Bus()
-    seen: dict = {}
+    seen: dict[str, Any] = {}
 
     def fake_bus(a: Any) -> Any:
         seen["api_key"] = a.api_key

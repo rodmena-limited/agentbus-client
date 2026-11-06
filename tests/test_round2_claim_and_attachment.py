@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import httpx
 import pytest
@@ -24,7 +24,7 @@ class Recorder:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        return self.responder(request)
+        return cast("httpx.Response", self.responder(request))
 
 
 def _client(recorder: Recorder, agent: str | None = READER) -> AgentBus:
@@ -237,7 +237,7 @@ def test_an_attachment_error_status_raises() -> None:
 
 
 def test_a_transport_failure_is_a_typed_transport_error() -> None:
-    def refuse(request: pytest.FixtureRequest) -> NoReturn:
+    def refuse(request: httpx.Request) -> NoReturn:
         msg = "connection refused"
         raise httpx.ConnectError(msg, request=request)
 

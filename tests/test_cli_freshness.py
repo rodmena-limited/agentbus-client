@@ -73,7 +73,7 @@ def test_the_remedy_does_not_stake_everything_on_one_command(
     )
 
 
-def test_a_stale_build_says_WHICH_copy_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stale_build_says_which_copy_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     """A peer had two installs and the stale one was not the binary on PATH.
     'You are out of date' without naming the copy sends people to upgrade the
     wrong one."""
@@ -139,7 +139,7 @@ def test_latest_on_pypi_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         msg = "network is unreachable"
         raise OSError(msg)
 
-    monkeypatch.setattr(dv.urllib.request, "urlopen", _boom)
+    monkeypatch.setattr("urllib.request.urlopen", _boom)
     version, detail = dv.latest_on_pypi(timeout=0.1)
     assert version is None
     assert "could not" in detail

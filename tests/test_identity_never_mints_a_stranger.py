@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 import pytest
 
@@ -34,10 +34,10 @@ class _Bus:
     """Records what register() was asked for. Registering is the damage, so the
     test asserts on the REQUEST, not on a returned name."""
 
-    agent = None
+    agent: str | None = None
 
     def __init__(self) -> None:
-        self.registered: list[tuple] = []
+        self.registered: list[tuple[Any, ...]] = []
 
     def register(self, name: str, **kw: Any) -> dict[str, Any]:
         self.registered.append((name, kw.get("role")))
@@ -49,7 +49,7 @@ class _Bus:
 
 
 def _args(**over: Any) -> argparse.Namespace:
-    base = {
+    base: dict[str, Any] = {
         "name": None,
         "role": None,
         "workdir": None,
@@ -176,7 +176,7 @@ def test_setup_says_when_a_declared_name_overrode_your_role(
         def __enter__(self) -> Any:
             return self
 
-        def __exit__(self, *a: Any) -> bool:
+        def __exit__(self, *a: object) -> Literal[False]:
             return False
 
     monkeypatch.setattr(_provision, "AgentBus", lambda **kw: _B())

@@ -36,13 +36,13 @@ import os
 import sys
 import time
 import uuid
+from pathlib import Path
+from typing import Any
 
-SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or os.path.join(
-    os.path.dirname(__file__), "..", "..", "src"
-)
-sys.path.insert(0, os.path.abspath(SRC))
+SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or str(Path(__file__).parent / ".." / ".." / "src")
+sys.path.insert(0, str(Path(SRC).resolve()))
 
-from agentbus_client.client import AgentBus, AgentBusError  # noqa: E402
+from agentbus_client.client import AgentBus, AgentBusError
 
 RESULTS: list[tuple[str, str, str]] = []  # (state, name, detail)
 
@@ -52,7 +52,7 @@ def record(state: str, name: str, detail: str = "") -> None:
     print(f"  [{state:8}] {name}" + (f" — {detail}" if detail else ""), flush=True)
 
 
-def _wait_for(bus: AgentBus, sentinel: str, seconds: int) -> dict | None:
+def _wait_for(bus: AgentBus, sentinel: str, seconds: int) -> dict[str, Any] | None:
     """Poll this agent's own inbox for a delivery containing `sentinel`.
 
     Reads through the PRODUCT (bus.inbox + bus.read), never the database, so a
@@ -71,7 +71,7 @@ def _wait_for(bus: AgentBus, sentinel: str, seconds: int) -> dict | None:
     return None
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901, PLR0912, PLR0915
     if os.environ.get("AUDIT_ALLOW_LIVE") != "1":
         print("SKIP: live probe (talks to the production bus); set AUDIT_ALLOW_LIVE=1 to run it")
         return 0

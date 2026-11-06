@@ -5,12 +5,17 @@ import json
 import sys
 import time
 import urllib.error
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
+
+if TYPE_CHECKING:
+    import argparse
+    from email.message import Message
+    from time import struct_time
 
 REAL_GMTIME = time.gmtime
 
@@ -22,7 +27,7 @@ class _Clock:
     def time(self) -> float:
         return self.now
 
-    def gmtime(self, secs: float | None = None) -> time.struct_time:
+    def gmtime(self, secs: float | None = None) -> struct_time:
         return REAL_GMTIME(self.now if secs is None else secs)
 
 
@@ -49,7 +54,9 @@ class _Guard:
     def urlopen(self, request: Any, timeout: float = 0) -> _Resp:
         self.requests += 1
         if not self.healthy:
-            raise urllib.error.HTTPError(request.full_url, 503, "down", None, io.BytesIO(b"{}"))
+            raise urllib.error.HTTPError(
+                request.full_url, 503, "down", cast("Message[str, str]", None), io.BytesIO(b"{}")
+            )
         return _Resp({"decision": "deny", "reason": "GUARD-DENY needs approval"})
 
 
@@ -59,7 +66,7 @@ def rig(monkeypatch: pytest.MonkeyPatch) -> tuple[_Clock, _Guard]:
     monkeypatch.setattr(time, "time", clock.time)
     monkeypatch.setattr(time, "gmtime", clock.gmtime)
     monkeypatch.setattr(hk._gate, "_bus_reachable", lambda *_a, **_k: (True, ""))
-    monkeypatch.setattr(hk._gate.urllib.request, "urlopen", guard.urlopen)
+    monkeypatch.setattr("urllib.request.urlopen", guard.urlopen)
     monkeypatch.setenv("AGENTBUS_API_KEY", "ab_sk_test")
     monkeypatch.setenv("AGENTBUS_AGENT", "circuit-agent")
     monkeypatch.setenv("AGENTBUS_BASE_URL", "https://bus.invalid")
@@ -83,7 +90,7 @@ def _call(monkeypatch: pytest.MonkeyPatch) -> str:
     monkeypatch.setattr(
         sys, "stdin", io.StringIO('{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}')
     )
-    assert hk.pre_tool_use(None) == 0
+    assert hk.pre_tool_use(cast("argparse.Namespace", None)) == 0
     line = next(chunk for chunk in out if "hookSpecificOutput" in chunk)
     return str(json.loads(line)["hookSpecificOutput"]["permissionDecision"])
 

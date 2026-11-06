@@ -14,6 +14,7 @@ from ._repeat import _connection_limits, _safe_to_repeat
 from .base import _Base
 from .errors import (
     TransportError,
+    _decoded_body,
     _raise_for,
 )
 from .memory import SyncMemoryMixin
@@ -98,7 +99,7 @@ class AgentBus(
             except httpx.HTTPError as exc:
                 raise TransportError(str(exc)) from exc
             _raise_for(response)
-            payload = response.json() if response.content else None
+            payload = _decoded_body(response)
             self._capture_challenge(payload)
             return cast("dict[str, Any]", payload)
 

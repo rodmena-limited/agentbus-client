@@ -101,6 +101,22 @@ def _raise_for(response: httpx.Response) -> None:
     raise cls(detail, code=code, status=response.status_code, body=body)
 
 
+def _decoded_body(response: httpx.Response) -> Any:  # noqa: ANN401
+    if not response.content:
+        return None
+    try:
+        return response.json()
+    except (ValueError, RecursionError) as exc:
+        detail = (
+            f"the bus answered {response.status_code} with a body that is not JSON, so something "
+            "between here and the bus may be answering for it. Check AGENTBUS_BASE_URL and the "
+            "network, then retry."
+        )
+        raise AgentBusError(
+            detail, code="unreadable_response", status=response.status_code
+        ) from exc
+
+
 class SelfReplyError(AgentBusError):
     """A reply whose ONLY resolved recipient is the agent sending it (#53).
 

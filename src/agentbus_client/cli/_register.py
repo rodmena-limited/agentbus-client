@@ -299,11 +299,13 @@ def _bound_key_note(args: argparse.Namespace, agent_name: str) -> str:
 def _project_wiring_note(args: argparse.Namespace, agent_name: str) -> str:
     wired_note = ""
     try:
+        from agentbus_client._settings_env import _settings_agent
         from agentbus_client.onboarding import _dump_json, _load_json, _project_claude_dir
+        from agentbus_client.onboarding._settings_shape import _object_field
 
         local_path = _project_claude_dir() / "settings.local.json"
         local = _load_json(local_path)
-        existing = (local.get("env") or {}).get("AGENTBUS_AGENT")
+        existing = _settings_agent(local)
 
         # NEVER STEAL A PROJECT'S IDENTITY. Two guards, both learned the hard way
         # within an hour of shipping the wiring above.
@@ -335,7 +337,7 @@ def _project_wiring_note(args: argparse.Namespace, agent_name: str) -> str:
         elif existing == agent_name:
             wired_note = f"  wired:    {local_path} (already {agent_name})"
         else:
-            local.setdefault("env", {})["AGENTBUS_AGENT"] = agent_name
+            _object_field(local, "env", local_path)["AGENTBUS_AGENT"] = agent_name
             _dump_json(local_path, local)
             # Both records or neither. The worktree file is what the monitor and
             # every non-Claude harness read; writing only settings.local.json
@@ -348,7 +350,7 @@ def _project_wiring_note(args: argparse.Namespace, agent_name: str) -> str:
             wired_note = f"  wired:    {local_path} env.AGENTBUS_AGENT={agent_name}"
             for note in notes:
                 wired_note += f"\n             {note}"
-    except Exception as exc:  # noqa: BLE001
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
         wired_note = (
             f"  NOT WIRED ({exc}). The wake will not start; "
             f"run: agentbus setup claude --role <role>"

@@ -292,6 +292,8 @@ def _scope_of_bearer(bearer: str, base_url: str | None = None) -> str:
         # not work; "unreachable" — the bus could not be asked at all.
         if exc.code in ("invalid_api_key", "forbidden", "not_found"):
             return f"unusable ({exc.code})"
+        if exc.code == "unreadable_response":
+            return "unknown (resolution failed)"
         return f"unreachable ({exc.code})"
     except Exception:  # noqa: BLE001
         return "unknown (resolution failed)"

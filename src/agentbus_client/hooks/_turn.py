@@ -138,13 +138,18 @@ def _fetch_unread(agent: str) -> tuple[list[str], int, bool]:
     return unread, count, server_ok
 
 
+def _printable(text: str) -> str:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return text.encode(encoding, "backslashreplace").decode(encoding)
+
+
 def _print_unread(unread: list[str], count: int) -> bool:
     total = max(count, len(unread))
     if not total:
         return False
     print(f"AgentBus: {total} unread message(s) waiting:")
     for line in unread[:_UNREAD_PREVIEW_LINES]:
-        print(line)
+        print(_printable(line))
     if not unread:
         print("  read them: agentbus inbox --unread")
     elif total > _UNREAD_PREVIEW_LINES:
@@ -159,14 +164,14 @@ def _print_unread(unread: list[str], count: int) -> bool:
 
 
 def _stale_arrival(line: bytes) -> str | None:
-    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
     try:
         entry = json.loads(line)
-        text = (
+        if not any(entry.get(field) for field in ("sender", "subject", "delivery_id")):
+            return None
+        return _printable(
             f"  {entry.get('sender')}: {entry.get('subject')}"
             f"  (agentbus show {entry.get('delivery_id')})"
         )
-        return text.encode(encoding, "backslashreplace").decode(encoding)
     except Exception:  # noqa: BLE001
         return None
 

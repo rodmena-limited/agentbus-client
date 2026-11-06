@@ -85,6 +85,7 @@ def _identity_resolution() -> tuple[str | None, list[str], bool]:
     import json as _json
     import os as _os
 
+    from agentbus_client._settings_env import _settings_agent
     from agentbus_client.onboarding import _identity as _ident
 
     sources: list[str] = []
@@ -101,7 +102,7 @@ def _identity_resolution() -> tuple[str | None, list[str], bool]:
         local = _ident._project_claude_dir() / "settings.local.json"
         name = None
         if local.is_file():
-            name = (_json.loads(local.read_text()).get("env") or {}).get("AGENTBUS_AGENT")
+            name = _settings_agent(_json.loads(local.read_text()))
         if name:
             sources.append(f"settings.local.json ({name})")
             names.append(str(name))
@@ -113,4 +114,8 @@ def _identity_resolution() -> tuple[str | None, list[str], bool]:
     # healthy layout, which is how a warning stops being read before it reaches
     # the operator who needed it.
     conflict = len(set(names)) > 1
-    return _ident._resolve_agent_name(), sources, conflict
+    try:
+        resolved = _ident._resolve_agent_name()
+    except SystemExit:
+        resolved = names[0] if names else None
+    return resolved, sources, conflict

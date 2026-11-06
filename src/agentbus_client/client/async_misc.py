@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -14,6 +14,7 @@ from .models import _max_attachment_bytes
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
     from collections.abc import Sequence
+    from datetime import datetime, timedelta
 
     from ._mixin_base import AsyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
@@ -157,7 +158,7 @@ class AsyncMiscMixin(_MixinBase):
         )
         try:
             _signing.verify(match["public_key"], payload, block.get("signature"))
-        except _signing.BadSignature as exc:
+        except _signing.BadSignatureError as exc:
             return {
                 "verified": False,
                 "verdict": "invalid",
@@ -248,11 +249,11 @@ class AsyncMiscMixin(_MixinBase):
         *,
         target: str | None = None,
         subject: str = "",
-        delay: Any = None,
-        at: Any = None,
-        expire: Any = None,
+        delay: str | int | timedelta | None = None,
+        at: str | datetime | None = None,
+        expire: str | int | timedelta | datetime | None = None,
         repeat: str | None = None,
-        repeat_until: Any = None,
+        repeat_until: object = None,
         timezone: str | None = None,
         agent: str | None = None,
         idempotency_key: str | None = None,
@@ -307,7 +308,7 @@ class AsyncMiscMixin(_MixinBase):
         for key, value in (
             ("delay_seconds", _duration_seconds(delay)),
             ("due_at", _as_instant(at)),
-            ("expires_at", _expiry_instant(expire, delay, at)),
+            ("expires_at", _expiry_instant(expire)),
             ("repeat", repeat),
             ("timezone", timezone),
         ):
@@ -345,7 +346,7 @@ class AsyncMiscMixin(_MixinBase):
     async def drafts(self, agent: str | None = None) -> list[dict[str, Any]]:
         """List this agent's drafts — async twin."""
         result: dict[str, Any] = await self._request("GET", "/v1/drafts", agent=agent)
-        return result["drafts"]
+        return cast("list[dict[str, Any]]", result["drafts"])
 
     async def delete_draft(self, draft_id: str, agent: str | None = None) -> None:
         await self._request("DELETE", f"/v1/drafts/{draft_id}", agent=agent)
@@ -462,7 +463,7 @@ class AsyncMiscMixin(_MixinBase):
             async with self._client.stream(
                 "GET",
                 f"/v1/deliveries/{delivery_id}/attachments/{index}",
-                headers=self._headers(agent, False),
+                headers=self._headers(agent, idempotent=False),
             ) as response:
                 _raise_for(response)
                 chunks: list[bytes] = []

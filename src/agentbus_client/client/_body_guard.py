@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from .errors import EmptyBodyError
 
 
@@ -9,8 +7,8 @@ def _refuse_empty_body(
     text: str | None,
     *,
     html: str | None = None,
-    attachments: Any = None,
-    payload: Any = None,
+    attachments: object = None,
+    payload: object = None,
     allow_empty: bool,
 ) -> None:
     if allow_empty or attachments or payload is not None:

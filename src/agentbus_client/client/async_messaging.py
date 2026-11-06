@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -13,7 +13,8 @@ from .errors import AgentBusError, TransportError, _raise_for
 from .models import Delivery, _ack_window_seconds
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Sequence
+    from datetime import timedelta
 
     from ._mixin_base import AsyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
@@ -44,7 +45,7 @@ class AsyncMessagingMixin(_MixinBase):
         # SEV-2-H (#234): missing `derived_from` on the async surface — drift.
         # Placed at the same position as AgentBus.send for the parity test to pass.
         derived_from: Sequence[str] | None = None,
-        payload: Any = None,
+        payload: object = None,
         guarantee: str | None = None,
         agent: str | None = None,
         # SEV-2-D (#234): stable key for retry safety; see AgentBus.send().
@@ -53,7 +54,7 @@ class AsyncMessagingMixin(_MixinBase):
         # require_ack binds TO only, never CC; forward-compatible with
         # servers that predate the delivery_reminders table.
         require_ack: bool = False,
-        ack_window: Any = None,
+        ack_window: timedelta | int | None = None,
         allow_empty: bool = False,
     ) -> dict[str, Any]:
         _refuse_empty_body(
@@ -185,14 +186,10 @@ class AsyncMessagingMixin(_MixinBase):
         )
         return [Delivery.from_api(m) for m in result["messages"]]
 
-    async def follow(self, cursor: int = 0, *, agent: str | None = None, wait: int = 30) -> Any:
-        """Async generator yielding deliveries as they arrive — async twin.
-
-        Return type is Any (not AsyncIterator[Delivery]) because it is an async
-        GENERATOR, which typing expresses as AsyncGenerator[Delivery, None]. The
-        loose annotation keeps the parity test's param-name check simple; the
-        docstring is authoritative.
-        """
+    async def follow(
+        self, cursor: int = 0, *, agent: str | None = None, wait: int = 30
+    ) -> AsyncIterator[Delivery]:
+        """Async generator yielding deliveries as they arrive — async twin."""
         while True:
             batch = await self.inbox(cursor, wait=wait, agent=agent)
             for delivery in batch:
@@ -200,7 +197,10 @@ class AsyncMessagingMixin(_MixinBase):
                 yield delivery
 
     async def read(
-        self, delivery_id: str, agent: str | None = None, raw: bool = False
+        self,
+        delivery_id: str,
+        agent: str | None = None,
+        raw: bool = False,  # noqa: FBT001, FBT002
     ) -> dict[str, Any]:
         """Read one delivery, unsealing it when this machine holds the key.
 
@@ -232,7 +232,7 @@ class AsyncMessagingMixin(_MixinBase):
         result: dict[str, Any] = await self._request(
             "POST", f"/v1/deliveries/{delivery_id}/labels", json=payload, agent=agent
         )
-        return result["labels"]
+        return cast("list[str]", result["labels"])
 
     async def thread(self, thread_id: str) -> dict[str, Any]:
         """F10 (issuedb #11): match the sync client — unseal each message."""
@@ -244,7 +244,7 @@ class AsyncMessagingMixin(_MixinBase):
     async def threads(self, limit: int = 50) -> list[dict[str, Any]]:
         """List threads the acting agent participates in — async twin."""
         result: dict[str, Any] = await self._request("GET", "/v1/threads", params={"limit": limit})
-        return result["threads"]
+        return cast("list[dict[str, Any]]", result["threads"])
 
     async def raw(self, message_id: str) -> str:
         """The canonical RFC822 artifact for a message — async twin of AgentBus.raw."""
@@ -255,7 +255,7 @@ class AsyncMessagingMixin(_MixinBase):
         except httpx.HTTPError as exc:
             raise TransportError(str(exc)) from exc
         _raise_for(response)
-        return response.text
+        return cast("str", response.text)
 
     async def status(
         self,

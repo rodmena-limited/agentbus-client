@@ -32,7 +32,7 @@ class AuthError(AgentBusError):
     """401 — the key is missing, malformed, or revoked."""
 
 
-class PermissionError_(AgentBusError):
+class PermissionError_(AgentBusError):  # noqa: N801
     """403 — this key may not do that, or may not act as that agent."""
 
 
@@ -70,6 +70,9 @@ class TransportError(AgentBusError):
     """The request never got an answer."""
 
 
+_HTTP_BAD_REQUEST = 400
+_HTTP_TOO_MANY_REQUESTS = 429
+
 _ERRORS = {
     401: AuthError,
     403: PermissionError_,
@@ -82,7 +85,7 @@ _ERRORS = {
 
 
 def _raise_for(response: httpx.Response) -> None:
-    if response.status_code < 400:
+    if response.status_code < _HTTP_BAD_REQUEST:
         return
     try:
         body = response.json()
@@ -90,7 +93,7 @@ def _raise_for(response: httpx.Response) -> None:
         body = {}
     code = body.get("code", "error")
     detail = body.get("detail") or body.get("title") or response.text[:300]
-    if response.status_code == 429:
+    if response.status_code == _HTTP_TOO_MANY_REQUESTS:
         cls: type[AgentBusError] = RateLimited if code == "rate_limited" else QuotaExceeded
     else:
         cls = _ERRORS.get(response.status_code, AgentBusError)

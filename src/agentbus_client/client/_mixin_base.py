@@ -33,7 +33,7 @@ class SyncClientBase:
     _challenge_lock: Any
     _pending_challenge: Any
 
-    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+    def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
     def _headers(self, *args: Any, **kwargs: Any) -> dict[str, str]:
@@ -42,19 +42,21 @@ class SyncClientBase:
     def read(self, delivery_id: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def unseal_message(self, message: Any, *args: Any, **kwargs: Any) -> Any:
+    def unseal_message(self, message: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _apply_seal(self, *args: Any, **kwargs: Any) -> Any:
+    def _apply_seal(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _seal_if_needed(self, *args: Any, **kwargs: Any) -> Any:
+    def _seal_if_needed(
+        self, *args: Any, **kwargs: Any
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         raise NotImplementedError
 
-    def _seal_to_self(self, *args: Any, **kwargs: Any) -> Any:
+    def _seal_to_self(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _sign_if_possible(self, *args: Any, **kwargs: Any) -> Any:
+    def _sign_if_possible(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
 
@@ -71,7 +73,7 @@ class AsyncClientBase:
     _challenge_lock: Any
     _pending_challenge: Any
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
     def _headers(self, *args: Any, **kwargs: Any) -> dict[str, str]:
@@ -80,20 +82,22 @@ class AsyncClientBase:
     async def read(self, delivery_id: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def unseal_message(self, message: Any, *args: Any, **kwargs: Any) -> Any:
+    def unseal_message(self, message: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _apply_seal(self, *args: Any, **kwargs: Any) -> Any:
+    def _apply_seal(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _seal_if_needed(self, *args: Any, **kwargs: Any) -> Any:
+    async def _seal_if_needed(
+        self, *args: Any, **kwargs: Any
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         raise NotImplementedError
 
-    async def _seal_to_self_async(self, *args: Any, **kwargs: Any) -> Any:
+    async def _seal_to_self_async(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _seal_to_self(self, *args: Any, **kwargs: Any) -> Any:
+    def _seal_to_self(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _sign_if_possible(self, *args: Any, **kwargs: Any) -> Any:
+    def _sign_if_possible(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise NotImplementedError

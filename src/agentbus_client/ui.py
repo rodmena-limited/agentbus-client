@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 _FORCE_PLAIN = bool(os.environ.get("NO_COLOR")) or not sys.stdout.isatty()
 
 
-def _console() -> Any | None:
+def _console() -> Console | None:
     if _FORCE_PLAIN:
         return None
     try:

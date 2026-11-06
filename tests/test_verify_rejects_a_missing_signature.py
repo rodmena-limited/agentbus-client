@@ -8,7 +8,7 @@ from agentbus_client import _signing
 @pytest.mark.parametrize("signature", [None, 123, b"absig1raw", ["absig1x"]])
 def test_a_signature_that_is_not_text_is_a_bad_signature(signature: object) -> None:
     _private, public = _signing.generate_keypair()
-    with pytest.raises(_signing.BadSignature):
+    with pytest.raises(_signing.BadSignatureError):
         _signing.verify(public, b"payload", signature)
 
 
@@ -16,7 +16,7 @@ def test_a_signature_that_is_not_text_is_a_bad_signature(signature: object) -> N
 def test_a_public_key_that_is_not_text_is_a_bad_signature(public_key: object) -> None:
     private, _public = _signing.generate_keypair()
     signature = _signing.sign(private, b"payload")
-    with pytest.raises(_signing.BadSignature):
+    with pytest.raises(_signing.BadSignatureError):
         _signing.verify(public_key, b"payload", signature)
 
 

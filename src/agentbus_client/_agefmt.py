@@ -82,7 +82,7 @@ def _hrp_expand(hrp: str) -> list[int]:
     return [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp]
 
 
-def _convertbits(data: bytes | list[int], frm: int, to: int, pad: bool = True) -> list[int]:
+def _convertbits(data: bytes | list[int], frm: int, to: int, *, pad: bool = True) -> list[int]:
     acc = 0
     bits = 0
     ret: list[int] = []
@@ -248,7 +248,7 @@ def seal(plaintext: bytes, recipients: list[str]) -> bytes:
     return header + nonce + _stream(file_key, nonce, plaintext, encrypt=True)
 
 
-class CannotDecrypt(Exception):
+class CannotDecrypt(Exception):  # noqa: N818
     """This identity is not a recipient of this message.
 
     Deliberately distinct from a corrupt-file error: 'not for me' and 'damaged'
@@ -284,7 +284,7 @@ def unseal(sealed: bytes, private_key: str) -> bytes:
         try:
             file_key = ChaCha20Poly1305(wrap_key).decrypt(b"\x00" * 12, wrapped, None)
             break
-        except Exception:
+        except Exception:  # noqa: BLE001, S112
             continue
     if file_key is None:
         msg = "no stanza in this message unwraps with this identity"

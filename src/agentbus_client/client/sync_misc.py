@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agentbus_client._timefmt import _as_instant, _duration_seconds, _expiry_instant
 
@@ -12,6 +12,7 @@ from .sync_verify import SyncVerifyMixin
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
     from collections.abc import Sequence
+    from datetime import datetime, timedelta
 
     from ._mixin_base import SyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
@@ -162,11 +163,11 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         *,
         target: str | None = None,
         subject: str = "",
-        delay: Any = None,
-        at: Any = None,
-        expire: Any = None,
+        delay: str | int | timedelta | None = None,
+        at: str | datetime | None = None,
+        expire: str | int | timedelta | datetime | None = None,
         repeat: str | None = None,
-        repeat_until: Any = None,
+        repeat_until: object = None,
         timezone: str | None = None,
         agent: str | None = None,
         idempotency_key: str | None = None,
@@ -233,7 +234,7 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         for key, value in (
             ("delay_seconds", _duration_seconds(delay)),
             ("due_at", _as_instant(at)),
-            ("expires_at", _expiry_instant(expire, delay, at)),
+            ("expires_at", _expiry_instant(expire)),
             ("repeat", repeat),
             ("timezone", timezone),
         ):
@@ -271,7 +272,7 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         # has no cursor, so asking for the most it will give is the honest
         # maximum this client can offer, and `reminds_page()` exposes the
         # truncation flags for a caller that needs to know.
-        return self.reminds_page(agent=agent, all=all)["reminders"]
+        return cast("list[dict[str, Any]]", self.reminds_page(agent=agent, all=all)["reminders"])
 
     def reminds_page(self, *, agent: str | None = None, all: bool = False) -> dict[str, Any]:
         """The whole listing envelope: reminders, count, total, has_more, limit.
@@ -293,7 +294,8 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
         return self._request("DELETE", f"/v1/reminders/{reminder_id}", agent=agent)
 
     def drafts(self, agent: str | None = None) -> list[dict[str, Any]]:
-        return self._request("GET", "/v1/drafts", agent=agent)["drafts"]
+        result = self._request("GET", "/v1/drafts", agent=agent)
+        return cast("list[dict[str, Any]]", result["drafts"])
 
     def delete_draft(self, draft_id: str, agent: str | None = None) -> None:
         self._request("DELETE", f"/v1/drafts/{draft_id}", agent=agent)

@@ -6,7 +6,7 @@ import contextlib
 import os
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from typing_extensions import Self
@@ -25,6 +25,38 @@ from .resilience import (
     _async_circuit_breaker,
     _is_transient_sdk_error,
 )
+
+if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Awaitable, Callable
+    from typing import TypeVar
+
+    from ._async_breaker import _AsyncCircuitBreaker
+
+    _T = TypeVar("_T")
+
+
+def _refuse_while_open(breaker: _AsyncCircuitBreaker) -> None:
+    if breaker.admit():
+        return
+    # Fail fast — the bus has demonstrably been failing (or a half-open
+    # probe is already in flight). A FRESH TransportError per caller, with
+    # the last observed error as __cause__: re-raising one shared exception
+    # instance across callers grew its traceback without bound (S9).
+    msg = (
+        "agentbus SDK async circuit breaker is OPEN: recent calls to the bus "
+        "failed, so the client is failing fast for the cooldown instead of "
+        "retrying at full rate. Retry after the cooldown, or set "
+        "AGENTBUS_SDK_RESILIENCE=0 to bypass the resilience layer."
+    )
+    raise TransportError(msg) from breaker.last_error()
+
+
+def _recorded_failure(last_exc: BaseException | None) -> BaseException:
+    if last_exc is None:
+        msg = "the retry sequence ended with no result and no recorded error"
+        raise RuntimeError(msg)
+    return last_exc
 
 
 class AsyncAgentBus(
@@ -74,7 +106,7 @@ class AsyncAgentBus(
         # correctness hole for anyone using the async client.
         idempotency_key: str | None = None,
         **kwargs: Any,
-    ) -> Any:
+    ) -> dict[str, Any]:
         # Mint the key ONCE OUTSIDE the retry loop, same rule as the sync path.
         if (idempotent or idempotency_key) and not idempotency_key:
             idempotency_key = str(uuid.uuid4())
@@ -85,14 +117,16 @@ class AsyncAgentBus(
         budget = call_timeout + 5
         deadline = time.monotonic() + budget
 
-        async def _do_request() -> Any:
+        async def _do_request() -> dict[str, Any]:
             remaining = deadline - time.monotonic()
             attempt_timeout = max(0.05, min(call_timeout, remaining))
             try:
                 response = await self._client.request(
                     method,
                     path,
-                    headers=self._headers(agent, idempotent, idempotency_key),
+                    headers=self._headers(
+                        agent, idempotent=idempotent, idempotency_key=idempotency_key
+                    ),
                     timeout=attempt_timeout,
                     **kwargs,
                 )
@@ -101,13 +135,39 @@ class AsyncAgentBus(
             _raise_for(response)
             payload = response.json() if response.content else None
             self._capture_challenge(payload)
-            return payload
+            return cast("dict[str, Any]", payload)
 
         if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
             return await _do_request()
         return await self._run_with_resilience_async(_do_request, deadline=budget)
 
-    async def _run_with_resilience_async(self, fn: Any, *, deadline: float | None = None) -> Any:
+    def _loop_semaphore(self) -> asyncio.Semaphore:
+        import asyncio
+        import weakref
+
+        # REG-10: fetch (or create) the semaphore for THIS loop.
+        loop = asyncio.get_running_loop()
+        bulkheads: dict[int, asyncio.Semaphore] | None = getattr(
+            self, "_async_bulkheads_by_loop", None
+        )
+        if bulkheads is None:
+            bulkheads = {}
+            self._async_bulkheads_by_loop: dict[int, asyncio.Semaphore] = bulkheads
+        loop_id = id(loop)
+        sem = bulkheads.get(loop_id)
+        if sem is None:
+            sem = asyncio.Semaphore(int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8")))
+            bulkheads[loop_id] = sem
+            # When the loop is garbage-collected, drop the dead entry so a
+            # long-lived AsyncAgentBus used across many short-lived loops
+            # (per-test asyncio loops, say) does not accumulate dead sems.
+            with contextlib.suppress(TypeError):
+                weakref.finalize(loop, bulkheads.pop, loop_id, None)
+        return sem
+
+    async def _run_with_resilience_async(
+        self, fn: Callable[[], Awaitable[_T]], *, deadline: float | None = None
+    ) -> _T:
         """Retry-with-backoff + async bulkhead + breaker for async _request.
 
         Semantics mirror the sync `_run_with_resilience`: retries only fire for
@@ -141,7 +201,6 @@ class AsyncAgentBus(
         """
         import asyncio
         import random
-        import weakref
 
         max_retries = int(os.environ.get("AGENTBUS_SDK_MAX_RETRIES", "3"))
         # Same backoff shape as the sync SafetyNet: 0.5s..8s exponential, jitter.
@@ -149,41 +208,11 @@ class AsyncAgentBus(
         cap = 8.0
 
         breaker = _async_circuit_breaker()
-
-        # REG-10: fetch (or create) the semaphore for THIS loop.
-        loop = asyncio.get_running_loop()
-        bulkheads: dict[int, asyncio.Semaphore] | None = getattr(
-            self, "_async_bulkheads_by_loop", None
-        )
-        if bulkheads is None:
-            bulkheads = {}
-            self._async_bulkheads_by_loop: dict[int, asyncio.Semaphore] = bulkheads
-        loop_id = id(loop)
-        sem = bulkheads.get(loop_id)
-        if sem is None:
-            sem = asyncio.Semaphore(int(os.environ.get("AGENTBUS_SDK_MAX_CONCURRENT", "8")))
-            bulkheads[loop_id] = sem
-            # When the loop is garbage-collected, drop the dead entry so a
-            # long-lived AsyncAgentBus used across many short-lived loops
-            # (per-test asyncio loops, say) does not accumulate dead sems.
-            with contextlib.suppress(TypeError):
-                weakref.finalize(loop, bulkheads.pop, loop_id, None)
-
-        if not breaker.admit():
-            # Fail fast — the bus has demonstrably been failing (or a half-open
-            # probe is already in flight). A FRESH TransportError per caller, with
-            # the last observed error as __cause__: re-raising one shared exception
-            # instance across callers grew its traceback without bound (S9).
-            msg = (
-                "agentbus SDK async circuit breaker is OPEN: recent calls to the bus "
-                "failed, so the client is failing fast for the cooldown instead of "
-                "retrying at full rate. Retry after the cooldown, or set "
-                "AGENTBUS_SDK_RESILIENCE=0 to bypass the resilience layer."
-            )
-            raise TransportError(msg) from breaker.last_error()
+        sem = self._loop_semaphore()
+        _refuse_while_open(breaker)
         verdict_given = False
 
-        async def _sequence() -> Any:
+        async def _sequence() -> _T:
             last_exc: BaseException | None = None
             async with sem:
                 for attempt in range(max_retries + 1):
@@ -197,19 +226,19 @@ class AsyncAgentBus(
                         if attempt == max_retries:
                             break
                         delay = min(cap, base * (2**attempt))
-                        delay *= 1 + random.uniform(-0.2, 0.2)
+                        delay *= 1 + random.uniform(-0.2, 0.2)  # noqa: S311
                         await asyncio.sleep(delay)
                     else:
                         nonlocal verdict_given
                         verdict_given = True
                         breaker.on_success()
                         return result
-            assert last_exc is not None
+            failure = _recorded_failure(last_exc)
             # The whole retry sequence failed transiently — record it against
             # the breaker so a sustained outage opens it and later calls fail fast.
             verdict_given = True
-            breaker.on_failure(last_exc)
-            raise last_exc
+            breaker.on_failure(failure)
+            raise failure
 
         try:
             if deadline is not None:

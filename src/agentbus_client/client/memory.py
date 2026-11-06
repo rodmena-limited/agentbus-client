@@ -25,11 +25,17 @@ cited somewhere still means the same line afterwards.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import sealing
 
 from .errors import AgentBusError
+
+if TYPE_CHECKING:
+    from ._mixin_base import AsyncClientBase as _AsyncMixinBase, SyncClientBase as _SyncMixinBase
+else:
+    _AsyncMixinBase = object
+    _SyncMixinBase = object
 
 
 def _open_entries(result: dict[str, Any], acting: str | None) -> dict[str, Any]:
@@ -56,7 +62,7 @@ def _open_entries(result: dict[str, Any], acting: str | None) -> dict[str, Any]:
         try:
             item["text"] = sealing.unseal_with_any(item["text"], acting)
             item["opened"] = True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             # The text is left as the ciphertext it is, and flagged. A caller
             # that renders `text` blindly shows armor, which is ugly and
             # honest; a caller that checks `opened` shows the reason.
@@ -91,13 +97,13 @@ def _reseal_plan(opened: dict[str, Any]) -> tuple[list[dict[str, Any]], list[int
     return todo, unrecoverable
 
 
-class SyncMemoryMixin:
+class SyncMemoryMixin(_SyncMixinBase):
     """`AgentBus.memory_*` — the notebook, opened on this machine."""
 
     def memory_fetch(self, agent: str | None = None) -> dict[str, Any]:
         """Every entry, oldest first, unsealed where this machine holds the key."""
-        result = self._request("GET", "/v1/memory", agent=agent)  # type: ignore[attr-defined]
-        return _open_entries(result, agent or self.agent)  # type: ignore[attr-defined]
+        result = self._request("GET", "/v1/memory", agent=agent)
+        return _open_entries(result, agent or self.agent)
 
     def memory_add(
         self,
@@ -111,13 +117,13 @@ class SyncMemoryMixin:
         twice is two entries with two seqs, so a retried timeout silently
         doubles a note.
         """
-        payload = self._seal_to_self({"text": text}, agent)  # type: ignore[attr-defined]
+        payload = self._seal_to_self({"text": text}, agent)
         # `idempotent=True`, NOT a hand-rolled Idempotency-Key header. _request
         # mints the key ONCE, outside the resilience layer's retry loop (REG-7);
         # a header set here would be re-sent correctly but a caller passing none
         # would get a fresh UUID per retry, which is two distinct writes to the
         # server and the exact retry-safety hole that guard closed.
-        return self._request(  # type: ignore[attr-defined]
+        return self._request(
             "POST",
             "/v1/memory",
             json=payload,
@@ -128,7 +134,7 @@ class SyncMemoryMixin:
 
     def memory_delete(self, seq: int, agent: str | None = None) -> dict[str, Any]:
         """Remove one entry by its stable seq. Survivors keep their numbers."""
-        return self._request("DELETE", f"/v1/memory/{seq}", agent=agent)  # type: ignore[attr-defined]
+        return self._request("DELETE", f"/v1/memory/{seq}", agent=agent)
 
     def memory_truncate(
         self,
@@ -138,11 +144,11 @@ class SyncMemoryMixin:
     ) -> dict[str, Any]:
         """Remove the N OLDEST entries, or a named set. `first` is position."""
         body: dict[str, Any] = {"first": first} if first is not None else {"seqs": seqs}
-        return self._request("POST", "/v1/memory/truncate", json=body, agent=agent)  # type: ignore[attr-defined]
+        return self._request("POST", "/v1/memory/truncate", json=body, agent=agent)
 
     def memory_reseal(self, agent: str | None = None) -> dict[str, Any]:
         """Re-seal every entry to this agent's CURRENT key, keeping every seq."""
-        acting = agent or self.agent  # type: ignore[attr-defined]
+        acting = agent or self.agent
         opened = self.memory_fetch(agent=agent)
         todo, unrecoverable = _reseal_plan(opened)
         if not todo and not unrecoverable:
@@ -156,7 +162,7 @@ class SyncMemoryMixin:
         _private, own_public = sealing.ensure_keypair(acting)
         resealed = []
         for entry in todo:
-            self._request(  # type: ignore[attr-defined]
+            self._request(
                 "PUT",
                 f"/v1/memory/{entry['seq']}",
                 json={"text": sealing.seal_for(entry["text"], [own_public]), "sealed": True},
@@ -166,12 +172,12 @@ class SyncMemoryMixin:
         return {"resealed": resealed, "unrecoverable": unrecoverable}
 
 
-class AsyncMemoryMixin:
+class AsyncMemoryMixin(_AsyncMixinBase):
     """`AsyncAgentBus.memory_*` — the async twin, rule for rule."""
 
     async def memory_fetch(self, agent: str | None = None) -> dict[str, Any]:
-        result = await self._request("GET", "/v1/memory", agent=agent)  # type: ignore[attr-defined]
-        return _open_entries(result, agent or self.agent)  # type: ignore[attr-defined]
+        result = await self._request("GET", "/v1/memory", agent=agent)
+        return _open_entries(result, agent or self.agent)
 
     async def memory_add(
         self,
@@ -179,8 +185,8 @@ class AsyncMemoryMixin:
         agent: str | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        payload = await self._seal_to_self_async({"text": text}, agent)  # type: ignore[attr-defined]
-        return await self._request(  # type: ignore[attr-defined]
+        payload = await self._seal_to_self_async({"text": text}, agent)
+        return await self._request(
             "POST",
             "/v1/memory",
             json=payload,
@@ -190,7 +196,7 @@ class AsyncMemoryMixin:
         )
 
     async def memory_delete(self, seq: int, agent: str | None = None) -> dict[str, Any]:
-        return await self._request("DELETE", f"/v1/memory/{seq}", agent=agent)  # type: ignore[attr-defined]
+        return await self._request("DELETE", f"/v1/memory/{seq}", agent=agent)
 
     async def memory_truncate(
         self,
@@ -199,10 +205,10 @@ class AsyncMemoryMixin:
         agent: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"first": first} if first is not None else {"seqs": seqs}
-        return await self._request("POST", "/v1/memory/truncate", json=body, agent=agent)  # type: ignore[attr-defined]
+        return await self._request("POST", "/v1/memory/truncate", json=body, agent=agent)
 
     async def memory_reseal(self, agent: str | None = None) -> dict[str, Any]:
-        acting = agent or self.agent  # type: ignore[attr-defined]
+        acting = agent or self.agent
         opened = await self.memory_fetch(agent=agent)
         todo, unrecoverable = _reseal_plan(opened)
         if not todo and not unrecoverable:
@@ -216,7 +222,7 @@ class AsyncMemoryMixin:
         _private, own_public = sealing.ensure_keypair(acting)
         resealed = []
         for entry in todo:
-            await self._request(  # type: ignore[attr-defined]
+            await self._request(
                 "PUT",
                 f"/v1/memory/{entry['seq']}",
                 json={"text": sealing.seal_for(entry["text"], [own_public]), "sealed": True},

@@ -125,7 +125,7 @@ class SyncVerifyMixin(_MixinBase):
         )
         try:
             _signing.verify(match["public_key"], payload, block.get("signature"))
-        except _signing.BadSignature as exc:
+        except _signing.BadSignatureError as exc:
             return {
                 "verified": False,
                 "verdict": "invalid",
@@ -218,7 +218,7 @@ class SyncVerifyMixin(_MixinBase):
             with self._client.stream(
                 "GET",
                 f"/v1/deliveries/{delivery_id}/attachments/{index}",
-                headers=self._headers(agent, False),
+                headers=self._headers(agent, idempotent=False),
             ) as response:
                 _raise_for(response)
                 chunks: list[bytes] = []

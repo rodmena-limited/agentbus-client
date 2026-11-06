@@ -21,7 +21,7 @@ Two further properties the review made explicit (issuedb #26):
   while the retry sequence kept running on a non-daemon pool thread for ~110 s,
   filling the 8-slot bulkhead so calls against a HEALTHY bus then failed, and blocking
   interpreter exit. Now every sequence carries a cancel flag set when its caller's
-  deadline fires; the next attempt raises `_Abandoned` instead of touching the
+  deadline fires; the next attempt raises `_AbandonedError` instead of touching the
   network, and each attempt's own httpx timeout is bounded by the remaining budget.
 - EXIT IS NOT HELD HOSTAGE. A threading-shutdown hook abandons every in-flight
   sequence and cancels queued work before the executor is joined.
@@ -41,13 +41,24 @@ import sys
 import threading
 import weakref
 from fractions import Fraction
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
 from ._async_breaker import _AsyncCircuitBreaker
 from .attachments import _encode_attachments  # noqa: F401  (re-export: historical import site)
 from .errors import AgentBusError, ServiceUnavailable, TransportError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import timedelta
+    from queue import SimpleQueue
+    from typing import TypeVar
+
+    from bulkman import BulkheadThreading, ExecutionResult
+    from resilient_circuit import ExponentialDelay
+
+    _T = TypeVar("_T")
 
 _ConcurrentFuturesTimeout = _cf.TimeoutError
 _SDK_BULKHEAD: Any = None
@@ -56,11 +67,16 @@ _ASYNC_CIRCUIT_BREAKER: _AsyncCircuitBreaker | None = None
 _SDK_INIT_LOCK = threading.Lock()
 _INFLIGHT: set[threading.Event] = set()
 _INFLIGHT_LOCK = threading.Lock()
-_SYNC_CLIENTS: weakref.WeakSet = weakref.WeakSet()
+_SYNC_CLIENTS: weakref.WeakSet[httpx.Client] = weakref.WeakSet()
 _CURRENT_CANCEL = threading.local()
+_SERVER_ERROR_FIRST = 500
+_SERVER_ERROR_LAST = 599
+_MIN_WINDOW_SLOTS = 2
+_MAX_UNWRAP_HOPS = 8
+_WORKER_PARAMETERS = 4
 
 
-class _Abandoned(Exception):
+class _AbandonedError(Exception):
     """Raised inside a retry sequence whose caller has already given up.
 
     Never retried (the retry classifier refuses it) but COUNTED by the breaker:
@@ -84,7 +100,7 @@ def _cb_window(n: int) -> Fraction:
     failure (issuedb #24; bulkman's own source carries the same warning). `(n-1)/n`
     keeps an n-slot window and trips when at least n-1 of the last n agree.
     """
-    return Fraction(n - 1, n) if n >= 2 else Fraction(1, 1)
+    return Fraction(n - 1, n) if n >= _MIN_WINDOW_SLOTS else Fraction(1, 1)
 
 
 def _root_cause(exc: BaseException) -> BaseException:
@@ -96,13 +112,18 @@ def _root_cause(exc: BaseException) -> BaseException:
     mod = sys.modules.get("resilient_circuit.exceptions")
     rlr = getattr(mod, "RetryLimitReached", None) if mod is not None else None
     hops = 0
-    while rlr is not None and isinstance(exc, rlr) and exc.__cause__ is not None and hops < 8:
+    while (
+        rlr is not None
+        and isinstance(exc, rlr)
+        and exc.__cause__ is not None
+        and hops < _MAX_UNWRAP_HOPS
+    ):
         exc = exc.__cause__
         hops += 1
     return exc
 
 
-class _NonIdempotent(Exception):
+class _NonIdempotentError(Exception):
     """Marker wrapper: this call must not be retried on a 5xx (#45).
 
     A 5xx says the server failed, NOT that it did nothing. For a call that
@@ -128,14 +149,14 @@ def _is_transient_sdk_error(exc: BaseException) -> bool:
     retried. The 5xx branch is a STATUS check because only 503 maps to
     ServiceUnavailable; 500/502/504 surface as a bare AgentBusError.
     """
-    if isinstance(exc, _NonIdempotent):
+    if isinstance(exc, _NonIdempotentError):
         return False
     exc = _root_cause(exc)
-    if isinstance(exc, (_Abandoned, _NonIdempotent)):
+    if isinstance(exc, (_AbandonedError, _NonIdempotentError)):
         return False
     if isinstance(exc, (TransportError, ServiceUnavailable)):
         return True
-    if isinstance(exc, AgentBusError) and 500 <= exc.status <= 599:
+    if isinstance(exc, AgentBusError) and _SERVER_ERROR_FIRST <= exc.status <= _SERVER_ERROR_LAST:
         return True
     return isinstance(exc, httpx.HTTPError)
 
@@ -147,14 +168,16 @@ def _breaker_should_handle(exc: BaseException) -> bool:
     sequence counts as a failure — the caller's deadline fired without an answer.
     """
     exc = _root_cause(exc)
-    if isinstance(exc, _Abandoned):
+    if isinstance(exc, _AbandonedError):
         return True
-    if isinstance(exc, _NonIdempotent):
+    if isinstance(exc, _NonIdempotentError):
         exc = exc.original
     return _is_transient_sdk_error(exc)
 
 
-def _cancellable_backoff(min_delay: Any, max_delay: Any, factor: int, jitter: float) -> Any:
+def _cancellable_backoff(
+    min_delay: timedelta, max_delay: timedelta, factor: int, jitter: float
+) -> ExponentialDelay:
     """An ExponentialDelay whose wait ENDS THE MOMENT the sequence is abandoned.
 
     resilient_circuit calls `sleep(backoff.for_attempt(n))` between attempts — a
@@ -177,7 +200,7 @@ def _cancellable_backoff(min_delay: Any, max_delay: Any, factor: int, jitter: fl
     return _CancellableDelay(min_delay=min_delay, max_delay=max_delay, factor=factor, jitter=jitter)
 
 
-def _daemon_executor(max_workers: int, prefix: str) -> Any:
+def _daemon_executor(max_workers: int, prefix: str) -> _cf.ThreadPoolExecutor:
     """A ThreadPoolExecutor whose workers are DAEMON threads and are not joined at exit.
 
     A stock executor's workers are non-daemon and registered for a join in
@@ -197,7 +220,9 @@ def _daemon_executor(max_workers: int, prefix: str) -> Any:
 
     worker = getattr(_cft, "_worker", None)
     try:
-        shape_ok = worker is not None and len(inspect.signature(worker).parameters) == 4
+        shape_ok = (
+            worker is not None and len(inspect.signature(worker).parameters) == _WORKER_PARAMETERS
+        )
     except (TypeError, ValueError):
         shape_ok = False
     if not shape_ok:
@@ -209,7 +234,7 @@ def _daemon_executor(max_workers: int, prefix: str) -> Any:
                 return
             queue = self._work_queue
 
-            def _weakref_cb(_: Any, q: Any = queue) -> None:
+            def _weakref_cb(_: object, q: SimpleQueue[Any] = queue) -> None:
                 q.put(None)
 
             num_threads = len(self._threads)
@@ -226,13 +251,13 @@ def _daemon_executor(max_workers: int, prefix: str) -> Any:
     return _DaemonExecutor(max_workers=max_workers, thread_name_prefix=prefix)
 
 
-def _sdk_bulkhead() -> Any:
+def _sdk_bulkhead() -> BulkheadThreading:
     """Lazy singleton — one concurrency lane for the whole SDK per process.
 
     circuit_breaker_enabled is HARD-CODED False (house rule): bulkman is the
     concurrency lane, resilient_circuit is the breaker.
     """
-    global _SDK_BULKHEAD
+    global _SDK_BULKHEAD  # noqa: PLW0603
     if _SDK_BULKHEAD is None:
         with _SDK_INIT_LOCK:
             if _SDK_BULKHEAD is None:
@@ -247,16 +272,17 @@ def _sdk_bulkhead() -> Any:
                         circuit_breaker_enabled=False,  # NEVER True — see module docstring
                     )
                 )
-                stock = bulkhead._executor
-                bulkhead._executor = _daemon_executor(workers, "Bulkhead-agentbus-sdk")
+                stock = bulkhead._executor  # noqa: SLF001
+                bulkhead._executor = _daemon_executor(workers, "Bulkhead-agentbus-sdk")  # noqa: SLF001
                 stock.shutdown(wait=False)
                 _SDK_BULKHEAD = bulkhead
-    return _SDK_BULKHEAD
+    lane: BulkheadThreading = _SDK_BULKHEAD
+    return lane
 
 
-def _sdk_safety_net() -> Any:
+def _sdk_safety_net() -> Any:  # noqa: ANN401
     """Lazy singleton — one retry+breaker policy shared across every request."""
-    global _SDK_SAFETY_NET
+    global _SDK_SAFETY_NET  # noqa: PLW0603
     if _SDK_SAFETY_NET is None:
         with _SDK_INIT_LOCK:
             if _SDK_SAFETY_NET is None:
@@ -310,7 +336,7 @@ def _abandon_inflight_on_exit() -> None:
     bulkhead = _SDK_BULKHEAD
     if bulkhead is not None:
         with contextlib.suppress(Exception):
-            bulkhead._executor.shutdown(wait=False, cancel_futures=True)
+            bulkhead._executor.shutdown(wait=False, cancel_futures=True)  # noqa: SLF001
 
 
 # threading's own atexit list runs BEFORE concurrent.futures joins its workers and
@@ -318,11 +344,66 @@ def _abandon_inflight_on_exit() -> None:
 # stable since 3.9; fall back to atexit where it is missing.
 try:
     threading._register_atexit(_abandon_inflight_on_exit)  # type: ignore[attr-defined]
-except Exception:  # pragma: no cover - fallback for unusual interpreters
+except Exception:  # noqa: BLE001  # pragma: no cover - fallback for unusual interpreters
     atexit.register(_abandon_inflight_on_exit)
 
 
-def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: bool = True) -> Any:
+def _attempt_once(fn: Callable[[], _T], cancel: threading.Event, *, idempotent: bool) -> _T:
+    if cancel.is_set():
+        msg = "the caller's deadline already fired; not issuing another attempt"
+        raise _AbandonedError(msg)
+    if idempotent:
+        return fn()
+    # #45: a 5xx means the server failed, not that it did nothing. Wrap it
+    # so the retry classifier refuses it; the breaker still counts it, and
+    # the ORIGINAL error is what the caller sees (__cause__ is unwrapped by
+    # _root_cause at the boundary).
+    try:
+        return fn()
+    except AgentBusError as exc:
+        if _SERVER_ERROR_FIRST <= exc.status <= _SERVER_ERROR_LAST:
+            raise _NonIdempotentError(exc) from exc
+        raise
+
+
+def _settled_value(
+    future: _cf.Future[ExecutionResult], cancel: threading.Event, timeout: float | None
+) -> object:
+    import bulkman
+
+    try:
+        result = future.result(timeout=timeout)
+    except _ConcurrentFuturesTimeout as exc:
+        # The caller's budget is spent. Abandon the sequence (the next attempt raises
+        # _AbandonedError, the in-flight one is already bounded by the remaining budget) and
+        # translate at the boundary: on Python 3.10 CFT is NOT an OSError, so every
+        # downstream `except (AgentBusError, OSError, httpx.HTTPError)` guard missed it
+        # and the watcher died during the exact outage its reconnect loop existed for.
+        cancel.set()
+        with contextlib.suppress(Exception):
+            future.cancel()
+        msg = (
+            f"agentbus SDK call did not complete within {timeout}s "
+            f"({type(exc).__name__} — likely a transient network stall). "
+            "The reconnect loop treats this as retryable."
+        )
+        raise TransportError(msg) from exc
+    if result.success:
+        return result.result
+    if result.error is None:
+        msg = "bulkman reported a failed execution with no error attached"
+        raise RuntimeError(msg)
+    # bulkman wraps every non-BulkheadError as BulkheadError(...) with __cause__ set
+    # to the original; unwrap so callers see the typed error they branch on.
+    err = result.error
+    if isinstance(err, bulkman.BulkheadError) and err.__cause__ is not None:
+        raise err.__cause__
+    raise err
+
+
+def _run_with_resilience(
+    fn: Callable[[], _T], timeout: float | None = None, *, idempotent: bool = True
+) -> _T:
     """Run a sync callable through the retry/breaker/bulkhead stack.
 
     Every library-specific outcome is translated at this boundary so callers only
@@ -345,30 +426,16 @@ def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: b
     with _INFLIGHT_LOCK:
         _INFLIGHT.add(cancel)
 
-    def _attempt() -> Any:
-        if cancel.is_set():
-            msg = "the caller's deadline already fired; not issuing another attempt"
-            raise _Abandoned(msg)
-        if idempotent:
-            return fn()
-        # #45: a 5xx means the server failed, not that it did nothing. Wrap it
-        # so the retry classifier refuses it; the breaker still counts it, and
-        # the ORIGINAL error is what the caller sees (__cause__ is unwrapped by
-        # _root_cause at the boundary).
-        try:
-            return fn()
-        except AgentBusError as exc:
-            if 500 <= exc.status <= 599:
-                raise _NonIdempotent(exc) from exc
-            raise
+    def _attempt() -> _T:
+        return _attempt_once(fn, cancel, idempotent=idempotent)
 
-    guarded = _sdk_safety_net()(_attempt)
+    guarded: Callable[[], _T] = _sdk_safety_net()(_attempt)
 
-    def _wrapped() -> Any:
+    def _wrapped() -> _T:
         _CURRENT_CANCEL.flag = cancel
         try:
             return guarded()
-        except _NonIdempotent as exc:
+        except _NonIdempotentError as exc:
             # #45: the marker exists only to stop the RETRY classifier. The
             # caller must still see the real error — a wrapper leaking out
             # would turn a plain 500 into an exception type nobody handles.
@@ -408,37 +475,12 @@ def _run_with_resilience(fn: Any, timeout: float | None = None, *, idempotent: b
             "or AGENTBUS_SDK_MAX_QUEUE if this is a legitimate high-fan-out caller."
         )
         raise TransportError(msg) from exc
-    try:
-        result = future.result(timeout=timeout)
-    except _ConcurrentFuturesTimeout as exc:
-        # The caller's budget is spent. Abandon the sequence (the next attempt raises
-        # _Abandoned, the in-flight one is already bounded by the remaining budget) and
-        # translate at the boundary: on Python 3.10 CFT is NOT an OSError, so every
-        # downstream `except (AgentBusError, OSError, httpx.HTTPError)` guard missed it
-        # and the watcher died during the exact outage its reconnect loop existed for.
-        cancel.set()
-        with contextlib.suppress(Exception):
-            future.cancel()
-        msg = (
-            f"agentbus SDK call did not complete within {timeout}s "
-            f"({type(exc).__name__} — likely a transient network stall). "
-            "The reconnect loop treats this as retryable."
-        )
-        raise TransportError(msg) from exc
-    if result.success:
-        return result.result
-    assert result.error is not None
-    # bulkman wraps every non-BulkheadError as BulkheadError(...) with __cause__ set
-    # to the original; unwrap so callers see the typed error they branch on.
-    err = result.error
-    if isinstance(err, bulkman.BulkheadError) and err.__cause__ is not None:
-        raise err.__cause__
-    raise err
+    return cast("_T", _settled_value(future, cancel, timeout))
 
 
 def _async_circuit_breaker() -> _AsyncCircuitBreaker:
     """Lazy per-process singleton — one async breaker for every client."""
-    global _ASYNC_CIRCUIT_BREAKER
+    global _ASYNC_CIRCUIT_BREAKER  # noqa: PLW0603
     if _ASYNC_CIRCUIT_BREAKER is None:
         with _SDK_INIT_LOCK:
             if _ASYNC_CIRCUIT_BREAKER is None:

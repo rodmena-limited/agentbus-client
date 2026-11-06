@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from datetime import timedelta
 
 # ------------------------------------------------------------------ models
 
@@ -120,7 +123,9 @@ _ACK_WINDOW_MAX_SECONDS = 168 * 3600  # 7 days
 _ACK_WINDOW_DEFAULT_SECONDS = 24 * 3600  # 24h, applied when require_ack is set
 
 
-def _ack_window_seconds(ack_window: Any, *, default_when_set: bool) -> int | None:
+def _ack_window_seconds(
+    ack_window: timedelta | int | None, *, default_when_set: bool
+) -> int | None:
     """Normalise an ack-window argument to seconds, or None when absent.
 
     Accepts a `datetime.timedelta` (the SDK's documented type) or an int
@@ -140,12 +145,15 @@ def _ack_window_seconds(ack_window: Any, *, default_when_set: bool) -> int | Non
         seconds = int(ack_window.total_seconds())
     elif isinstance(ack_window, bool):  # bool is an int subclass; refuse it
         msg = "ack_window must be a timedelta or seconds, not a bool"
-        raise ValueError(msg)
+        raise ValueError(msg)  # noqa: TRY004
     elif isinstance(ack_window, int):
         seconds = ack_window
     else:
-        msg = f"ack_window must be a datetime.timedelta or int seconds, got {type(ack_window).__name__}"
-        raise ValueError(msg)
+        msg = (
+            "ack_window must be a datetime.timedelta or int seconds, "
+            f"got {type(ack_window).__name__}"
+        )
+        raise ValueError(msg)  # noqa: TRY004
     if seconds <= 0:
         msg = "ack_window must be positive"
         raise ValueError(msg)

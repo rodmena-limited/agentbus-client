@@ -106,6 +106,7 @@ class _Base:
     def _headers(
         self,
         agent: str | None = None,
+        *,
         idempotent: bool = False,
         idempotency_key: str | None = None,
     ) -> dict[str, str]:
@@ -131,7 +132,7 @@ class _Base:
                 self._pending_challenge = None
         return headers
 
-    def _capture_challenge(self, payload: Any) -> None:
+    def _capture_challenge(self, payload: object) -> None:
         if isinstance(payload, dict):
             challenge = payload.get("liveness_challenge")
             if challenge:
@@ -185,7 +186,7 @@ class _Base:
             # stdout; the ambient logging config could route lastResort to
             # stdout and poison a machine-readable pipe. Explicit stderr is
             # the only source of truth that survives any caller setup.
-            print(
+            print(  # noqa: T201
                 "agentbus: this message was NOT signed. agentbus-sig-v1 covers "
                 "plain text only, and this message carries html, attachments or a "
                 "payload, so a signature would have attested less than it appeared "
@@ -213,7 +214,7 @@ class _Base:
             signed["signing_key_fingerprint"] = _signing.fingerprint(
                 _signing.public_from_private(private)
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             return payload
         return signed
 
@@ -306,56 +307,7 @@ class _Base:
         # the server stores an opaque blob exactly as it stores any other.
         # The filename is NOT sealed — it is metadata, like the subject, and
         # the same warning applies: do not put secrets in filenames.
-        import base64 as _b64
-
-        resealed = []
-        for item in sealed.get("attachments") or []:
-            raw = _b64.b64decode(item["content_base64"])
-            # FAST PRE-SEAL REJECT (follow-up A). On an encrypted workspace
-            # the wire bytes = base64(age_armor(raw)) which inflates at a
-            # DETERMINISTIC ~1.806x (age armor base64, then base64-again for
-            # JSON transport — double base64, 1.333^2). Sealing is CPU-heavy
-            # (~1-2 MB/s), so the post-seal exact check can take 7-50s before
-            # rejecting. Skip the seal entirely when the raw is CLEARLY over:
-            # if raw * 1.806 is already past the cap, the sealed wire cannot
-            # fit, so reject instantly. The post-seal exact check below stays
-            # as the backstop for the borderline band.
-            if int(len(raw) * _SEAL_INFLATION_FACTOR) > _server_max_attachment_bytes():
-                msg = (
-                    f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw; "
-                    f"on this ENCRYPTED workspace that inflates to roughly "
-                    f"{int(len(raw) * _SEAL_INFLATION_FACTOR):,} wire bytes "
-                    f"(age seal x{_SEAL_INFLATION_FACTOR:.3f}), already over the "
-                    f"server's {_server_max_attachment_bytes():,}-byte cap. Split the "
-                    "file or use a smaller attachment — the effective encrypted "
-                    "limit is ~5.5 MiB raw, well under the documented 10 MiB."
-                )
-                raise AgentBusError(msg)
-            armored = sealing.seal_for_bytes(raw, keys)
-            wire = _b64.b64encode(armored).decode()
-            # POST-SEAL EXACT CHECK (F7 follow-up). The server sees exactly
-            # `wire`; verify it fits. This is the authoritative backstop — the
-            # pre-seal estimate above is the fast reject, this is the exact one.
-            if len(wire) > _server_max_attachment_bytes():
-                msg = (
-                    f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw, "
-                    f"but on this ENCRYPTED workspace sealing inflates it to "
-                    f"{len(wire):,} wire bytes, which exceeds the server's "
-                    f"{_server_max_attachment_bytes():,}-byte cap. Split the file or "
-                    "use a smaller attachment — the effective encrypted limit is "
-                    "well under the documented 10 MiB."
-                )
-                raise AgentBusError(msg)
-            resealed.append(
-                {
-                    **item,
-                    "content_base64": wire,
-                    # The stored type is what it now IS, not what it was. A
-                    # sniffing server that saw 'image/png' on age ciphertext
-                    # would reject the mismatch at egress.
-                    "content_type": "application/age",
-                }
-            )
+        resealed = _seal_attachments(sealed.get("attachments") or [], keys)
         if resealed:
             sealed["attachments"] = resealed
         return sealed
@@ -411,6 +363,62 @@ class _Base:
         return message
 
 
+def _seal_attachments(items: list[dict[str, Any]], keys: list[str]) -> list[dict[str, Any]]:
+    import base64 as _b64
+
+    from agentbus_client import sealing
+
+    resealed = []
+    for item in items:
+        raw = _b64.b64decode(item["content_base64"])
+        # FAST PRE-SEAL REJECT (follow-up A). On an encrypted workspace
+        # the wire bytes = base64(age_armor(raw)) which inflates at a
+        # DETERMINISTIC ~1.806x (age armor base64, then base64-again for
+        # JSON transport — double base64, 1.333^2). Sealing is CPU-heavy
+        # (~1-2 MB/s), so the post-seal exact check can take 7-50s before
+        # rejecting. Skip the seal entirely when the raw is CLEARLY over:
+        # if raw * 1.806 is already past the cap, the sealed wire cannot
+        # fit, so reject instantly. The post-seal exact check below stays
+        # as the backstop for the borderline band.
+        if int(len(raw) * _SEAL_INFLATION_FACTOR) > _server_max_attachment_bytes():
+            msg = (
+                f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw; "
+                f"on this ENCRYPTED workspace that inflates to roughly "
+                f"{int(len(raw) * _SEAL_INFLATION_FACTOR):,} wire bytes "
+                f"(age seal x{_SEAL_INFLATION_FACTOR:.3f}), already over the "
+                f"server's {_server_max_attachment_bytes():,}-byte cap. Split the "
+                "file or use a smaller attachment — the effective encrypted "
+                "limit is ~5.5 MiB raw, well under the documented 10 MiB."
+            )
+            raise AgentBusError(msg)
+        armored = sealing.seal_for_bytes(raw, keys)
+        wire = _b64.b64encode(armored).decode()
+        # POST-SEAL EXACT CHECK (F7 follow-up). The server sees exactly
+        # `wire`; verify it fits. This is the authoritative backstop — the
+        # pre-seal estimate above is the fast reject, this is the exact one.
+        if len(wire) > _server_max_attachment_bytes():
+            msg = (
+                f"attachment '{item.get('filename', '?')}' is {len(raw):,} bytes raw, "
+                f"but on this ENCRYPTED workspace sealing inflates it to "
+                f"{len(wire):,} wire bytes, which exceeds the server's "
+                f"{_server_max_attachment_bytes():,}-byte cap. Split the file or "
+                "use a smaller attachment — the effective encrypted limit is "
+                "well under the documented 10 MiB."
+            )
+            raise AgentBusError(msg)
+        resealed.append(
+            {
+                **item,
+                "content_base64": wire,
+                # The stored type is what it now IS, not what it was. A
+                # sniffing server that saw 'image/png' on age ciphertext
+                # would reject the mismatch at egress.
+                "content_type": "application/age",
+            }
+        )
+    return resealed
+
+
 def _key_from_disk(agent: str | None) -> str:
     """The credential this client already wrote, read back from where it put it.
 
@@ -421,11 +429,13 @@ def _key_from_disk(agent: str | None) -> str:
     Filenames go through sealing.bound_env_filename (REG-8/8b) so a hostile name
     cannot traverse out of keys/.
     """
-    config = os.path.join(os.path.expanduser("~"), ".config", "agentbus")
+    from pathlib import Path
 
-    def _read(path: str) -> str:
+    config = Path(os.path.expanduser("~")) / ".config" / "agentbus"  # noqa: PTH111
+
+    def _read(path: Path) -> str:
         try:
-            with open(path, encoding="utf-8") as handle:
+            with path.open(encoding="utf-8") as handle:
                 for raw in handle:
                     entry = raw.strip()
                     if not entry or entry.startswith("#"):
@@ -441,5 +451,5 @@ def _key_from_disk(agent: str | None) -> str:
         return ""
 
     if agent:
-        return _read(os.path.join(config, "keys", sealing.bound_env_filename(agent)))
-    return _read(os.path.join(config, "operator.env"))
+        return _read(config / "keys" / sealing.bound_env_filename(agent))
+    return _read(config / "operator.env")

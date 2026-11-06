@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
     from collections.abc import Sequence
@@ -119,7 +119,7 @@ class AsyncDirectoryMixin(_MixinBase):
             # #149: keep the async copy at parity — this file has drifted before.
             params["label"] = [label] if isinstance(label, str) else list(label)
         result = await self._request("GET", "/v1/agents", params=params)
-        return result["agents"]
+        return cast("list[dict[str, Any]]", result["agents"])
 
     async def tag(
         self,

@@ -73,7 +73,7 @@ PRIVATE_PREFIX = "absigsec"
 SIGNATURE_PREFIX = "absigv"
 
 
-class BadSignature(Exception):
+class BadSignatureError(Exception):
     """The signature does not verify. Distinct from 'no signature' on purpose:
     a bad signature is WORSE than none, because it looks like an attestation
     until someone checks."""
@@ -126,7 +126,7 @@ def fingerprint(public_key: str) -> str:
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
-def canonical_bytes(
+def canonical_bytes(  # noqa: PLR0913
     *,
     sender: str,
     to: list[str],
@@ -174,7 +174,7 @@ def sign(private_key: str, payload: bytes) -> str:
 
 
 def verify(public_key: object, payload: bytes, signature: object) -> None:
-    """Returns None on success, raises BadSignature otherwise.
+    """Returns None on success, raises BadSignatureError otherwise.
 
     RAISES RATHER THAN RETURNING A BOOL. A boolean gets used in an `if` that
     someone eventually writes as `if verify(...)` with the call in a truthy
@@ -183,10 +183,10 @@ def verify(public_key: object, payload: bytes, signature: object) -> None:
     """
     if not isinstance(signature, str) or not isinstance(public_key, str):
         msg = "the signature or the public key is missing or not text"
-        raise BadSignature(msg)
+        raise BadSignatureError(msg)
     try:
         raw_sig = _decode(signature, SIGNATURE_PREFIX)
         raw_key = _decode(public_key, PUBLIC_PREFIX)
         Ed25519PublicKey.from_public_bytes(raw_key).verify(raw_sig, payload)
     except (InvalidSignature, ValueError, TypeError) as exc:
-        raise BadSignature(str(exc) or "signature does not verify") from exc
+        raise BadSignatureError(str(exc) or "signature does not verify") from exc

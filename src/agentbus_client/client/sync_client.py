@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from typing_extensions import Self
@@ -69,7 +69,7 @@ class AgentBus(
         idempotent: bool = False,
         idempotency_key: str | None = None,
         **kwargs: Any,
-    ) -> Any:
+    ) -> dict[str, Any]:
         # REG-7 (round-3 audit): mint the idempotency key ONCE HERE, outside
         # any retry loop, so all attempts hit the server with the same key and
         # the vendor's dedup layer sees a retry (not two distinct writes). If
@@ -87,14 +87,16 @@ class AgentBus(
         budget = call_timeout + 5
         deadline = time.monotonic() + budget
 
-        def _do_request() -> Any:
+        def _do_request() -> dict[str, Any]:
             remaining = deadline - time.monotonic()
             attempt_timeout = max(0.05, min(call_timeout, remaining))
             try:
                 response = self._client.request(
                     method,
                     path,
-                    headers=self._headers(agent, idempotent, idempotency_key),
+                    headers=self._headers(
+                        agent, idempotent=idempotent, idempotency_key=idempotency_key
+                    ),
                     timeout=attempt_timeout,
                     **kwargs,
                 )
@@ -103,7 +105,7 @@ class AgentBus(
             _raise_for(response)
             payload = response.json() if response.content else None
             self._capture_challenge(payload)
-            return payload
+            return cast("dict[str, Any]", payload)
 
         # REG-7: wrap every request in the resilience stack. Long-polls pass their
         # own timeout through so a bulkman queue-block never overrides the

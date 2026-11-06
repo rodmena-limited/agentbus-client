@@ -23,7 +23,7 @@ import os
 import re
 import stat
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 # ALWAYS the vendored copy, never a conditional import of the server package.
 #
@@ -45,7 +45,11 @@ from ._agefmt import (
 from .identity import config_dir
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
+    from typing import TypeVar
+
+    _T = TypeVar("_T")
 
 __all__ = [
     "SEALED_MARKER",
@@ -160,8 +164,8 @@ def _harden(path: Path) -> None:
     anyone can see, and on some systems a directory they can traverse.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, stat.S_IRWXU)
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    path.parent.chmod(stat.S_IRWXU)
+    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
 def create_secret_exclusive(path: Path, content: str) -> bool:
@@ -184,7 +188,7 @@ def create_secret_exclusive(path: Path, content: str) -> bool:
     return True
 
 
-def _ensure_secret(path: Path, generate: Any) -> str:
+def _ensure_secret(path: Path, generate: Callable[[], str]) -> str:
     """The secret at `path`, generating it EXACTLY ONCE across concurrent first users.
 
     The loser of a creation race re-reads what the winner wrote. A file that
@@ -287,7 +291,7 @@ class MalformedSealed(CannotDecrypt):
     """
 
 
-def _open_with_each(attempt: Any, agent: str | None = None) -> Any:
+def _open_with_each(attempt: Callable[[str], _T], agent: str | None = None) -> _T:
     """Try every key this machine holds; normalise everything that escapes.
 
     ONLY CannotDecrypt continues the loop. A corrupt payload must fail at once

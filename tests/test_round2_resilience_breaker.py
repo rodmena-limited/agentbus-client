@@ -131,15 +131,15 @@ def test_root_cause_leaves_other_errors_alone() -> None:
 
 
 def test_breaker_should_handle_classification() -> None:
-    assert resilience._breaker_should_handle(resilience._Abandoned("late")) is True
+    assert resilience._breaker_should_handle(resilience._AbandonedError("late")) is True
     assert resilience._breaker_should_handle(_rlr_chain(TransportError("x"), 1)[-1]) is True
     assert resilience._breaker_should_handle(_rlr_chain(TransportError("x"), 3)[-1]) is True
     assert resilience._breaker_should_handle(_rlr_chain(ServiceUnavailable("x"), 1)[-1]) is True
     assert resilience._breaker_should_handle(_rlr_chain(AuthError("x"), 1)[-1]) is False
-    assert resilience._breaker_should_handle(_rlr_chain(resilience._Abandoned("x"), 1)[-1])
-    wrapped_500 = resilience._NonIdempotent(AgentBusError("boom", status=500))
+    assert resilience._breaker_should_handle(_rlr_chain(resilience._AbandonedError("x"), 1)[-1])
+    wrapped_500 = resilience._NonIdempotentError(AgentBusError("boom", status=500))
     assert resilience._breaker_should_handle(wrapped_500) is True
-    wrapped_409 = resilience._NonIdempotent(AgentBusError("dup", status=409))
+    wrapped_409 = resilience._NonIdempotentError(AgentBusError("dup", status=409))
     assert resilience._breaker_should_handle(wrapped_409) is False
     assert resilience._breaker_should_handle(AuthError("revoked")) is False
     assert resilience._breaker_should_handle(TransportError("down")) is True

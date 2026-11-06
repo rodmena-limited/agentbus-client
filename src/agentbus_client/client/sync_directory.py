@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
     from collections.abc import Sequence
@@ -185,7 +185,7 @@ class SyncDirectoryMixin(_MixinBase):
             # as repeated query params.
             params["label"] = [label] if isinstance(label, str) else list(label)
         result: dict[str, Any] = self._request("GET", "/v1/agents", params=params)
-        return result["agents"]
+        return cast("list[dict[str, Any]]", result["agents"])
 
     def tag(
         self,

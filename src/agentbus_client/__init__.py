@@ -68,7 +68,7 @@ _LAZY = {
 }
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Any:  # noqa: ANN401
     if name in _LAZY:
         from . import client
 
@@ -87,7 +87,7 @@ def __getattr__(name: str) -> Any:
             from importlib.metadata import version as _pkg_version
 
             return _pkg_version("rodmena-agentbus")
-        except Exception:
+        except Exception:  # noqa: BLE001
             return "0.0.0+source"
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)

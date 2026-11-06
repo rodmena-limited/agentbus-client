@@ -11,10 +11,9 @@ time with nothing to point at.
 from __future__ import annotations
 
 import datetime as _dt
-from typing import Any
 
 
-def _duration_seconds(value: Any) -> int | None:
+def _duration_seconds(value: object) -> int | None:
     """Coerce a duration to whole seconds. None passes through.
 
     Accepts what `_parse_duration` accepts (`90m`, `2h`, `3d`, bare seconds), a
@@ -27,7 +26,7 @@ def _duration_seconds(value: Any) -> int | None:
         return int(value.total_seconds())
     if isinstance(value, bool):  # bool is an int subclass; refuse it explicitly
         msg = f"invalid duration: {value!r}"
-        raise ValueError(msg)
+        raise ValueError(msg)  # noqa: TRY004
     if isinstance(value, int):
         return value
     from .cli._common import _parse_duration
@@ -35,7 +34,7 @@ def _duration_seconds(value: Any) -> int | None:
     return int(_parse_duration(str(value)).total_seconds())
 
 
-def _as_instant(value: Any) -> str | None:
+def _as_instant(value: object) -> str | None:
     """Coerce an absolute time to a UTC ISO-8601 string. None passes through.
 
     ALWAYS UTC, AND ALWAYS EXPLICIT ABOUT IT. A naive datetime is read as local
@@ -58,7 +57,7 @@ def _as_instant(value: Any) -> str | None:
     raise ValueError(msg)
 
 
-def _expiry_instant(expire: Any, delay: Any = None, at: Any = None) -> str | None:
+def _expiry_instant(expire: object) -> str | None:
     """Resolve `--expire` to an absolute UTC instant, per the agreed contract.
 
     THE SERVER TAKES `expires_at`, NOT A DURATION, and that is the right call:
@@ -84,7 +83,7 @@ def _expiry_instant(expire: Any, delay: Any = None, at: Any = None) -> str | Non
     return _as_instant(_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=seconds))
 
 
-def _looks_like_duration(value: Any) -> bool:
+def _looks_like_duration(value: object) -> bool:
     """`3d` is a duration; `2026-12-01` is not. Distinguishes the two spellings
     `--expire` accepts, so an operator can write either."""
     import re as _re

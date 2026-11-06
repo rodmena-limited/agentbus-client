@@ -26,7 +26,7 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
     payload = []
     for path in paths or []:
         try:
-            size = os.stat(path).st_size
+            size = os.stat(path).st_size  # noqa: PTH116
         except OSError as exc:
             msg = f"cannot read attachment '{path}': {exc}"
             raise AgentBusError(msg) from exc
@@ -50,7 +50,7 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
             # asserting an encryption state we cannot see from this function.
             effective = int(server_limit / _SEAL_INFLATION_FACTOR)
             msg = (
-                f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
+                f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "  # noqa: PTH119
                 f"AgentBus server rejects attachments over {server_limit:,} bytes "
                 f"(~{server_limit // (1024 * 1024)} MiB). Failing fast here — "
                 "the client would otherwise upload the whole file and wait for "
@@ -65,7 +65,7 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
             raise AgentBusError(msg)
         if size > limit:
             msg = (
-                f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "
+                f"attachment '{os.path.basename(path)}' is {size:,} bytes; the "  # noqa: PTH119
                 f"client cap is {limit:,} bytes (~{limit // (1024 * 1024)} MB). "
                 "The client buffers the whole file in RAM, then again as base64, "
                 "then again in the JSON body and the HTTP buffer, so a large "
@@ -75,12 +75,12 @@ def _encode_attachments(paths: Sequence[str] | None) -> list[dict[str, str]]:
                 "is planned."
             )
             raise AgentBusError(msg)
-        with open(path, "rb") as handle:
+        with open(path, "rb") as handle:  # noqa: PTH123
             data = handle.read()
         guessed, _ = mimetypes.guess_type(path)
         payload.append(
             {
-                "filename": os.path.basename(path),
+                "filename": os.path.basename(path),  # noqa: PTH119
                 "content_base64": base64.b64encode(data).decode(),
                 "content_type": guessed or "application/octet-stream",
             }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -16,6 +16,7 @@ from .models import Delivery, _ack_window_seconds
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
     from collections.abc import Iterator, Sequence
+    from datetime import timedelta
 
     from ._mixin_base import SyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change, no import cycle
@@ -50,7 +51,7 @@ class SyncMessagingMixin(_MixinBase):
         # #169: a structured body the room's schema validates BEFORE the message
         # is accepted, so a malformed payload is a refusal to the sender rather
         # than a surprise for every consumer.
-        payload: Any = None,
+        payload: object = None,
         # #172: "fire_and_forget" trades durability for cost — no store, no ack,
         # no redelivery. The right choice for a heartbeat, the wrong one for
         # anything you would miss.
@@ -78,7 +79,7 @@ class SyncMessagingMixin(_MixinBase):
         # TO ONLY, NEVER CC: a cc recipient is copied for information and is
         # never obligated to ack (Farshid's decision, locked in the spec).
         require_ack: bool = False,
-        ack_window: Any = None,
+        ack_window: timedelta | int | None = None,
         allow_empty: bool = False,
     ) -> dict[str, Any]:
         _refuse_empty_body(
@@ -261,7 +262,7 @@ class SyncMessagingMixin(_MixinBase):
                 msg = f"inbox page of {len(batch)} did not advance the cursor past {before}"
                 raise AgentBusError(msg)
 
-    def read(self, delivery_id: str, agent: str | None = None, raw: bool = False) -> dict[str, Any]:
+    def read(self, delivery_id: str, agent: str | None = None, raw: bool = False) -> dict[str, Any]:  # noqa: FBT001, FBT002
         """Read one delivery, unsealing it when this machine holds the key.
 
         Unsealing happens HERE rather than being an extra step the caller must
@@ -290,9 +291,10 @@ class SyncMessagingMixin(_MixinBase):
         agent: str | None = None,
     ) -> list[str]:
         payload = {"add": list(add or []), "remove": list(remove or [])}
-        return self._request(
+        result = self._request(
             "POST", f"/v1/deliveries/{delivery_id}/labels", json=payload, agent=agent
-        )["labels"]
+        )
+        return cast("list[str]", result["labels"])
 
     def thread(self, thread_id: str) -> dict[str, Any]:
         """Read a whole conversation, unsealing each message where possible.
@@ -312,7 +314,8 @@ class SyncMessagingMixin(_MixinBase):
         return result
 
     def threads(self, limit: int = 50) -> list[dict[str, Any]]:
-        return self._request("GET", "/v1/threads", params={"limit": limit})["threads"]
+        result = self._request("GET", "/v1/threads", params={"limit": limit})
+        return cast("list[dict[str, Any]]", result["threads"])
 
     def raw(self, message_id: str) -> str:
         """The canonical RFC822 artifact for a message."""
@@ -321,7 +324,7 @@ class SyncMessagingMixin(_MixinBase):
         except httpx.HTTPError as exc:
             raise TransportError(str(exc)) from exc
         _raise_for(response)
-        return response.text
+        return cast("str", response.text)
 
     def status(
         self,

@@ -257,5 +257,5 @@ def test_read_leaves_a_plain_body_alone() -> None:
 def test_foreign_signature_is_genuine_for_its_own_key() -> None:
     foreign = bytes.fromhex("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")
     Ed25519PublicKey.from_public_bytes(foreign).verify(bech32_decode(FOREIGN_SIG), CANONICAL)
-    with pytest.raises(_signing.BadSignature):
+    with pytest.raises(_signing.BadSignatureError):
         _signing.verify(PUBLIC, CANONICAL, FOREIGN_SIG)

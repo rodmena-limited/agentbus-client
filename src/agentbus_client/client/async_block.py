@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 from agentbus_client._timefmt import _expiry_instant
 
 if TYPE_CHECKING:  # #48: tell mypy what the assembled client provides
+    from datetime import timedelta
+
     from ._mixin_base import AsyncClientBase as _MixinBase
 else:  # runtime: no new base, no MRO change
     _MixinBase = object
@@ -34,7 +36,7 @@ class AsyncBlockMixin(_MixinBase):
         agent_name: str,
         *,
         reason: str | None = None,
-        for_: Any = None,
+        for_: str | int | timedelta | None = None,
         agent: str | None = None,
     ) -> dict[str, Any]:
         """Stop `agent_name`'s mail reaching this agent's inbox.

@@ -176,42 +176,42 @@ def test_verify_accepts_signature_made_independently() -> None:
 )
 def test_verify_rejects_tampered_canonical_payload(override: Any) -> None:
     tampered = _signing.canonical_bytes(**_fields(**override))
-    with pytest.raises(_signing.BadSignature):
+    with pytest.raises(_signing.BadSignatureError):
         _signing.verify(PUBLIC, tampered, CANONICAL_SIG)
 
 
 def test_verify_rejects_one_flipped_byte() -> None:
     tampered = CANONICAL[:-2] + bytes([CANONICAL[-2] ^ 1]) + CANONICAL[-1:]
-    with pytest.raises(_signing.BadSignature):
+    with pytest.raises(_signing.BadSignatureError):
         _signing.verify(PUBLIC, tampered, CANONICAL_SIG)
 
 
 def test_verify_rejects_signature_from_another_key() -> None:
     other_private, other_public = _signing.generate_keypair()
     sig = _signing.sign(other_private, CANONICAL)
-    with pytest.raises(_signing.BadSignature):
+    with pytest.raises(_signing.BadSignatureError):
         _signing.verify(PUBLIC, CANONICAL, sig)
     assert _signing.verify(other_public, CANONICAL, sig) is None
 
 
 def test_verify_rejects_garbage_signature_as_bad_signature() -> None:
-    with pytest.raises(_signing.BadSignature, match="expected a absigv1"):
+    with pytest.raises(_signing.BadSignatureError, match="expected a absigv1"):
         _signing.verify(PUBLIC, CANONICAL, "not-a-signature")
 
 
 def test_verify_rejects_public_key_used_as_signature() -> None:
-    with pytest.raises(_signing.BadSignature):
+    with pytest.raises(_signing.BadSignatureError):
         _signing.verify(PUBLIC, CANONICAL, PUBLIC)
 
 
 def test_verify_rejects_sealing_key_as_public_key() -> None:
     _priv, age_public = sealing.generate_keypair()
-    with pytest.raises(_signing.BadSignature, match="expected a absig1"):
+    with pytest.raises(_signing.BadSignatureError, match="expected a absig1"):
         _signing.verify(age_public, CANONICAL, CANONICAL_SIG)
 
 
 def test_verify_bad_signature_carries_reason_text() -> None:
-    with pytest.raises(_signing.BadSignature) as info:
+    with pytest.raises(_signing.BadSignatureError) as info:
         _signing.verify(PUBLIC, CANONICAL + b"x", CANONICAL_SIG)
     assert str(info.value) == "signature does not verify"
 

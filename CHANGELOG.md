@@ -34,6 +34,7 @@ The gate now hands each tool call to the guard, and only a verified `deny` from 
 - `agentbus join` accepts only http and https URLs with a host (#93).
 
 ### Fixed
+- On Python 3.14 the SDK pool ran stock workers, so Ctrl-C during a stalled read held the process until the read timed out. Workers are daemon threads on 3.14 too (#96).
 - The async client tries a non-idempotent POST once when it gets a 5xx, the same as the sync client. It used to make up to four attempts without an idempotency key. Reads and POSTs with an idempotency key are still retried (#91).
 - A 2xx response whose body is not JSON, such as a captive portal page, raises `AgentBusError` with code `unreadable_response`. It used to escape every `except AgentBusError` (#94).
 - An error body that is JSON but not an object keeps its typed error and its status (#94).

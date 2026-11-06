@@ -15,3 +15,5 @@ ITEMS:
 2. READ `_write_worktree_identity` suppresses a `.gitignore` OSError with no message.
 3. READ the attachment settings in `client/models.py` fall back with no warning, unlike the settings in `_env_numbers.py`.
 4. MEASURED `PYTHONDONTWRITEBYTECODE` does not reach subprocess tests. A same-size edit within one mtime second keeps stale bytecode, which affects mutation proofs and nothing else.
+5. MEASURED ruff 0.17.4 reports 11 ICN001 findings (`import datetime` wants an alias). CI pins ruff 0.16.9 through `uv.lock`, so this appears on the next lock upgrade.
+6. MEASURED `rodmenalimited/ci-python` on Docker Hub answers for 3.12 and not for 3.10, 3.11, 3.13 or 3.14, while `.rodmena/ci.yml` asks for 3.10 to 3.13. Whether ci.rodmena.co.uk pulls from another registry was not checked. 3.14 is not in the CI matrix for that reason.

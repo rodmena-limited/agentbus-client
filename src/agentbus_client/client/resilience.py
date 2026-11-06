@@ -47,6 +47,7 @@ import httpx
 from agentbus_client._env_numbers import env_int, env_seconds
 
 from ._async_breaker import _AsyncCircuitBreaker
+from ._daemon_pool import _daemon_executor
 from ._repeat import _is_server_error, _sdk_max_concurrent, _sdk_max_retries, _unsafe_to_repeat
 from .attachments import _encode_attachments  # noqa: F401  (re-export: historical import site)
 from .errors import AgentBusError, ServiceUnavailable, TransportError
@@ -54,7 +55,6 @@ from .errors import AgentBusError, ServiceUnavailable, TransportError
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import timedelta
-    from queue import SimpleQueue
     from typing import TypeVar
 
     from bulkman import BulkheadThreading, ExecutionResult
@@ -73,7 +73,6 @@ _SYNC_CLIENTS: weakref.WeakSet[httpx.Client] = weakref.WeakSet()
 _CURRENT_CANCEL = threading.local()
 _MIN_WINDOW_SLOTS = 2
 _MAX_UNWRAP_HOPS = 8
-_WORKER_PARAMETERS = 4
 
 
 class _AbandonedError(Exception):
@@ -202,57 +201,6 @@ def _cancellable_backoff(
             return 0.0
 
     return _CancellableDelay(min_delay=min_delay, max_delay=max_delay, factor=factor, jitter=jitter)
-
-
-def _daemon_executor(max_workers: int, prefix: str) -> _cf.ThreadPoolExecutor:
-    """A ThreadPoolExecutor whose workers are DAEMON threads and are not joined at exit.
-
-    A stock executor's workers are non-daemon and registered for a join in
-    concurrent.futures' shutdown hook, so a worker blocked in socket.recv (Ctrl-C one
-    second into a 30s stall) held the interpreter open for the whole read timeout —
-    closing the httpx client does not wake a blocked read (issuedb #26). Daemon
-    workers are abandoned at exit instead; the SDK's own shutdown hook has already
-    flagged their sequences as abandoned.
-
-    Relies on the private `_worker` entry point, which has had the same four-argument
-    shape from 3.7 through 3.13. The shape is CHECKED: if it ever changes, the stock
-    executor is used (correct, merely slower to exit) rather than spawning workers
-    that would fail on their first task.
-    """
-    import inspect
-    from concurrent.futures import ThreadPoolExecutor, thread as _cft
-
-    worker = getattr(_cft, "_worker", None)
-    try:
-        shape_ok = (
-            worker is not None and len(inspect.signature(worker).parameters) == _WORKER_PARAMETERS
-        )
-    except (TypeError, ValueError):
-        shape_ok = False
-    if not shape_ok:
-        return ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=prefix)
-
-    class _DaemonExecutor(ThreadPoolExecutor):
-        def _adjust_thread_count(self) -> None:
-            if self._idle_semaphore.acquire(timeout=0):
-                return
-            queue = self._work_queue
-
-            def _weakref_cb(_: object, q: SimpleQueue[Any] = queue) -> None:
-                q.put(None)
-
-            num_threads = len(self._threads)
-            if num_threads < self._max_workers:
-                t = threading.Thread(
-                    name=f"{self._thread_name_prefix}_{num_threads}",
-                    target=worker,
-                    args=(weakref.ref(self, _weakref_cb), queue, self._initializer, self._initargs),
-                    daemon=True,
-                )
-                t.start()
-                self._threads.add(t)  # type: ignore[attr-defined]
-
-    return _DaemonExecutor(max_workers=max_workers, thread_name_prefix=prefix)
 
 
 def _sdk_bulkhead() -> BulkheadThreading:

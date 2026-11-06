@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
-from agentbus_client.client import resilience
+from agentbus_client.client import _daemon_pool, resilience
 from agentbus_client.client.errors import AgentBusError, TransportError
 
 if TYPE_CHECKING:
@@ -90,7 +90,7 @@ def test_workers_are_daemon_threads() -> None:
 
 
 def test_daemon_executor_runs_work_on_daemon_threads() -> None:
-    executor = resilience._daemon_executor(2, "probe")
+    executor = _daemon_pool._daemon_executor(2, "probe")
     try:
         seen = executor.submit(lambda: threading.current_thread().daemon).result(timeout=5)
         name = executor.submit(lambda: threading.current_thread().name).result(timeout=5)

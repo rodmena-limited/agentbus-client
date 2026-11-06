@@ -10,6 +10,7 @@ from typing import Any, cast
 import httpx
 from typing_extensions import Self
 
+from ._repeat import _safe_to_repeat
 from .base import _Base
 from .errors import (
     TransportError,
@@ -118,5 +119,6 @@ class AgentBus(
         # idempotency key for it, because a 5xx says the server FAILED, not
         # that it did nothing. Without this, one `register` produced four 500s
         # and four chances to half-create an identity.
-        safe_to_repeat = method.upper() in {"GET", "HEAD", "OPTIONS"} or idempotent
-        return _run_with_resilience(_do_request, timeout=budget, idempotent=safe_to_repeat)
+        return _run_with_resilience(
+            _do_request, timeout=budget, idempotent=_safe_to_repeat(method, idempotent=idempotent)
+        )

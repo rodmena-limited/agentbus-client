@@ -50,78 +50,31 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import sys
 import time
 import urllib.error
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
 from . import _identity
+from ._gate_input import _bus_reachable, _read_tool_call, fit_to_guard_limit, gate_setting
 from ._identity import _resolve_agent
 from ._state import _gate_degraded_file, _scrub, clear_gate_degraded, record_gate_degraded
 
 if TYPE_CHECKING:
     import argparse
 
-
-def _bus_reachable(base: str, timeout: float) -> tuple[bool, str]:
-    """A bounded TCP connect to the bus — the cheapest possible "is the network there".
-
-    urllib's single `timeout` covers connect AND read, so a dead network used to
-    cost the full read budget per attempt, twice (peer review C5: 24s per tool
-    call). A connect that fails in <= `timeout` answers the question the guard
-    actually has — can we reach the bus at all — for a fraction of the cost.
-    """
-    import socket
-    from urllib.parse import urlsplit
-
-    parts = urlsplit(base)
-    host = parts.hostname or ""
-    port = parts.port or (443 if parts.scheme == "https" else 80)
-    if not host:
-        return False, f"no host in AGENTBUS_BASE_URL {base!r}"
-    try:
-        socket.create_connection((host, port), timeout=timeout).close()
-    except OSError as exc:
-        return False, f"{type(exc).__name__}: {exc}"
-    return True, ""
+__all__ = ["_bus_reachable", "fit_to_guard_limit", "pre_tool_use"]
 
 
-GUARD_FIELD_LIMIT = 4096
-_GUARD_KEEP = 2000
 _HTTP_GONE = 410
 _HTTP_UNPROCESSABLE = 422
 _HTTP_SERVER_ERROR = 500
+_SHORTEST_TIMEOUT = 0.001
+_setting_notes: list[str] = []
 
 
 class GuardRequestRejected(Exception):  # noqa: N818
     pass
-
-
-def fit_to_guard_limit(value: object) -> Any:  # noqa: ANN401
-    if isinstance(value, str):
-        if len(value) <= GUARD_FIELD_LIMIT:
-            return value
-        elided = len(value) - 2 * _GUARD_KEEP
-        marker = f"\n...[{elided} characters elided by the AgentBus gate]...\n"
-        return value[:_GUARD_KEEP] + marker + value[-_GUARD_KEEP:]
-    if isinstance(value, dict):
-        return {key: fit_to_guard_limit(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [fit_to_guard_limit(item) for item in value]
-    return value
-
-
-def _read_tool_call() -> tuple[str, object]:
-    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
-    try:
-        payload = json.loads(raw) if raw.strip() else {}
-    except ValueError:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-
-    return str(payload.get("tool_name") or ""), payload.get("tool_input")
 
 
 def _decide(decision: str, reason: str) -> int:
@@ -131,13 +84,14 @@ def _decide(decision: str, reason: str) -> int:
     # SCRUBBED HERE, at the single point every branch passes through, so a
     # future message that interpolates an exception cannot reintroduce the
     # leak. Scrubbing at each call site is how the first one survived.
+    told = " ".join([reason, *_setting_notes])
     print(
         json.dumps(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": decision,
-                    "permissionDecisionReason": _scrub(reason),
+                    "permissionDecisionReason": _scrub(told),
                 }
             }
         )
@@ -258,6 +212,9 @@ def _ask_guard(
     if not isinstance(parsed, dict):
         msg = f"guard answered with a JSON {type(parsed).__name__}, not an object"
         raise ValueError(msg)  # noqa: TRY004
+    if parsed.get("decision") not in ("allow", "deny"):
+        msg = f"guard answered with no verdict: decision={parsed.get('decision')!r}"
+        raise ValueError(msg)
     return parsed
 
 
@@ -292,9 +249,8 @@ def _consult_guard(
     # whether or not the bus was involved. A single retry absorbs every blip of
     # that shape.
     #
-    # THIS DOES NOT WEAKEN FAIL-CLOSED, and the distinction is the whole point:
-    # exhausting the retry still DENIES. A refusal is never retried, because a
-    # refusal is an answer — only the absence of an answer is retried. Retrying
+    # Exhausting the retry degrades per #107. A refusal is never retried, because
+    # a refusal is an answer — only the absence of an answer is retried. Retrying
     # a 403 or a parsed `deny` would be the change that guts this control, so
     # the retry is scoped to the exception path and nothing else.
     last_exc: BaseException | None = None
@@ -410,9 +366,35 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     say the session is running WITHOUT approval checking, so nobody mistakes a
     degraded session for a protected one.
 
+    AgentBus is a communication tool, not a decision tool (operator ruling
+    2026-11-06). The gate carries the call to the guard, and when part of it
+    cannot be read it carries what it has. The guard decides.
+
     Exit 0 always. A hook that crashes is a hook the harness may ignore, and
     the decision is carried in the JSON on stdout, not in the exit code.
     """
+    try:
+        return _gate_tool_call()
+    except Exception as exc:  # noqa: BLE001
+        return _decide_after_crash(exc)
+
+
+def _decide_after_crash(exc: Exception) -> int:
+    failure = type(exc).__name__
+    with contextlib.suppress(Exception):
+        agent = os.environ.get("AGENTBUS_AGENT") or "unknown"
+        record_gate_degraded(agent, "gate_error", f"{failure}: {exc}")
+    with contextlib.suppress(Exception):
+        return _decide(
+            "allow",
+            f"The AgentBus gate failed ({failure}), so this action runs UNVETTED — "
+            "approval checking is OFF for this call. Run `agentbus doctor`.",
+        )
+    return 0
+
+
+def _gate_tool_call() -> int:
+    _setting_notes.clear()
     tool_name, tool_input = _read_tool_call()
 
     # THE FAIL-OPEN BRANCH, and it was bypassable by the party being gated.
@@ -425,11 +407,11 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     # So the question is no longer "does this session have a credential" but
     # "IS THIS HOST CONFIGURED FOR AGENTBUS AT ALL". A host with key files in
     # ~/.config/agentbus/keys is a host that opted in, and a session there with
-    # no credential is unexplained rather than innocent — so it DENIES.
+    # no credential is unexplained rather than innocent — so it degrades loudly
+    # per #107 and writes a record.
     #
-    # A host with no AgentBus configuration whatsoever never opted in, and
-    # denying its every tool call would be an outage dressed as security. That
-    # one still allows, and it is not bypassable by unsetting anything: you
+    # A host with no AgentBus configuration whatsoever never opted in, so that
+    # one allows quietly, and it is not bypassable by unsetting anything: you
     # cannot reach it from a configured host without deleting the operator's
     # key files, which is a louder act than this hook could hide anyway.
     api_key = os.environ.get("AGENTBUS_API_KEY")
@@ -448,8 +430,14 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     # short cooldown, subsequent calls fail-fast (still degrade to allow, but at
     # 0ms) until a real verdict resets it. Turns a 5-minute wall clock into a
     # sub-second one, without weakening the deny path (a deny is still uncached).
-    fast_fail_threshold = int(os.environ.get("AGENTBUS_GATE_FAST_FAIL_AFTER", "3"))
-    fast_fail_cooldown = float(os.environ.get("AGENTBUS_GATE_FAST_FAIL_COOLDOWN", "30"))
+    fast_fail_threshold = int(
+        gate_setting(
+            "AGENTBUS_GATE_FAST_FAIL_AFTER", 3, smallest=0, notes=_setting_notes, whole=True
+        )
+    )
+    fast_fail_cooldown = gate_setting(
+        "AGENTBUS_GATE_FAST_FAIL_COOLDOWN", 30, smallest=0, notes=_setting_notes
+    )
     fast_failed = _fast_fail_verdict(agent, fast_fail_threshold, fast_fail_cooldown)
     if fast_failed is not None:
         return fast_failed
@@ -457,8 +445,12 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     # Budgets (peer review C5; previously 12s x 2 attempts = ~24s per tool call
     # on a dead network): a 1.5s TCP reachability check first, then a 4s read
     # budget for the verdict. A guard must be fast; a slow bus is a broken bus.
-    gate_timeout = float(os.environ.get("AGENTBUS_GATE_TIMEOUT", "4"))
-    connect_timeout = float(os.environ.get("AGENTBUS_GATE_CONNECT_TIMEOUT", "1.5"))
+    gate_timeout = gate_setting(
+        "AGENTBUS_GATE_TIMEOUT", 4, smallest=_SHORTEST_TIMEOUT, notes=_setting_notes
+    )
+    connect_timeout = gate_setting(
+        "AGENTBUS_GATE_CONNECT_TIMEOUT", 1.5, smallest=_SHORTEST_TIMEOUT, notes=_setting_notes
+    )
     reachable, why = _bus_reachable(base, connect_timeout)
     if not reachable:
         with contextlib.suppress(Exception):

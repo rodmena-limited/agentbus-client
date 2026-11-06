@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 from typing_extensions import Self
 
+from ._repeat import _safe_to_repeat, _unsafe_to_repeat
 from .async_block import AsyncBlockMixin
 from .async_directory import AsyncDirectoryMixin
 from .async_messaging import AsyncMessagingMixin
@@ -139,7 +140,9 @@ class AsyncAgentBus(
 
         if os.environ.get("AGENTBUS_SDK_RESILIENCE") == "0":
             return await _do_request()
-        return await self._run_with_resilience_async(_do_request, deadline=budget)
+        return await self._run_with_resilience_async(
+            _do_request, deadline=budget, idempotent=_safe_to_repeat(method, idempotent=idempotent)
+        )
 
     def _loop_semaphore(self) -> asyncio.Semaphore:
         import asyncio
@@ -166,7 +169,11 @@ class AsyncAgentBus(
         return sem
 
     async def _run_with_resilience_async(
-        self, fn: Callable[[], Awaitable[_T]], *, deadline: float | None = None
+        self,
+        fn: Callable[[], Awaitable[_T]],
+        *,
+        deadline: float | None = None,
+        idempotent: bool = True,
     ) -> _T:
         """Retry-with-backoff + async bulkhead + breaker for async _request.
 
@@ -223,7 +230,7 @@ class AsyncAgentBus(
                             # 4xx, quota, etc. — pass through unchanged.
                             raise
                         last_exc = exc
-                        if attempt == max_retries:
+                        if attempt == max_retries or _unsafe_to_repeat(exc, idempotent=idempotent):
                             break
                         delay = min(cap, base * (2**attempt))
                         delay *= 1 + random.uniform(-0.2, 0.2)  # noqa: S311

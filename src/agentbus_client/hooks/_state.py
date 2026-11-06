@@ -54,6 +54,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 
 def _hook_state_dir() -> Path:
@@ -245,6 +246,21 @@ def _gate_degraded_file(agent: str) -> Path:
     return _hook_state_dir() / f"gate-degraded-{sealing.agent_slug(agent)}.json"
 
 
+def _readable_gate_state(path: Path) -> dict[str, Any]:
+    try:
+        state = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def _gate_failure_count(state: dict[str, Any]) -> int:
+    try:
+        return int(state.get("count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def record_gate_degraded(agent: str, reason: str, detail: str) -> None:
     """Persist a PreToolUse gate degrade-to-allow event as loud, non-fatal state.
 
@@ -273,12 +289,8 @@ def record_gate_degraded(agent: str, reason: str, detail: str) -> None:
         with path.with_suffix(".lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
-                prior = {}
-                try:
-                    prior = json.loads(path.read_text())
-                except Exception:  # noqa: BLE001
-                    prior = {}
-                count = int(prior.get("count") or 0) + 1
+                prior = _readable_gate_state(path)
+                count = _gate_failure_count(prior) + 1
                 now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 first = prior.get("first_at") or now
                 if reason == "fast_fail":

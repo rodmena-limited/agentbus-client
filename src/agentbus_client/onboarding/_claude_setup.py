@@ -296,7 +296,9 @@ def _wire_mcp(name: str, base_url: str | None, report: list[str]) -> None:
         else:
             wired = _add_mcp_entry(claude_bin, mcp_url, key_for_mcp, report)
     if not wired and key_for_mcp:
-        helper = _keys_dir() / f"{name}-mcp-add.sh"
+        from agentbus_client import sealing
+
+        helper = _keys_dir() / f"{sealing.agent_slug(name)}-mcp-add.sh"
         helper_body = (
             "#!/bin/sh\n"
             "exec claude mcp add -s local --transport http "

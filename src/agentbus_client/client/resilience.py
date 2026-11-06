@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 
 from ._async_breaker import _AsyncCircuitBreaker
+from ._repeat import _is_server_error, _unsafe_to_repeat
 from .attachments import _encode_attachments  # noqa: F401  (re-export: historical import site)
 from .errors import AgentBusError, ServiceUnavailable, TransportError
 
@@ -69,8 +70,6 @@ _INFLIGHT: set[threading.Event] = set()
 _INFLIGHT_LOCK = threading.Lock()
 _SYNC_CLIENTS: weakref.WeakSet[httpx.Client] = weakref.WeakSet()
 _CURRENT_CANCEL = threading.local()
-_SERVER_ERROR_FIRST = 500
-_SERVER_ERROR_LAST = 599
 _MIN_WINDOW_SLOTS = 2
 _MAX_UNWRAP_HOPS = 8
 _WORKER_PARAMETERS = 4
@@ -156,7 +155,7 @@ def _is_transient_sdk_error(exc: BaseException) -> bool:
         return False
     if isinstance(exc, (TransportError, ServiceUnavailable)):
         return True
-    if isinstance(exc, AgentBusError) and _SERVER_ERROR_FIRST <= exc.status <= _SERVER_ERROR_LAST:
+    if _is_server_error(exc):
         return True
     return isinstance(exc, httpx.HTTPError)
 
@@ -352,8 +351,6 @@ def _attempt_once(fn: Callable[[], _T], cancel: threading.Event, *, idempotent: 
     if cancel.is_set():
         msg = "the caller's deadline already fired; not issuing another attempt"
         raise _AbandonedError(msg)
-    if idempotent:
-        return fn()
     # #45: a 5xx means the server failed, not that it did nothing. Wrap it
     # so the retry classifier refuses it; the breaker still counts it, and
     # the ORIGINAL error is what the caller sees (__cause__ is unwrapped by
@@ -361,7 +358,7 @@ def _attempt_once(fn: Callable[[], _T], cancel: threading.Event, *, idempotent: 
     try:
         return fn()
     except AgentBusError as exc:
-        if _SERVER_ERROR_FIRST <= exc.status <= _SERVER_ERROR_LAST:
+        if _unsafe_to_repeat(exc, idempotent=idempotent):
             raise _NonIdempotentError(exc) from exc
         raise
 

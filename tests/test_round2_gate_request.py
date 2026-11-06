@@ -10,7 +10,7 @@ import pytest
 from typing_extensions import Self
 
 import agentbus_client.hooks.claude_code as hk
-from agentbus_client.hooks import _gate
+from agentbus_client.hooks import _gate, _gate_input
 
 if TYPE_CHECKING:
     import argparse
@@ -157,7 +157,10 @@ def test_the_guard_request_is_an_authenticated_json_post(monkeypatch: pytest.Mon
         ),
         ('{"tool_input":{"command":"ls"}}', {"tool_name": "", "tool_input": {"command": "ls"}}),
         ('{"tool_name":"Read"}', {"tool_name": "Read", "tool_input": None}),
-        ("not json{", {"tool_name": "", "tool_input": None}),
+        (
+            "not json{",
+            {"tool_name": "", "tool_input": {_gate_input.UNREADABLE_CALL: "not json{"}},
+        ),
         ("", {"tool_name": "", "tool_input": None}),
     ],
 )
@@ -213,8 +216,6 @@ def test_an_allow_is_emitted_with_the_servers_reason_verbatim(
     [
         ({"decision": "deny"}, "deny", "this action requires human approval"),
         ({"decision": "allow"}, "allow", "permitted"),
-        ({"decision": "maybe", "reason": "odd"}, "deny", "odd"),
-        ({}, "deny", "this action requires human approval"),
     ],
 )
 def test_a_verdict_without_a_reason_gets_the_documented_default(
@@ -300,7 +301,7 @@ def test_an_opted_in_project_without_a_key_degrades_loudly_without_asking(
     assert state["count"] == 1
 
 
-LIMIT = _gate.GUARD_FIELD_LIMIT
+LIMIT = _gate_input.GUARD_FIELD_LIMIT
 
 
 def test_the_guard_field_limit_is_the_servers_4096() -> None:

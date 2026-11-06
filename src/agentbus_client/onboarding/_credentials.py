@@ -308,7 +308,9 @@ def explain_refusal(preferred_agent: str | None) -> str | None:
     """
     if not preferred_agent:
         return None
-    if not (_keys_dir() / f"{preferred_agent}.env").exists():
+    from agentbus_client import sealing
+
+    if not (_keys_dir() / sealing.bound_env_filename(preferred_agent)).exists():
         return None
 
     # DO NOT LEAD WITH "GO AND SOURCE A CREDENTIAL".

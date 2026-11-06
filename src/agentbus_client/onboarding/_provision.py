@@ -130,7 +130,7 @@ def _resolve_identity(args: argparse.Namespace, harness: str) -> _Identity | Non
     # bus can say that. On rejection, say which file was dead and fall through
     # to the operator credential — that is what it is for.
     stored_key = _agent_key(name) if name else None
-    if stored_key and operator and stored_key != operator:
+    if name and stored_key and operator and stored_key != operator:
         from agentbus_client.client import AuthError
 
         try:
@@ -154,7 +154,7 @@ def _resolve_identity(args: argparse.Namespace, harness: str) -> _Identity | Non
                 )
                 _say("  operator credential instead. A fresh bound key will be minted.")
                 with contextlib.suppress(OSError):
-                    (_keys_dir() / f"{name}.env").rename(_keys_dir() / f"{name}.env.other")
+                    _retire_key_file(name, ".env.other")
                 stored_key = None
         except AgentBusError as exc:
             # WHICH FAILURES PROVE THE KEY IS DEAD.
@@ -184,13 +184,24 @@ def _resolve_identity(args: argparse.Namespace, harness: str) -> _Identity | Non
                 _say(f"  stored key for '{name}' is dead ({exc.code}); using the operator")
                 _say("  credential instead. A fresh bound key will be minted.")
                 with contextlib.suppress(OSError):
-                    (_keys_dir() / f"{name}.env").rename(_keys_dir() / f"{name}.env.dead")
+                    _retire_key_file(name, ".env.dead")
                 stored_key = None
     register_key = stored_key or operator
     if register_key is None:
         _explain_missing_credential(name, role, harness)
         return None
     return _Identity(name, role, operator, stored_key, register_key, ephemeral, provenance)
+
+
+def _key_file(name: str) -> Path:
+    from agentbus_client import sealing
+
+    return _keys_dir() / sealing.bound_env_filename(name)
+
+
+def _retire_key_file(name: str, suffix: str) -> None:
+    path = _key_file(name)
+    path.rename(path.with_name(f"{path.stem}{suffix}"))
 
 
 def _another_device_holds_role(bus: AgentBus, role: str, harness: str) -> bool:
@@ -256,7 +267,7 @@ def _register(args: argparse.Namespace, bus: AgentBus, who: _Identity) -> dict[s
             if register_key.startswith("ab_sk_"):
                 key_id = register_key.split("_")[2]
         if register_key and register_key == stored_key and name:
-            _say(f"  credential used: stored key file {_keys_dir() / (name + '.env')}")
+            _say(f"  credential used: stored key file {_key_file(name)}")
         elif register_key == who.operator:
             _say("  credential used: the signin/operator credential (agentbus signin)")
         if key_id:
@@ -421,12 +432,12 @@ def _ensure_bound_key(
             _say("mint succeeded but no secret in the response; refusing to continue.")
             return False
         _write_private(
-            _keys_dir() / f"{name}.env",
+            _key_file(name),
             f"export AGENTBUS_API_KEY={secret}\nexport AGENTBUS_AGENT={name}\n",
         )
-        report.append(f"minted bound send key for {name} -> {_keys_dir()}/{name}.env (0600)")
+        report.append(f"minted bound send key for {name} -> {_key_file(name)} (0600)")
     else:
-        report.append(f"key: {_keys_dir()}/{name}.env (existing)")
+        report.append(f"key: {_key_file(name)} (existing)")
     return True
 
 

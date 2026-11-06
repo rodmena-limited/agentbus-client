@@ -26,7 +26,7 @@ import contextlib
 import stat
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ._agy_setup import _setup_agy, teardown_agy_machine
 from ._claude_setup import _setup_claude
@@ -238,9 +238,27 @@ def _drop_settings_identity(local: dict[str, Any], local_path: Path, removed: li
         removed.append(str(local_path))
 
 
+def _declared_agent(agent_file: Path, local: dict[str, Any]) -> str | None:
+    if agent_file.is_file():
+        with contextlib.suppress(OSError):
+            declared = agent_file.read_text().strip()
+            if declared:
+                return declared
+    return cast("str | None", (local.get("env") or {}).get("AGENTBUS_AGENT"))
+
+
+def _is_key_name(agent: str) -> bool:
+    from agentbus_client import sealing
+
+    return sealing.bound_env_filename(agent) == f"{agent}.env"
+
+
 def _purge_agent_keys(agent: str, removed: list[str]) -> None:
-    for suffix in (".env", ".env.dead"):
-        kf = _keys_dir() / f"{agent}{suffix}"
+    from agentbus_client import sealing
+
+    bound = sealing.bound_env_filename(agent)
+    for filename in (bound, f"{bound}.dead", f"{bound}.other"):
+        kf = _keys_dir() / filename
         if kf.is_file():
             with contextlib.suppress(OSError):
                 kf.unlink()
@@ -280,17 +298,15 @@ def cmd_teardown(args: argparse.Namespace) -> int:
     removed: list[str] = []
     root = _git_root_or_none() or Path.cwd()
 
-    agent: str | None = None
     agentbus_dir = root / ".agentbus"
-    agent_file = agentbus_dir / "agent"
-    if agent_file.is_file():
-        with contextlib.suppress(OSError):
-            agent = agent_file.read_text().strip() or None
-
     local_path = root / ".claude" / "settings.local.json"
     local = _load_json(local_path)
-    if agent is None:
-        agent = (local.get("env") or {}).get("AGENTBUS_AGENT")
+    agent = _declared_agent(agentbus_dir / "agent", local)
+
+    if getattr(args, "purge_key", False) and agent and not _is_key_name(agent):
+        _say(f"refusing to purge keys: '{agent}' is not an agent name a key file can have.")
+        _say("Nothing was removed. Check .agentbus/agent and the project's settings.")
+        return 1
 
     if agentbus_dir.is_dir():
         import shutil as _shutil

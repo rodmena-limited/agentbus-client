@@ -86,7 +86,9 @@ def _ensure_sealing_key(bus: AgentBus, ui: ModuleType) -> None:
 
 
 def _store_single_bound_key(key: str, agent: str) -> None:
-    path = _keys_dir() / f"{agent}.env"
+    from agentbus_client import sealing
+
+    path = _keys_dir() / sealing.bound_env_filename(agent)
     changed = _write_private(
         path, f"export AGENTBUS_API_KEY={key}\nexport AGENTBUS_AGENT={agent}\n"
     )
@@ -137,8 +139,10 @@ def cmd_signin(args: argparse.Namespace) -> int:
     if len(bound) == 1:
         _store_single_bound_key(key, bound[0])
     elif bound:
+        from agentbus_client import sealing
+
         for agent in bound:
-            path = _keys_dir() / f"{agent}.env"
+            path = _keys_dir() / sealing.bound_env_filename(agent)
             _write_private(path, f"export AGENTBUS_API_KEY={key}\nexport AGENTBUS_AGENT={agent}\n")
             _say(f"  stored:    {path} (0600)")
         _write_private(

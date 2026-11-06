@@ -18,7 +18,7 @@ ruling, 2026-08-21). The client posts to its own backend and stops there.
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client.client import AgentBusError
 
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     import argparse
 
 
-def _render(row: dict) -> str:
+def _render(row: dict[str, Any]) -> str:
     """One reminder as a line. Shows WHO and WHEN, which is what a list is for."""
     # #50: THE SERVER SAYS WHO THIS IS FOR; DO NOT INFER IT.
     #
@@ -59,7 +59,7 @@ def _render(row: dict) -> str:
     return f"{row.get('id', '?')}  {when}  -> {who:<20} [{state}]{repeat}{expires}"
 
 
-def cmd_remind(args: argparse.Namespace) -> int:
+def _flags_refused(args: argparse.Namespace) -> bool:
     # ARGUMENT VALIDATION BEFORE THE CLIENT IS BUILT. `_bus()` resolves a
     # credential and opens a connection; doing that first means a plain typo in
     # the flags fails with a credential error on a machine that is not signed
@@ -72,10 +72,10 @@ def cmd_remind(args: argparse.Namespace) -> int:
             f"drop {other}, or drop --repeat to schedule a single message",
             file=sys.stderr,
         )
-        return 2
+        return True
     if getattr(args, "delay", None) and getattr(args, "at", None):
         print("--delay and --at say the same thing two ways; pick one", file=sys.stderr)
-        return 2
+        return True
     # THE SDK RAISES ValueError FOR THIS; THE CLI MUST NOT LET IT ESCAPE. An
     # unsupported flag is a usage error, and a usage error that arrives as a
     # Python traceback tells the reader their install is broken rather than
@@ -90,6 +90,28 @@ def cmd_remind(args: argparse.Namespace) -> int:
             "schedule is cancelled, not merely withheld).",
             file=sys.stderr,
         )
+        return True
+    return False
+
+
+def _print_scheduled(args: argparse.Namespace, result: dict[str, Any]) -> None:
+    who = args.target or "you"
+    when = str(result.get("due_at") or "")[:19].replace("T", " ")
+    print(f"reminder {result['id']} -> {who}")
+    print(f"  first fires: {when or '(as scheduled)'}")
+    if result.get("repeat"):
+        until = str(result.get("repeat_until") or "")[:10]
+        print(f"  repeats:     {result['repeat']}" + (f" until {until}" if until else " (no end)"))
+    if result.get("expires_at"):
+        print(
+            f"  expires:     {str(result['expires_at'])[:19].replace('T', ' ')}"
+            " (not delivered after this)"
+        )
+    print(f"  cancel:      agentbus remind --cancel {result['id']}")
+
+
+def cmd_remind(args: argparse.Namespace) -> int:
+    if _flags_refused(args):
         return 2
 
     bus = _common._bus(args)
@@ -135,21 +157,8 @@ def cmd_remind(args: argparse.Namespace) -> int:
 
     if args.json:
         _print(result, as_json=True)
-        return 0
-
-    who = args.target or "you"
-    when = str(result.get("due_at") or "")[:19].replace("T", " ")
-    print(f"reminder {result['id']} -> {who}")
-    print(f"  first fires: {when or '(as scheduled)'}")
-    if result.get("repeat"):
-        until = str(result.get("repeat_until") or "")[:10]
-        print(f"  repeats:     {result['repeat']}" + (f" until {until}" if until else " (no end)"))
-    if result.get("expires_at"):
-        print(
-            f"  expires:     {str(result['expires_at'])[:19].replace('T', ' ')}"
-            " (not delivered after this)"
-        )
-    print(f"  cancel:      agentbus remind --cancel {result['id']}")
+    else:
+        _print_scheduled(args, result)
     return 0
 
 

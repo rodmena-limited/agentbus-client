@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agentbus_client.client import AgentBusError, EmptyBodyError, SelfReplyError
 
@@ -13,6 +13,63 @@ from ._common import _as_message_id, _parse_duration, _print
 
 if TYPE_CHECKING:
     import argparse
+
+    from agentbus_client.client import AgentBus
+
+
+def _send_batch_line(bus: AgentBus, index: int, line: str) -> bool:
+    import json as _json
+
+    try:
+        item = _json.loads(line)
+    except ValueError as exc:
+        _print_batch_error(index, "input_parse_error", str(exc))
+        return False
+    if not isinstance(item, dict):
+        _print_batch_error(index, "input_shape_error", "each line must be a JSON object")
+        return False
+
+    to = item.get("to")
+    if to is None:
+        _print_batch_error(index, "missing_to", "each line must include a 'to' field")
+        return False
+
+    try:
+        result = bus.send(
+            to,
+            subject=item.get("subject", ""),
+            text=item.get("text"),
+            cc=item.get("cc"),
+            priority=item.get("priority"),
+            html=item.get("html"),
+            thread_id=item.get("thread_id"),
+            attachments=item.get("attachments"),
+            require_available=bool(item.get("require_available", False)),
+            require_responsive=bool(item.get("require_responsive", False)),
+            payload=item.get("payload"),
+            guarantee=item.get("guarantee"),
+            derived_from=item.get("derived_from"),
+            # No idempotency_key defaulted — SDK mints one per _request.
+            # A caller doing retries should supply idempotency_key per
+            # line for stable dedup across attempts.
+            idempotency_key=item.get("idempotency_key"),
+            # Ack-tracking (SPECS/0022): parity with cmd_send.
+            # require_ack per line, ack_window accepts a duration string
+            # (parsed by _parse_duration) or seconds.
+            require_ack=bool(item.get("require_ack", False)),
+            ack_window=(_parse_duration(item["ack_window"]) if item.get("ack_window") else None),
+        )
+    except AgentBusError as exc:
+        _print_batch_error(index, exc.__class__.__name__, str(exc))
+        return False
+    # F13 shape-normalise for fire_and_forget so consumers get a stable
+    # {status, guarantee, ...} instead of {} — same rule as cmd_send.
+    if item.get("guarantee") == "fire_and_forget":
+        normalised = {"status": "accepted", "guarantee": "fire_and_forget"}
+        normalised.update(result or {})
+        result = normalised
+    print(_json.dumps({"index": index, "ok": True, "result": result}, default=str), flush=True)
+    return True
 
 
 def cmd_send_batch(args: argparse.Namespace) -> int:
@@ -41,7 +98,6 @@ def cmd_send_batch(args: argparse.Namespace) -> int:
     Exit code: 0 if every send succeeded, 1 if any failed.
     """
     bus = _common._bus(args)
-    import json as _json
 
     stream = sys.stdin
     lines = list(stream) if not stream.isatty() else []
@@ -58,69 +114,11 @@ def cmd_send_batch(args: argparse.Namespace) -> int:
         line = raw_line.strip()
         if not line:
             continue  # blank line separator, tolerated
-        try:
-            item = _json.loads(line)
-        except ValueError as exc:
-            _print_batch_error(index, "input_parse_error", str(exc))
-            any_error = True
-            if args.stop_on_error:
-                return 1
+        if _send_batch_line(bus, index, line):
             continue
-        if not isinstance(item, dict):
-            _print_batch_error(index, "input_shape_error", "each line must be a JSON object")
-            any_error = True
-            if args.stop_on_error:
-                return 1
-            continue
-
-        to = item.get("to")
-        if to is None:
-            _print_batch_error(index, "missing_to", "each line must include a 'to' field")
-            any_error = True
-            if args.stop_on_error:
-                return 1
-            continue
-
-        try:
-            result = bus.send(
-                to,
-                subject=item.get("subject", ""),
-                text=item.get("text"),
-                cc=item.get("cc"),
-                priority=item.get("priority"),
-                html=item.get("html"),
-                thread_id=item.get("thread_id"),
-                attachments=item.get("attachments"),
-                require_available=bool(item.get("require_available", False)),
-                require_responsive=bool(item.get("require_responsive", False)),
-                payload=item.get("payload"),
-                guarantee=item.get("guarantee"),
-                derived_from=item.get("derived_from"),
-                # No idempotency_key defaulted — SDK mints one per _request.
-                # A caller doing retries should supply idempotency_key per
-                # line for stable dedup across attempts.
-                idempotency_key=item.get("idempotency_key"),
-                # Ack-tracking (SPECS/0022): parity with cmd_send.
-                # require_ack per line, ack_window accepts a duration string
-                # (parsed by _parse_duration) or seconds.
-                require_ack=bool(item.get("require_ack", False)),
-                ack_window=(
-                    _parse_duration(item["ack_window"]) if item.get("ack_window") else None
-                ),
-            )
-        except AgentBusError as exc:
-            _print_batch_error(index, exc.__class__.__name__, str(exc))
-            any_error = True
-            if args.stop_on_error:
-                return 1
-            continue
-        # F13 shape-normalise for fire_and_forget so consumers get a stable
-        # {status, guarantee, ...} instead of {} — same rule as cmd_send.
-        if item.get("guarantee") == "fire_and_forget":
-            normalised = {"status": "accepted", "guarantee": "fire_and_forget"}
-            normalised.update(result or {})
-            result = normalised
-        print(_json.dumps({"index": index, "ok": True, "result": result}, default=str), flush=True)
+        any_error = True
+        if args.stop_on_error:
+            return 1
 
     return 1 if any_error else 0
 
@@ -213,7 +211,7 @@ def cmd_send(args: argparse.Namespace) -> int:
     return 0
 
 
-def _suggest_reply_target(bus: Any, exc: SelfReplyError) -> str:
+def _suggest_reply_target(bus: AgentBus, exc: SelfReplyError) -> str:
     """#53: when a reply would reach only you, name the message you probably
     meant — the LATEST one in that thread from anyone else. Costs two reads,
     and only on the refusal path. Never falls back to sending anything."""
@@ -240,12 +238,12 @@ def _suggest_reply_target(bus: Any, exc: SelfReplyError) -> str:
     )
 
 
-def _warn_reply_reach(bus: Any, message_id: str, reply_all: bool, cc: list[str]) -> None:
+def _warn_reply_reach(bus: AgentBus, message_id: str, *, reply_all: bool, cc: list[str]) -> None:
     acting = bus.agent
     try:
         everyone = bus.reply_recipients(message_id, reply_all=True)
         chosen = everyone if reply_all else bus.reply_recipients(message_id, reply_all=False)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return
     reached = set(chosen["to"]) | set(chosen["cc"]) | set(cc)
     if not reply_all:
@@ -272,7 +270,7 @@ def cmd_reply(args: argparse.Namespace) -> int:
     body = _common._read_body(args.body) or ""
     allow_empty = bool(getattr(args, "allow_empty", False))
     if body.strip() or args.attach or allow_empty:
-        _warn_reply_reach(bus, message_id, reply_all, list(args.cc or []))
+        _warn_reply_reach(bus, message_id, reply_all=reply_all, cc=list(args.cc or []))
     try:
         result = bus.reply(
             message_id,

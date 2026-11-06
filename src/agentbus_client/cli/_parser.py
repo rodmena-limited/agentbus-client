@@ -192,36 +192,40 @@ NOT_SIGNED_IN = [
 ]
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    verb = args.command if isinstance(getattr(args, "command", None), str) else "as"
-    try:
-        result: int = args.func(args)
-        return result
-    except QuotaExceeded as exc:
+def _bus_error_exit(args: argparse.Namespace, exc: AgentBusError) -> int:
+    if isinstance(exc, QuotaExceeded):
         lines = [f"quota exceeded: {exc.detail}"]
         if exc.reset_at:
             lines.append(f"  resets at {exc.reset_at}")
         if exc.blocking_policy:
             lines.append(f"  blocking policy: {exc.blocking_policy.get('policy_name')}")
         return _fail(args, 4, exc.code, exc.detail, lines)
-    except ServiceUnavailable as exc:
+    if isinstance(exc, ServiceUnavailable):
         line = f"service unavailable: {exc.detail} (retry in {exc.retry_after or 30}s)"
         return _fail(args, 5, exc.code, exc.detail, [line])
-    except AuthError as exc:
+    if isinstance(exc, AuthError):
         if not exc.status and str(exc.detail).startswith("no API key."):
             return _fail(args, 8, "no_credential", exc.detail, NOT_SIGNED_IN)
         return _fail(args, 8, exc.code, exc.detail, [f"{exc.code}: {exc.detail}"])
-    except TransportError as exc:
+    if isinstance(exc, TransportError):
         lines = [
             f"agentbus: cannot reach AgentBus at {_base_url(args)} ({exc.detail})",
             "  check the network, or --base-url / $AGENTBUS_BASE_URL",
         ]
         return _fail(args, 3, "transport_error", exc.detail, lines)
+    return _fail(args, 3, exc.code, exc.detail, [f"{exc.code}: {exc.detail}"])
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    verb = args.command if isinstance(getattr(args, "command", None), str) else "as"
+    try:
+        result: int = args.func(args)
     except AgentBusError as exc:
-        return _fail(args, 3, exc.code, exc.detail, [f"{exc.code}: {exc.detail}"])
+        return _bus_error_exit(args, exc)
     except InputError as exc:
         if os.environ.get("AGENTBUS_DEBUG"):
             raise
         lines = [f"agentbus {verb}: error: {exc}", f"  help:  agentbus {verb} --help"]
         return _fail(args, 2, "invalid_input", str(exc), lines)
+    return result

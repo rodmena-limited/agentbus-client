@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client.client import AgentBusError, NotFoundError
 
@@ -15,6 +15,8 @@ from ._threads import _render_thread
 
 if TYPE_CHECKING:
     import argparse
+
+    from agentbus_client.client import AgentBus
 
 
 def cmd_inbox(args: argparse.Namespace) -> int:
@@ -85,7 +87,7 @@ def _safe_attachment_name(name: str, index: int) -> str:
     """
     import os as _os
 
-    safe = _os.path.basename(str(name).replace("\\", "/"))
+    safe = _os.path.basename(str(name).replace("\\", "/"))  # noqa: PTH119
     # After basename, the only traversal left is literally `..` or `.`.
     if safe in ("", ".", ".."):
         return f"attachment-{index}"
@@ -95,93 +97,82 @@ def _safe_attachment_name(name: str, index: int) -> str:
     return safe
 
 
-def cmd_attachment(args: argparse.Namespace) -> int:
-    """Write one or all attachments to disk — the read half of `send -a` (#124).
+def _refuse_all_output(args: argparse.Namespace) -> bool:
+    if args.output and args.output != "-":
+        print(
+            "--all writes each attachment under its own filename; -o "
+            "picks a single destination and cannot be combined with it",
+            file=sys.stderr,
+        )
+        return True
+    if args.output == "-":
+        print(
+            "--all writes multiple files; refusing to interleave raw bytes "
+            "for several attachments on stdout",
+            file=sys.stderr,
+        )
+        return True
+    return False
 
-    Defaults to the attachment's OWN filename in the cwd, because that is what a
-    recipient almost always wants and it keeps the common case to one argument.
-    `-o -` writes raw bytes to stdout for piping.
 
-    F8 (issuedb #5): `--all` fetches every attachment on the delivery in one
-    invocation, writing each into the current working directory under its
-    original filename. Without it, a 10-attachment message was 10 CLI runs at
-    ~295 ms of startup each; peer measured 2.96 s for 10 x 50 KB. Farshid
-    asked for this by name.
+def _refuse_shared_targets(targets: list[Path]) -> bool:
+    indexes_by_name: dict[str, list[int]] = {}
+    for i, t in enumerate(targets):
+        indexes_by_name.setdefault(str(t), []).append(i)
+    shared = {n: ix for n, ix in indexes_by_name.items() if len(ix) > 1}
+    if shared:
+        clashes = "; ".join(
+            f"{n} (attachments {', '.join(str(i) for i in ix)})" for n, ix in shared.items()
+        )
+        print(
+            f"refusing --all: more than one attachment would be written as {clashes}, "
+            "so one would overwrite the other — fetch each with -i N -o PATH",
+            file=sys.stderr,
+        )
+        return True
+    return False
 
-    REFUSES TO OVERWRITE unless told to. An attachment arrives with a name chosen
-    by the SENDER, so a careless `agentbus attachment <id>` in a working directory
-    could otherwise silently replace a local file with a peer's payload of the
-    same name. That is a decision the recipient should make deliberately.
-    """
-    bus = _common._bus(args)
-    delivery = bus.read(args.delivery_id)
-    attachments = delivery.get("attachments") or []
-    if not attachments:
-        print(f"delivery {args.delivery_id} has no attachments", file=sys.stderr)
+
+def _refuse_existing_targets(args: argparse.Namespace, targets: list[Path]) -> bool:
+    if not args.force:
+        existing = [str(t) for t in targets if t.exists()]
+        if existing:
+            print(
+                "refusing to overwrite existing file(s): "
+                + ", ".join(existing)
+                + " — pass --force to overwrite, or fetch each with -i and -o",
+                file=sys.stderr,
+            )
+            return True
+    return False
+
+
+def _save_all(args: argparse.Namespace, bus: AgentBus, attachments: list[dict[str, Any]]) -> int:
+    if _refuse_all_output(args):
+        return 2
+    # First pass: check every target for pre-existing files, so we refuse
+    # BEFORE writing any of them — never a partial write of half the set.
+    # The sender's filename is attacker-controlled (a hostile sender could
+    # name it `../../.bashrc`), so it is sanitized to a safe basename
+    # BEFORE it is turned into a write path — a traversal must never escape
+    # the working directory (audit finding, confirmed live: a `../outside`
+    # filename wrote outside CWD).
+    targets: list[Path] = []
+    for i, item in enumerate(attachments):
+        name = _safe_attachment_name(item.get("filename") or f"attachment-{i}", i)
+        targets.append(Path(name))
+    if _refuse_shared_targets(targets) or _refuse_existing_targets(args, targets):
         return 1
+    # Second pass: actual fetch + write, in order.
+    for i, _item in enumerate(attachments):
+        data = bus.attachment(args.delivery_id, i)
+        targets[i].write_bytes(data)
+        print(f"wrote {targets[i]} ({targets[i].stat().st_size} bytes)")
+    print(f"— {len(attachments)} attachment(s) written")
+    return 0
 
-    # F8: --all is mutually exclusive with -i and -o (writing multiple files to
-    # a single -o path or a single index makes no sense). Argparse enforces the
-    # -i/-o mutual-exclusion via a group below; the check here catches -o
-    # (which is not in the group so --all can still write to CWD).
-    if args.all:
-        if args.output and args.output != "-":
-            print(
-                "--all writes each attachment under its own filename; -o "
-                "picks a single destination and cannot be combined with it",
-                file=sys.stderr,
-            )
-            return 2
-        if args.output == "-":
-            print(
-                "--all writes multiple files; refusing to interleave raw bytes "
-                "for several attachments on stdout",
-                file=sys.stderr,
-            )
-            return 2
-        # First pass: check every target for pre-existing files, so we refuse
-        # BEFORE writing any of them — never a partial write of half the set.
-        # The sender's filename is attacker-controlled (a hostile sender could
-        # name it `../../.bashrc`), so it is sanitized to a safe basename
-        # BEFORE it is turned into a write path — a traversal must never escape
-        # the working directory (audit finding, confirmed live: a `../outside`
-        # filename wrote outside CWD).
-        targets: list[Path] = []
-        for i, item in enumerate(attachments):
-            name = _safe_attachment_name(item.get("filename") or f"attachment-{i}", i)
-            targets.append(Path(name))
-        indexes_by_name: dict[str, list[int]] = {}
-        for i, t in enumerate(targets):
-            indexes_by_name.setdefault(str(t), []).append(i)
-        shared = {n: ix for n, ix in indexes_by_name.items() if len(ix) > 1}
-        if shared:
-            clashes = "; ".join(
-                f"{n} (attachments {', '.join(str(i) for i in ix)})" for n, ix in shared.items()
-            )
-            print(
-                f"refusing --all: more than one attachment would be written as {clashes}, "
-                "so one would overwrite the other — fetch each with -i N -o PATH",
-                file=sys.stderr,
-            )
-            return 1
-        if not args.force:
-            existing = [str(t) for t in targets if t.exists()]
-            if existing:
-                print(
-                    "refusing to overwrite existing file(s): "
-                    + ", ".join(existing)
-                    + " — pass --force to overwrite, or fetch each with -i and -o",
-                    file=sys.stderr,
-                )
-                return 1
-        # Second pass: actual fetch + write, in order.
-        for i, _item in enumerate(attachments):
-            data = bus.attachment(args.delivery_id, i)
-            targets[i].write_bytes(data)
-            print(f"wrote {targets[i]} ({targets[i].stat().st_size} bytes)")
-        print(f"— {len(attachments)} attachment(s) written")
-        return 0
 
+def _save_one(args: argparse.Namespace, bus: AgentBus, attachments: list[dict[str, Any]]) -> int:
     if args.index >= len(attachments):
         print(
             f"delivery {args.delivery_id} has {len(attachments)} attachment(s); "
@@ -215,6 +206,187 @@ def cmd_attachment(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_attachment(args: argparse.Namespace) -> int:
+    """Write one or all attachments to disk — the read half of `send -a` (#124).
+
+    Defaults to the attachment's OWN filename in the cwd, because that is what a
+    recipient almost always wants and it keeps the common case to one argument.
+    `-o -` writes raw bytes to stdout for piping.
+
+    F8 (issuedb #5): `--all` fetches every attachment on the delivery in one
+    invocation, writing each into the current working directory under its
+    original filename. Without it, a 10-attachment message was 10 CLI runs at
+    ~295 ms of startup each; peer measured 2.96 s for 10 x 50 KB. Farshid
+    asked for this by name.
+
+    REFUSES TO OVERWRITE unless told to. An attachment arrives with a name chosen
+    by the SENDER, so a careless `agentbus attachment <id>` in a working directory
+    could otherwise silently replace a local file with a peer's payload of the
+    same name. That is a decision the recipient should make deliberately.
+    """
+    bus = _common._bus(args)
+    delivery = bus.read(args.delivery_id)
+    attachments = delivery.get("attachments") or []
+    if not attachments:
+        print(f"delivery {args.delivery_id} has no attachments", file=sys.stderr)
+        return 1
+
+    # F8: --all is mutually exclusive with -i and -o (writing multiple files to
+    # a single -o path or a single index makes no sense). Argparse enforces the
+    # -i/-o mutual-exclusion via a group below; the check here catches -o
+    # (which is not in the group so --all can still write to CWD).
+    if args.all:
+        return _save_all(args, bus, attachments)
+    return _save_one(args, bus, attachments)
+
+
+def _show_by_thread_id(args: argparse.Namespace, bus: AgentBus, not_found: NotFoundError) -> int:
+    try:
+        result = bus.thread(args.delivery_id)
+    except AgentBusError:
+        print(
+            f"not_found: {args.delivery_id} is neither a delivery of yours nor "
+            "a thread you are in. `show` takes a DELIVERY id (from your inbox); "
+            "`thread` takes a THREAD id. They look alike and are not the same.",
+            file=sys.stderr,
+        )
+        raise not_found from None
+    print(
+        f"note: {args.delivery_id} is a THREAD id — `agentbus thread "
+        f"{args.delivery_id}` is the direct verb.",
+        file=sys.stderr,
+    )
+    if args.json:
+        _print(result, as_json=True)
+        return 0
+    _render_thread(result)
+    return 0
+
+
+def _show_raw(args: argparse.Namespace, delivery: dict[str, Any]) -> int:
+    # #39, reported by macbook-admin-bd8e86: emit the stored body and NOTHING
+    # else on stdout, so it pipes straight into `age -d` with no filtering.
+    # Every header goes to stderr or is omitted.
+    body = delivery.get("text_body")
+    if body is None:
+        print("this delivery has no stored text body", file=sys.stderr)
+        return 1
+    if args.json:
+        _print(delivery, as_json=True)
+    else:
+        if not delivery.get("sealed"):
+            # An UNSEALED body printed under --raw looks exactly like a successful
+            # decryption. Say which one it is, or --raw becomes a check that
+            # reports "verified" for mail that was never encrypted at all.
+            print(
+                "note: this delivery is NOT sealed — the bytes below are the "
+                "stored plaintext, not ciphertext, and prove nothing about "
+                "encryption.",
+                file=sys.stderr,
+            )
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is not None:
+            buffer.write(body.encode())
+            buffer.flush()
+        else:
+            sys.stdout.write(body)
+    return 0
+
+
+def _show_thread(args: argparse.Namespace, bus: AgentBus, delivery: dict[str, Any]) -> int:
+    result = bus.thread(delivery["thread_id"])
+    if args.json:
+        _print(result, as_json=True)
+        return 0
+    _render_thread(result, highlight_message_id=delivery.get("message_id"))
+    print(f"\nreply in this thread:  agentbus reply {args.delivery_id} -b '...'")
+    return 0
+
+
+def _print_envelope(args: argparse.Namespace, delivery: dict[str, Any]) -> None:
+    print(f"From:    {delivery['sender_display'] or delivery['sender_address']}")
+    # #155: THE ENVELOPE, like any mail reader shows it. Who else got this, and
+    # whether you were asked or copied — the two facts a reader needs before
+    # deciding whether the message is its business.
+    everyone = delivery.get("recipients") or []
+    to_line = ", ".join(r.get("recipient", "?") for r in everyone if r.get("kind") != "cc")
+    cc_line = ", ".join(r.get("recipient", "?") for r in everyone if r.get("kind") == "cc")
+    if to_line:
+        print(f"To:      {to_line}")
+    if cc_line:
+        print(f"Cc:      {cc_line}")
+    role = delivery.get("your_role")
+    if role:
+        print(
+            f"You:     {role.upper()}"
+            + ("  (you are expected to act)" if role == "to" else "  (copied for information)")
+        )
+    print(f"Subject: {delivery['subject']}")
+    print(f"Thread:  {delivery['thread_id']}")
+    if delivery.get("auth_verdicts"):
+        print(f"Auth:    {delivery['auth_verdicts']}")
+    for line in _sigline.signature_lines(delivery, args.delivery_id):
+        print(line)
+
+
+def _print_content(delivery: dict[str, Any]) -> None:
+    print()
+    print(delivery.get("text_body") or "(no text body)")
+    # #212: THE STRUCTURED HALF OF THE MESSAGE. A room can require a payload
+    # validated against a schema, and printing only the prose meant the part the
+    # sender was FORCED to get right was the part the reader never saw. Printed
+    # after the body because the body is the summary and this is the data.
+    payload = delivery.get("payload")
+    if payload is not None:
+        ref = delivery.get("payload_schema_ref")
+        print(f"\n-- payload{f' ({ref})' if ref else ''}:")
+        print(json.dumps(payload, indent=2, default=str))
+    for attachment in delivery.get("attachments") or []:
+        # F11 (issuedb #6): the size the server reports is the ON-WIRE size —
+        # bytes the store holds, including age armor + base64 inflation on an
+        # encrypted workspace. Consumers were reading this as the plaintext
+        # file size, so a 50 KB file was reported as ~69 KB. Label it
+        # truthfully; the actual plaintext byte count is what `agentbus
+        # attachment ...` prints when it writes the file to disk.
+        size_val = attachment.get("size") or 0
+        print(f"\n-- attachment: {attachment['filename']} ({size_val:,} bytes on wire)")
+
+
+def _print_next_steps(args: argparse.Namespace, delivery: dict[str, Any]) -> None:
+    # THE READY-TO-PASTE REPLY, david's ask on behalf of his operator.
+    #
+    # `show` already printed a thread id, which reads like the thing you act on
+    # and is not. Printing the exact command removes the guess between `send`
+    # (new thread) and `reply` (this thread) — the fork his operator actually
+    # hit from Gmail, where a correct-looking `send` silently starts a second
+    # conversation.
+    print(f"\nreply in this thread:  agentbus reply {args.delivery_id} -b '...'")
+    if len(delivery.get("recipients") or []) > 1:
+        print(f"reply to everyone:     agentbus reply {args.delivery_id} --all -b '...'")
+    # #216: SAY THAT THERE IS MORE ABOVE THIS, and say it only when there is.
+    #
+    # `show` printed a thread id and stopped, so a reader could not tell message
+    # 14 of 14 from a one-message thread. Answering 14 without 1-13 is how an
+    # agent re-litigates a settled point or contradicts its own predecessor in
+    # the same conversation.
+    #
+    # thread_message_count comes off the delivery we already fetched, so this
+    # costs no extra call. Printed ONLY when there is something earlier: an
+    # unconditional "read the thread" on every message is advice that gets tuned
+    # out, and then it is not there on the one that needed it.
+    #
+    # DO NOT be tempted back to thread_seq. It counts the SENDER's own messages
+    # in the thread, so a peer's first reply to you is seq 1 while being the
+    # third message — the hint would have been silent on the commonest case.
+    total = delivery.get("thread_message_count")
+    if isinstance(total, int) and total > 1:
+        print(
+            f"\n{total - 1} other message(s) in this conversation — READ THEM BEFORE "
+            f"REPLYING:\n"
+            f"                       agentbus show {args.delivery_id} --thread"
+        )
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     # #39: validate BEFORE _bus(), so a flag mistake reports the flag mistake
     # rather than a credential error that sends the reader hunting for a key
@@ -239,147 +411,24 @@ def cmd_show(args: argparse.Namespace) -> int:
         # other kind ONCE, on the failure path only.
         if not getattr(args, "thread", False):
             raise
-        try:
-            result = bus.thread(args.delivery_id)
-        except AgentBusError:
-            print(
-                f"not_found: {args.delivery_id} is neither a delivery of yours nor "
-                "a thread you are in. `show` takes a DELIVERY id (from your inbox); "
-                "`thread` takes a THREAD id. They look alike and are not the same.",
-                file=sys.stderr,
-            )
-            raise exc from None
-        print(
-            f"note: {args.delivery_id} is a THREAD id — `agentbus thread "
-            f"{args.delivery_id}` is the direct verb.",
-            file=sys.stderr,
-        )
-        if args.json:
-            _print(result, as_json=True)
-            return 0
-        _render_thread(result)
-        return 0
+        return _show_by_thread_id(args, bus, exc)
 
     if raw:
-        # #39, reported by macbook-admin-bd8e86: emit the stored body and NOTHING
-        # else on stdout, so it pipes straight into `age -d` with no filtering.
-        # Every header goes to stderr or is omitted.
-        body = delivery.get("text_body")
-        if body is None:
-            print("this delivery has no stored text body", file=sys.stderr)
-            return 1
-        if args.json:
-            _print(delivery, as_json=True)
-            return 0
-        if not delivery.get("sealed"):
-            # An UNSEALED body printed under --raw looks exactly like a successful
-            # decryption. Say which one it is, or --raw becomes a check that
-            # reports "verified" for mail that was never encrypted at all.
-            print(
-                "note: this delivery is NOT sealed — the bytes below are the "
-                "stored plaintext, not ciphertext, and prove nothing about "
-                "encryption.",
-                file=sys.stderr,
-            )
-        buffer = getattr(sys.stdout, "buffer", None)
-        if buffer is not None:
-            buffer.write(body.encode())
-            buffer.flush()
-        else:
-            sys.stdout.write(body)
-        return 0
+        return _show_raw(args, delivery)
 
     # #216: --thread (alias --all) renders the WHOLE conversation instead of the
     # single delivery. Answering message 14 without reading 1-13 is how an agent
     # re-litigates a settled point, or contradicts a position its own predecessor
     # took in the same thread.
     if getattr(args, "thread", False):
-        result = bus.thread(delivery["thread_id"])
-        if args.json:
-            _print(result, as_json=True)
-            return 0
-        _render_thread(result, highlight_message_id=delivery.get("message_id"))
-        print(f"\nreply in this thread:  agentbus reply {args.delivery_id} -b '...'")
-        return 0
+        return _show_thread(args, bus, delivery)
 
     if args.json:
         _print(delivery, as_json=True)
         return 0
-    print(f"From:    {delivery['sender_display'] or delivery['sender_address']}")
-    # #155: THE ENVELOPE, like any mail reader shows it. Who else got this, and
-    # whether you were asked or copied — the two facts a reader needs before
-    # deciding whether the message is its business.
-    everyone = delivery.get("recipients") or []
-    to_line = ", ".join(r.get("recipient", "?") for r in everyone if r.get("kind") != "cc")
-    cc_line = ", ".join(r.get("recipient", "?") for r in everyone if r.get("kind") == "cc")
-    if to_line:
-        print(f"To:      {to_line}")
-    if cc_line:
-        print(f"Cc:      {cc_line}")
-    role = delivery.get("your_role")
-    if role:
-        print(
-            f"You:     {role.upper()}"
-            + ("  (you are expected to act)" if role == "to" else "  (copied for information)")
-        )
-    print(f"Subject: {delivery['subject']}")
-    print(f"Thread:  {delivery['thread_id']}")
-    if delivery.get("auth_verdicts"):
-        print(f"Auth:    {delivery['auth_verdicts']}")
-    for line in _sigline.signature_lines(delivery, args.delivery_id):
-        print(line)
-    print()
-    print(delivery.get("text_body") or "(no text body)")
-    # #212: THE STRUCTURED HALF OF THE MESSAGE. A room can require a payload
-    # validated against a schema, and printing only the prose meant the part the
-    # sender was FORCED to get right was the part the reader never saw. Printed
-    # after the body because the body is the summary and this is the data.
-    payload = delivery.get("payload")
-    if payload is not None:
-        ref = delivery.get("payload_schema_ref")
-        print(f"\n-- payload{f' ({ref})' if ref else ''}:")
-        print(json.dumps(payload, indent=2, default=str))
-    for attachment in delivery.get("attachments") or []:
-        # F11 (issuedb #6): the size the server reports is the ON-WIRE size —
-        # bytes the store holds, including age armor + base64 inflation on an
-        # encrypted workspace. Consumers were reading this as the plaintext
-        # file size, so a 50 KB file was reported as ~69 KB. Label it
-        # truthfully; the actual plaintext byte count is what `agentbus
-        # attachment ...` prints when it writes the file to disk.
-        size_val = attachment.get("size") or 0
-        print(f"\n-- attachment: {attachment['filename']} ({size_val:,} bytes on wire)")
-    # THE READY-TO-PASTE REPLY, david's ask on behalf of his operator.
-    #
-    # `show` already printed a thread id, which reads like the thing you act on
-    # and is not. Printing the exact command removes the guess between `send`
-    # (new thread) and `reply` (this thread) — the fork his operator actually
-    # hit from Gmail, where a correct-looking `send` silently starts a second
-    # conversation.
-    print(f"\nreply in this thread:  agentbus reply {args.delivery_id} -b '...'")
-    if len(everyone) > 1:
-        print(f"reply to everyone:     agentbus reply {args.delivery_id} --all -b '...'")
-    # #216: SAY THAT THERE IS MORE ABOVE THIS, and say it only when there is.
-    #
-    # `show` printed a thread id and stopped, so a reader could not tell message
-    # 14 of 14 from a one-message thread. Answering 14 without 1-13 is how an
-    # agent re-litigates a settled point or contradicts its own predecessor in
-    # the same conversation.
-    #
-    # thread_message_count comes off the delivery we already fetched, so this
-    # costs no extra call. Printed ONLY when there is something earlier: an
-    # unconditional "read the thread" on every message is advice that gets tuned
-    # out, and then it is not there on the one that needed it.
-    #
-    # DO NOT be tempted back to thread_seq. It counts the SENDER's own messages
-    # in the thread, so a peer's first reply to you is seq 1 while being the
-    # third message — the hint would have been silent on the commonest case.
-    total = delivery.get("thread_message_count")
-    if isinstance(total, int) and total > 1:
-        print(
-            f"\n{total - 1} other message(s) in this conversation — READ THEM BEFORE "
-            f"REPLYING:\n"
-            f"                       agentbus show {args.delivery_id} --thread"
-        )
+    _print_envelope(args, delivery)
+    _print_content(delivery)
+    _print_next_steps(args, delivery)
     return 0
 
 

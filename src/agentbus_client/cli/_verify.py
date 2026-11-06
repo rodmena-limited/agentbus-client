@@ -12,35 +12,14 @@ from ._common import _client_version, _print
 if TYPE_CHECKING:
     import argparse
 
+    from agentbus_client.client import AgentBus
 
-def cmd_verify(args: argparse.Namespace) -> int:
-    """#63: inspect a message's claim, and OPT-IN run it to record a verdict.
+_CANNOT_CHECK = 2
 
-    THE SECURITY MODEL, ENFORCED HERE RATHER THAN DOCUMENTED:
-      * the platform never runs the repro — only this client does, and only
-        when the operator explicitly passes --run (never on receipt, never
-        automatically);
-      * the repro runs with the RECIPIENT's environment and WITHOUT this
-        session's bus credentials, unless --with-creds is passed. A claim is
-        code from another organisation; running it with your own credential is
-        handing that code a token.
-      * a claim with no verdicts is printed as NOT VERIFIED — never as fact.
-    """
-    import subprocess as _subprocess
 
-    bus = _common._bus(args)
-    delivery = bus.read(args.delivery_id)
-    message_id = delivery.get("message_id")
-    if not message_id:
-        print(f"no message for delivery {args.delivery_id}", file=sys.stderr)
-        return 1
-    claim_info = bus.get_claim(message_id)
-    claim = claim_info.get("claim")
-    if claim is None:
-        print(f"message {message_id} carries no claim to verify")
-        return 1
-
-    verdicts = claim_info.get("verdicts") or []
+def _print_claim(
+    claim_info: dict[str, Any], claim: dict[str, Any], verdicts: list[dict[str, Any]]
+) -> None:
     print(f"CLAIM: {claim['assert_text']}")
     print(f"  claimed by: {claim['claimed_by']}  ({claim['created_at']})")
     if claim.get("context"):
@@ -66,13 +45,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
             if v.get("env_note"):
                 print(f"      {v['env_note']}")
 
-    if not getattr(args, "run", False):
-        print()
-        print("Not run. A claim is code from another agent; running it is your")
-        print("decision, every time. Re-run with --run to execute the repro on")
-        print("this host (without this session's bus credentials), then the")
-        print("result is recorded as YOUR verdict.")
-        return 0
+
+def _run_repro(
+    args: argparse.Namespace, bus: AgentBus, message_id: str, claim: dict[str, Any]
+) -> int:
+    import subprocess as _subprocess
 
     # THE REPRO RUNS HERE, ON THIS HOST, OPT-IN, WITHOUT BUS CREDENTIALS.
     #
@@ -128,6 +105,45 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print()
     print("Recorded as your verdict, attested to your key's binding.")
     return 0 if passed else 2
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """#63: inspect a message's claim, and OPT-IN run it to record a verdict.
+
+    THE SECURITY MODEL, ENFORCED HERE RATHER THAN DOCUMENTED:
+      * the platform never runs the repro — only this client does, and only
+        when the operator explicitly passes --run (never on receipt, never
+        automatically);
+      * the repro runs with the RECIPIENT's environment and WITHOUT this
+        session's bus credentials, unless --with-creds is passed. A claim is
+        code from another organisation; running it with your own credential is
+        handing that code a token.
+      * a claim with no verdicts is printed as NOT VERIFIED — never as fact.
+    """
+    bus = _common._bus(args)
+    delivery = bus.read(args.delivery_id)
+    message_id = delivery.get("message_id")
+    if not message_id:
+        print(f"no message for delivery {args.delivery_id}", file=sys.stderr)
+        return 1
+    claim_info = bus.get_claim(message_id)
+    claim = claim_info.get("claim")
+    if claim is None:
+        print(f"message {message_id} carries no claim to verify")
+        return 1
+
+    verdicts = claim_info.get("verdicts") or []
+    _print_claim(claim_info, claim, verdicts)
+
+    if not getattr(args, "run", False):
+        print()
+        print("Not run. A claim is code from another agent; running it is your")
+        print("decision, every time. Re-run with --run to execute the repro on")
+        print("this host (without this session's bus credentials), then the")
+        print("result is recorded as YOUR verdict.")
+        return 0
+
+    return _run_repro(args, bus, message_id, claim)
 
 
 def _verify_exit_code(result: dict[str, Any]) -> int:
@@ -189,7 +205,7 @@ def cmd_verify_signature(args: argparse.Namespace) -> int:
     # NOT VERIFIED is how this tool spent an evening telling three agents their
     # own honestly-signed mail did not verify. A negative from a security tool
     # gets acted on; it has to be earned.
-    if code == 2:
+    if code == _CANNOT_CHECK:
         # F14 (issuedb #8): the reason string for the `unsigned` verdict is
         # literally "unsigned", so joining `headline` and `reason` across an
         # em-dash used to print `UNSIGNED — unsigned`, which reads as a display

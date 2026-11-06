@@ -143,7 +143,10 @@ def test_doctor_reports_the_skill_and_a_stale_one_is_not_a_clean_bill(skill: Any
     would make the line decorative."""
     from agentbus_client import cli
 
-    src = inspect.getsource(cli.cmd_doctor)
+    doctor = inspect.getsource(cli.cmd_doctor)
+    assert "skill_ok = _report_skill(bus)" in doctor
+    assert doctor.count("and skill_ok") == 2
+    src = inspect.getsource(cli._diag._report_skill)
     assert "skill_state" in src
     branch = src[src.index("skill_state") :]
     assert 'state == "stale"' in branch

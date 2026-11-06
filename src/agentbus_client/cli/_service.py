@@ -254,7 +254,8 @@ WantedBy=default.target
 # sees it. A healthy watcher never reaches that, because it holds a network
 # outage internally with persisted backoff rather than exiting — so repeated
 # fast exits mean a real crash, not a blip. Recover with:
-#   systemctl --user reset-failed agentbus-{agent}.service && systemctl --user start agentbus-{agent}.service
+#   systemctl --user reset-failed agentbus-{agent}.service && """
+            f"""systemctl --user start agentbus-{agent}.service
 #
 # Verify it is ACTUALLY attached, not merely 'active':
 #   agentbus watch-status --agent {agent}

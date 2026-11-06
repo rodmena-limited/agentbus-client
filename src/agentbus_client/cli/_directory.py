@@ -12,6 +12,8 @@ from ._common import _print, _print_qr
 if TYPE_CHECKING:
     import argparse
 
+    from agentbus_client.client import AgentBus
+
 _REFUSAL_REASONS = {
     "encrypted_workspace": "this workspace is encrypted, so mail from outside cannot be sealed",
     "ingress_closed": "this workspace's ingress is closed",
@@ -39,9 +41,86 @@ def _external_mail_lines(workspace: dict[str, Any]) -> list[str]:
             lines.append(f"           refused mail is {policy['refused_mail']}")
         return lines
     return [
-        "external:  UNKNOWN — the server could not say whether mail from outside "
-        "reaches this address; do not assume it does"
+        (
+            "external:  UNKNOWN — the server could not say whether mail from outside "
+            "reaches this address; do not assume it does"
+        )
     ]
+
+
+def _print_retired(args: argparse.Namespace, bus: AgentBus, exc: AgentBusError) -> None:
+    name = bus.agent or "(unknown)"
+    if args.json:
+        _print({"agent": {"name": name, "retired": True}, "error": exc.code}, as_json=True)
+        return
+    print(f"agent:     {name}")
+    print("state:     RETIRED — addressable again as soon as it re-registers.")
+    print("           Retiring is reversible and is NOT deletion: the address,")
+    print("           inbox and history are intact.")
+    print("  bring it back:  agentbus setup <harness> --role <role>   (in this checkout)")
+
+
+def _print_address(args: argparse.Namespace, result: dict[str, Any], agent: str) -> None:
+    refused = ((result.get("workspace") or {}).get("external_mail") or {}).get(
+        "accepts"
+    ) == "nobody"
+    if result.get("address"):
+        print(f"address:   {result['address']}")
+        for line in _external_mail_lines(result.get("workspace") or {}):
+            print(line)
+        # THE QR ENCODES A mailto:, NOT THE BARE ADDRESS.
+        #
+        # The point of scanning it is to open a mail app already addressed to
+        # this agent. A bare address scans as text, which most phones render
+        # as something you then have to copy by hand — the manual step the
+        # QR existed to remove.
+        if getattr(args, "qr", False):
+            print()
+            # Only caption a QR that actually rendered. Printing "scan to
+            # mail X directly" under an absent QR tells the reader to scan
+            # nothing — the caption is the only evidence a QR was meant to
+            # be there, so it must follow the render, not the intent.
+            if _print_qr(f"mailto:{result['address']}"):
+                if refused:
+                    print(
+                        f"  {agent}'s address — but mail from outside is REFUSED here "
+                        "(see external)"
+                    )
+                else:
+                    print(f"  scan to mail {agent} directly")
+
+
+def _print_mail_waiting(result: dict[str, Any], agent: str) -> None:
+    # The API returns `unread` and this printer dropped it — the exact
+    # "fixed on one surface, left the other" shape this whole episode was
+    # about. An agent running `agentbus whoami` to check its identity should
+    # be told it has mail waiting, not have to think of asking separately.
+    # #48: an agent that has forgotten it is deaf to a peer will read a
+    # silence as "they stopped sending". Surfaced on whoami because that is
+    # the startup call, so the blocks are seen before the silence is
+    # interpreted.
+    #
+    # NULL IS "UNKNOWN", NOT ZERO. The server wraps this advisory and may
+    # return null if the lookup fails; rendering that as "0 blocks" would
+    # state the opposite of what is known. Say nothing rather than assert
+    # nothing-is-blocked.
+    blocks = result.get("blocks")
+    if isinstance(blocks, dict) and blocks.get("count"):
+        held = blocks.get("suppressed_total")
+        held_txt = f", {held} message(s) suppressed" if held else ""
+        print(f"blocks:    {blocks['count']} active{held_txt}")
+        print("           who: agentbus blocks")
+
+    unread = result.get("unread") or {}
+    if unread.get("count"):
+        print(
+            f"unread:    {unread['count']} message(s) waiting "
+            f"(oldest {unread.get('oldest_at', '?')})"
+        )
+        print(
+            "           read them: agentbus inbox   |   be woken: "
+            "agentbus watch --agent " + str(agent)
+        )
 
 
 def cmd_whoami(args: argparse.Namespace) -> int:
@@ -61,15 +140,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         # real and still worth printing.
         if getattr(exc, "code", "") != "agent_retired":
             raise
-        name = bus.agent or "(unknown)"
-        if args.json:
-            _print({"agent": {"name": name, "retired": True}, "error": exc.code}, as_json=True)
-            return 0
-        print(f"agent:     {name}")
-        print("state:     RETIRED — addressable again as soon as it re-registers.")
-        print("           Retiring is reversible and is NOT deletion: the address,")
-        print("           inbox and history are intact.")
-        print("  bring it back:  agentbus setup <harness> --role <role>   (in this checkout)")
+        _print_retired(args, bus, exc)
         return 0
     if args.json:
         _print(result, as_json=True)
@@ -79,32 +150,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         print(f"workspace: {workspace}")
         print(f"agent:     {agent}")
         _warn_if_unsealable(bus, agent)
-        refused = ((result.get("workspace") or {}).get("external_mail") or {}).get(
-            "accepts"
-        ) == "nobody"
-        if result.get("address"):
-            print(f"address:   {result['address']}")
-            for line in _external_mail_lines(result.get("workspace") or {}):
-                print(line)
-            # THE QR ENCODES A mailto:, NOT THE BARE ADDRESS.
-            #
-            # The point of scanning it is to open a mail app already addressed to
-            # this agent. A bare address scans as text, which most phones render
-            # as something you then have to copy by hand — the manual step the
-            # QR existed to remove.
-            if getattr(args, "qr", False):
-                print()
-                # Only caption a QR that actually rendered. Printing "scan to
-                # mail X directly" under an absent QR tells the reader to scan
-                # nothing — the caption is the only evidence a QR was meant to
-                # be there, so it must follow the render, not the intent.
-                if _print_qr(f"mailto:{result['address']}"):
-                    if refused:
-                        print(
-                            f"  {agent}'s address — but mail from outside is REFUSED here (see external)"
-                        )
-                    else:
-                        print(f"  scan to mail {agent} directly")
+        _print_address(args, result, agent)
         # #149: an agent checking who it is should see what it WEARS — the tags
         # peers will find it by. Same parity rule as unread below.
         tags = _format_tags((result.get("agent") or {}).get("labels"), limit=60)
@@ -116,36 +162,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         persona = (result.get("agent") or {}).get("persona")
         if persona:
             print(f"persona:   {persona}")
-        # The API returns `unread` and this printer dropped it — the exact
-        # "fixed on one surface, left the other" shape this whole episode was
-        # about. An agent running `agentbus whoami` to check its identity should
-        # be told it has mail waiting, not have to think of asking separately.
-        # #48: an agent that has forgotten it is deaf to a peer will read a
-        # silence as "they stopped sending". Surfaced on whoami because that is
-        # the startup call, so the blocks are seen before the silence is
-        # interpreted.
-        #
-        # NULL IS "UNKNOWN", NOT ZERO. The server wraps this advisory and may
-        # return null if the lookup fails; rendering that as "0 blocks" would
-        # state the opposite of what is known. Say nothing rather than assert
-        # nothing-is-blocked.
-        blocks = result.get("blocks")
-        if isinstance(blocks, dict) and blocks.get("count"):
-            held = blocks.get("suppressed_total")
-            held_txt = f", {held} message(s) suppressed" if held else ""
-            print(f"blocks:    {blocks['count']} active{held_txt}")
-            print("           who: agentbus blocks")
-
-        unread = result.get("unread") or {}
-        if unread.get("count"):
-            print(
-                f"unread:    {unread['count']} message(s) waiting "
-                f"(oldest {unread.get('oldest_at', '?')})"
-            )
-            print(
-                "           read them: agentbus inbox   |   be woken: "
-                "agentbus watch --agent " + str(agent)
-            )
+        _print_mail_waiting(result, agent)
     return 0
 
 
@@ -239,7 +256,7 @@ def cmd_phonebook(args: argparse.Namespace) -> int:
     # a 42-character cell still shoved the address out of line. Both only showed
     # up rendering the real roster — the unit test fed the formatter directly
     # and never laid two rows beside each other.
-    TAG_CAP = 40
+    tag_cap = 40
     width = max(len(a["name"]) for a in agents)
     presence_width = max(len(a["presence"]) for a in agents)
     # Persona column: only shown when at least one agent HAS one. Forward-
@@ -249,8 +266,8 @@ def cmd_phonebook(args: argparse.Namespace) -> int:
     persona_width = (
         max((len(a.get("persona") or "") for a in agents), default=0) if has_persona else 0
     )
-    rendered = [(a, _format_tags(a.get("labels"), limit=TAG_CAP)) for a in agents]
-    tag_width = min(max((len(t) for _a, t in rendered), default=0), TAG_CAP)
+    rendered = [(a, _format_tags(a.get("labels"), limit=tag_cap)) for a in agents]
+    tag_width = min(max((len(t) for _a, t in rendered), default=0), tag_cap)
     elided = 0
     for agent, tags in rendered:
         caps = ",".join(agent.get("capabilities") or [])
@@ -414,13 +431,13 @@ def cmd_liveness(args: argparse.Namespace) -> int:
 SEAL_ALGORITHM = "age-x25519"
 
 
-def _warn_if_unsealable(bus: Any, agent: str) -> None:
+def _warn_if_unsealable(bus: AgentBus, agent: str) -> None:
     """Tell an agent when nobody on an encrypted workspace can write to it."""
     if not agent or agent == "(no acting agent)":
         return
     try:
         data = bus._request("GET", "/v1/workspace/pubkeys")
-    except Exception:
+    except Exception:  # noqa: BLE001
         return
     if not data.get("encrypted"):
         return

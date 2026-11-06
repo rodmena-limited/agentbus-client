@@ -20,6 +20,7 @@ from ._watch_runtime import (
 
 if TYPE_CHECKING:
     import argparse
+    from pathlib import Path
 
 
 def _read_running_client_version(
@@ -83,10 +84,7 @@ def _read_running_client_version(
     return _onboarding._running_watcher_version(agent)
 
 
-def cmd_watch_status(args: argparse.Namespace) -> int:
-    agent = _common.require_acting_agent(args)
-    if not agent:
-        return 2
+def _report_wake_path(agent: str) -> bool:
     # A SILENTLY FAILING WAKE PATH IS THE THING THIS COMMAND EXISTS TO FIND.
     #
     # `notify` runs inside the watcher's --exec and must never exit non-zero —
@@ -164,55 +162,99 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
                 "signin) or fix the bus, then re-run any gated tool to confirm gating is back on."
             )
             wake_broken = True
+    return wake_broken
+
+
+def _print_running(agent: str, pids: dict[str, int]) -> None:
+    # SEV-1 follow-up (macbook-admin-bd8e86): surface the running client
+    # version of THIS watcher so stale-watcher-pretending-to-be-current
+    # is visible at the first place someone would look. The version is
+    # persisted per-run in the watcher's state file (`client_version`
+    # field) and the CLI's own version is the alternative comparison
+    # anchor.
+    from agentbus_client import __version__ as _cli_ver
+
+    for st, pid in pids.items():
+        watcher_ver = _read_running_client_version(agent, st, for_pid=pid)
+        ver_note = f" running={watcher_ver}" if watcher_ver else ""
+        if watcher_ver and watcher_ver != _cli_ver:
+            ver_note += f" (CLI is {_cli_ver}; RESTART TO PICK UP THE NEW BUILD)"
+        print(
+            f"watcher RUNNING for {agent} (pid {pid}){ver_note}"
+            + (f" [{st}]" if st != "(legacy)" else " [legacy]")
+        )
+
+
+def _print_log(st: str, found: tuple[Path, bool] | None) -> None:
+    if found:
+        path, is_ours = found
+        if is_ours:
+            print(f"  log: {path}")
+        else:
+            print(f"  log: {path}  (LEGACY SHARED PATH — may not be this watcher's)")
+            print(
+                "       written by whichever daemon last used the unkeyed name; "
+                "check its timestamps before trusting it as evidence."
+            )
+    else:
+        print(f"  log: none for [{st}] — output is captured only by `agentbus watch --daemon`;")
+        print(
+            "       this watcher was started another way (foreground, "
+            "plugin, rc.d), so there is nothing to read."
+        )
+
+
+def _print_not_running(agent: str, want_state: str | None) -> None:
+    orphan = _scan_watch_process(agent)
+    if orphan:
+        print(
+            f"watcher RUNNING for {agent} (pid {orphan}) — pidfile missing; "
+            "restart the watcher to re-adopt it"
+        )
+        print(
+            "  (found by process scan; the pidfile this tool normally reads is gone. "
+            "watch-stop cannot manage it until restarted.)"
+        )
+    else:
+        print(
+            f"watcher NOT running for {agent}"
+            + (f" matching --state {want_state!r}" if want_state else "")
+        )
+        print(
+            "  checked: pidfiles in "
+            f"{_watch_runtime._watch_runtime_dir(create=False)} and a full process scan — "
+            "neither found it."
+        )
+
+
+def _print_last_log(stale: tuple[Path, bool] | None) -> None:
+    if stale:
+        path, is_ours = stale
+        suffix = "" if is_ours else "  (legacy shared path)"
+        print(f"  last log: {path}{suffix}")
+    else:
+        print("  last log: none — no daemonised watcher has written one for this agent.")
+
+
+def cmd_watch_status(args: argparse.Namespace) -> int:
+    agent = _common.require_acting_agent(args)
+    if not agent:
+        return 2
+    wake_broken = _report_wake_path(agent)
 
     pids = _watch_pids(agent)
     want_state = getattr(args, "state", None)
     if want_state:
         pids = _scope_pids_by_state(pids, agent, want_state)
     if pids:
-        # SEV-1 follow-up (macbook-admin-bd8e86): surface the running client
-        # version of THIS watcher so stale-watcher-pretending-to-be-current
-        # is visible at the first place someone would look. The version is
-        # persisted per-run in the watcher's state file (`client_version`
-        # field) and the CLI's own version is the alternative comparison
-        # anchor.
-        from agentbus_client import __version__ as _cli_ver
-
-        for st, pid in pids.items():
-            watcher_ver = _read_running_client_version(agent, st, for_pid=pid)
-            ver_note = f" running={watcher_ver}" if watcher_ver else ""
-            if watcher_ver and watcher_ver != _cli_ver:
-                ver_note += f" (CLI is {_cli_ver}; RESTART TO PICK UP THE NEW BUILD)"
-            print(
-                f"watcher RUNNING for {agent} (pid {pid}){ver_note}"
-                + (f" [{st}]" if st != "(legacy)" else " [legacy]")
-            )
+        _print_running(agent, pids)
         # #204: report a log only if one EXISTS, and say why when it does not.
         # Only `watch --daemon` captures output; a foreground, plugin-managed or
         # rc.d watcher writes none, and naming a path in that case sends the
         # reader to grep a file that was never created.
         for st in pids:
             state_key = None if st == "(legacy)" else st
-            found = _existing_logfile(agent, state_key)
-            if found:
-                path, is_ours = found
-                if is_ours:
-                    print(f"  log: {path}")
-                else:
-                    print(f"  log: {path}  (LEGACY SHARED PATH — may not be this watcher's)")
-                    print(
-                        "       written by whichever daemon last used the unkeyed name; "
-                        "check its timestamps before trusting it as evidence."
-                    )
-            else:
-                print(
-                    f"  log: none for [{st}] — output is captured only by "
-                    "`agentbus watch --daemon`;"
-                )
-                print(
-                    "       this watcher was started another way (foreground, "
-                    "plugin, rc.d), so there is nothing to read."
-                )
+            _print_log(st, _existing_logfile(agent, state_key))
     else:
         # #160: PIDFILE-ABSENT MUST NOT READ AS CHECKED-AND-DEAD. The pid-from-
         # pidfile check above is correct (verified on FreeBSD both directions by
@@ -223,36 +265,11 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
         # Absence of evidence, worded as evidence of absence. So: scan for a
         # matching live process (ps -axwwo — the #117 form; FreeBSD's -eo sees
         # only gettys), and say WHAT was checked either way.
-        orphan = _scan_watch_process(agent)
-        if orphan:
-            print(
-                f"watcher RUNNING for {agent} (pid {orphan}) — pidfile missing; "
-                "restart the watcher to re-adopt it"
-            )
-            print(
-                "  (found by process scan; the pidfile this tool normally reads is gone. "
-                "watch-stop cannot manage it until restarted.)"
-            )
-        else:
-            print(
-                f"watcher NOT running for {agent}"
-                + (f" matching --state {want_state!r}" if want_state else "")
-            )
-            print(
-                "  checked: pidfiles in "
-                f"{_watch_runtime._watch_runtime_dir(create=False)} and a full process scan — "
-                "neither found it."
-            )
+        _print_not_running(agent, want_state)
         # #204: same rule on the not-running path. "last log: <path>" for a file
         # that never existed reads as "here is where the evidence is" when there
         # is no evidence at all.
-        stale = _existing_logfile(agent, want_state)
-        if stale:
-            path, is_ours = stale
-            suffix = "" if is_ours else "  (legacy shared path)"
-            print(f"  last log: {path}{suffix}")
-        else:
-            print("  last log: none — no daemonised watcher has written one for this agent.")
+        _print_last_log(_existing_logfile(agent, want_state))
     # 3 = the wake path itself is broken, and it OUTRANKS a running watcher:
     # a watcher whose every arrival is dropped is not a healthy wake path.
     # 1 = no watcher. 0 = watcher running and arrivals can be recorded.

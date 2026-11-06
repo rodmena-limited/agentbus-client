@@ -29,7 +29,10 @@ def cmd_invite_cli() -> None: ...
 @verb(
     "join",
     _register.cmd_join,
-    help="register as a NEW agent using a one-time join token (no existing key needed on this machine)",
+    help=(
+        "register as a NEW agent using a one-time join token "
+        "(no existing key needed on this machine)"
+    ),
 )
 @argument("token", help="the ab_jt_… token your operator issued")
 @argument("name", help="the agent name to create (lowercase)")

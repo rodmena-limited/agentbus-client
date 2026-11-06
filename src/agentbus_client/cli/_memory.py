@@ -30,6 +30,9 @@ from ._common import _bus, _print, _read_body
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable
+
+    from agentbus_client.client import AgentBus
 
 
 def _render(result: dict[str, Any]) -> None:
@@ -78,123 +81,148 @@ def _render(result: dict[str, Any]) -> None:
         )
 
 
+def _action_add(bus: AgentBus, args: argparse.Namespace) -> int:
+    text = _read_body(args.text) if args.text else None
+    if not text or not text.strip():
+        print(
+            "nothing to remember: pass the text, or @file, or @- for stdin",
+            file=sys.stderr,
+        )
+        return 2
+    result = bus.memory_add(text, agent=args.agent)
+    if args.json:
+        _print(result, as_json=True)
+    else:
+        print(
+            f"remembered as seq {result['seq']} "
+            f"({result['bytes']} stored bytes; "
+            f"{result['bytes_used']}/{result['bytes_limit']} used, "
+            f"{result['entries']}/{result['entries_limit']} entries)"
+        )
+    return 0
+
+
+def _action_fetch(bus: AgentBus, args: argparse.Namespace) -> int:
+    result = bus.memory_fetch(agent=args.agent)
+    if args.json:
+        _print(result, as_json=True)
+    else:
+        _render(result)
+    return 0
+
+
+def _action_rm(bus: AgentBus, args: argparse.Namespace) -> int:
+    result = bus.memory_delete(args.seq, agent=args.agent)
+    if args.json:
+        _print(result, as_json=True)
+    else:
+        print(
+            f"removed seq {args.seq} "
+            f"({result['bytes_used']}/{result['bytes_limit']} used, "
+            f"{result['entries']} entries left). Survivors keep their numbers."
+        )
+    return 0
+
+
+def _action_truncate(bus: AgentBus, args: argparse.Namespace) -> int:
+    result = bus.memory_truncate(first=args.first, agent=args.agent)
+    removed = result.get("removed", [])
+    if args.json:
+        _print(result, as_json=True)
+    else:
+        # WHAT WAS ACTUALLY REMOVED, not what was asked for. `--first 10`
+        # against a store of 3 removes 3, and a caller told "10" carries
+        # a wrong idea of its own state.
+        print(
+            f"removed {len(removed)} of the {args.first} oldest "
+            f"(seqs {removed or '—'}); "
+            f"{result['bytes_used']}/{result['bytes_limit']} used, "
+            f"{result['entries']} entries left"
+        )
+    return 0
+
+
+def _action_reseal(bus: AgentBus, args: argparse.Namespace) -> int:
+    result = bus.memory_reseal(agent=args.agent)
+    if args.json:
+        _print(result, as_json=True)
+        return 0
+    resealed = result.get("resealed", [])
+    stuck = result.get("unrecoverable", [])
+    if not resealed and not stuck:
+        print(result.get("detail", "nothing to re-seal"))
+    else:
+        print(
+            f"re-sealed {len(resealed)} entr{'y' if len(resealed) == 1 else 'ies'} "
+            f"to your current key, keeping every seq ({resealed})"
+        )
+    if stuck:
+        # A NON-ZERO EXIT, because this is the case the command exists
+        # to surface and a green run would bury it.
+        print(
+            f"  {len(stuck)} could NOT be opened on this machine and were LEFT "
+            f"UNTOUCHED (seqs {stuck}). They were not re-sealed to the new key on "
+            f"purpose: sealing ciphertext again would make them permanently "
+            f"unreadable. Find the superseded key file, or run reseal on the host "
+            f"that has it.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+_ACTIONS: dict[str | None, Callable[[AgentBus, argparse.Namespace], int]] = {
+    None: _action_add,
+    "add": _action_add,
+    "fetch": _action_fetch,
+    "rm": _action_rm,
+    "truncate": _action_truncate,
+    "reseal": _action_reseal,
+}
+
+
+def _explain_limit(exc: AgentBusError) -> int | None:
+    # `memory_full` and `memory_entry_too_large` have OPPOSITE remedies, and
+    # the server sends the numbers needed to act on each. Printing the raw
+    # error would make the agent guess, and the common guess (truncate) is
+    # exactly wrong for the second one.
+    code = getattr(exc, "code", "")
+    extra = getattr(exc, "payload", None) or {}
+    if code == "memory_full":
+        oldest = extra.get("oldest_seq")
+        print(f"memory full: {exc.detail}", file=sys.stderr)
+        print(
+            "  free space with:  agentbus memory truncate --first 10"
+            + (f"   (oldest is seq {oldest})" if oldest is not None else ""),
+            file=sys.stderr,
+        )
+        return 4
+    if code == "memory_entry_too_large":
+        print(f"entry too large: {exc.detail}", file=sys.stderr)
+        print(
+            "  truncating will NOT help — the limit is PER ENTRY. Write a shorter note.",
+            file=sys.stderr,
+        )
+        return 4
+    return None
+
+
 def cmd_memory(args: argparse.Namespace) -> int:
     bus = _bus(args)
     action = args.action
 
+    run = _ACTIONS.get(action)
+    if run is None:
+        print(f"unknown memory action '{action}'", file=sys.stderr)
+        return 2
+
     try:
-        if action is None or action == "add":
-            text = _read_body(args.text) if args.text else None
-            if not text or not text.strip():
-                print(
-                    "nothing to remember: pass the text, or @file, or @- for stdin",
-                    file=sys.stderr,
-                )
-                return 2
-            result = bus.memory_add(text, agent=args.agent)
-            if args.json:
-                _print(result, as_json=True)
-            else:
-                print(
-                    f"remembered as seq {result['seq']} "
-                    f"({result['bytes']} stored bytes; "
-                    f"{result['bytes_used']}/{result['bytes_limit']} used, "
-                    f"{result['entries']}/{result['entries_limit']} entries)"
-                )
-            return 0
-
-        if action == "fetch":
-            result = bus.memory_fetch(agent=args.agent)
-            if args.json:
-                _print(result, as_json=True)
-            else:
-                _render(result)
-            return 0
-
-        if action == "rm":
-            result = bus.memory_delete(args.seq, agent=args.agent)
-            if args.json:
-                _print(result, as_json=True)
-            else:
-                print(
-                    f"removed seq {args.seq} "
-                    f"({result['bytes_used']}/{result['bytes_limit']} used, "
-                    f"{result['entries']} entries left). Survivors keep their numbers."
-                )
-            return 0
-
-        if action == "truncate":
-            result = bus.memory_truncate(first=args.first, agent=args.agent)
-            removed = result.get("removed", [])
-            if args.json:
-                _print(result, as_json=True)
-            else:
-                # WHAT WAS ACTUALLY REMOVED, not what was asked for. `--first 10`
-                # against a store of 3 removes 3, and a caller told "10" carries
-                # a wrong idea of its own state.
-                print(
-                    f"removed {len(removed)} of the {args.first} oldest "
-                    f"(seqs {removed or '—'}); "
-                    f"{result['bytes_used']}/{result['bytes_limit']} used, "
-                    f"{result['entries']} entries left"
-                )
-            return 0
-
-        if action == "reseal":
-            result = bus.memory_reseal(agent=args.agent)
-            if args.json:
-                _print(result, as_json=True)
-                return 0
-            resealed = result.get("resealed", [])
-            stuck = result.get("unrecoverable", [])
-            if not resealed and not stuck:
-                print(result.get("detail", "nothing to re-seal"))
-            else:
-                print(
-                    f"re-sealed {len(resealed)} entr{'y' if len(resealed) == 1 else 'ies'} "
-                    f"to your current key, keeping every seq ({resealed})"
-                )
-            if stuck:
-                # A NON-ZERO EXIT, because this is the case the command exists
-                # to surface and a green run would bury it.
-                print(
-                    f"  {len(stuck)} could NOT be opened on this machine and were LEFT "
-                    f"UNTOUCHED (seqs {stuck}). They were not re-sealed to the new key on "
-                    f"purpose: sealing ciphertext again would make them permanently "
-                    f"unreadable. Find the superseded key file, or run reseal on the host "
-                    f"that has it.",
-                    file=sys.stderr,
-                )
-                return 1
-            return 0
-
+        return run(bus, args)
     except AgentBusError as exc:
-        # `memory_full` and `memory_entry_too_large` have OPPOSITE remedies, and
-        # the server sends the numbers needed to act on each. Printing the raw
-        # error would make the agent guess, and the common guess (truncate) is
-        # exactly wrong for the second one.
-        code = getattr(exc, "code", "")
-        extra = getattr(exc, "payload", None) or {}
-        if code == "memory_full":
-            oldest = extra.get("oldest_seq")
-            print(f"memory full: {exc.detail}", file=sys.stderr)
-            print(
-                "  free space with:  agentbus memory truncate --first 10"
-                + (f"   (oldest is seq {oldest})" if oldest is not None else ""),
-                file=sys.stderr,
-            )
-            return 4
-        if code == "memory_entry_too_large":
-            print(f"entry too large: {exc.detail}", file=sys.stderr)
-            print(
-                "  truncating will NOT help — the limit is PER ENTRY. Write a shorter note.",
-                file=sys.stderr,
-            )
-            return 4
-        raise
-
-    print(f"unknown memory action '{action}'", file=sys.stderr)
-    return 2
+        limit_code = _explain_limit(exc)
+        if limit_code is None:
+            raise
+        return limit_code
 
 
 def _dispatch(args: argparse.Namespace) -> int:

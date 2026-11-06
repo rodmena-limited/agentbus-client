@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agentbus_client.client import AgentBusError, QuotaExceeded, ServiceUnavailable
 
@@ -11,6 +11,8 @@ from ._common import _print
 
 if TYPE_CHECKING:
     import argparse
+
+    from agentbus_client.client import AgentBus
 
 #: How long `doctor` waits for its own self-test message to come back.
 #:
@@ -190,37 +192,19 @@ def cmd_refresh_skill(args: argparse.Namespace) -> int:
     return 0 if state in ("updated", "current", "installed") else 1
 
 
-def _loop_path(bus: Any, delivery_id: str) -> str:
+def _loop_path(bus: AgentBus, delivery_id: str) -> str:
     from agentbus_client import sealing
 
     try:
         stored = (bus.read(delivery_id, raw=True) or {}).get("text_body") or ""
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "path not determined"
     if sealing.is_sealed(stored):
         return "in-band, sealed: it never left the bus"
     return "via the mail-api relay, not public email ingress"
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    if getattr(args, "wake", False):
-        from agentbus_client import onboarding
-
-        return onboarding.doctor_wake(args)
-    """Prove the whole path works, rather than reporting that nothing failed."""
-    import time
-
-    ok = True
-    bus = _common._bus(args)
-    print(f"base url:      {bus.base_url}")
-
-    try:
-        who = bus.whoami()
-        print(f"authentication: OK (workspace {who['workspace']['slug']})")
-    except AgentBusError as exc:
-        print(f"authentication: FAILED — {exc.code}: {exc.detail}")
-        return 1
-
+def _report_quota(bus: AgentBus) -> bool:
     try:
         usage = bus.usage()
         messages = next((p for p in usage["policies"] if "messages" in (p["name"] or "")), None)
@@ -230,8 +214,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print("quota:          OK")
     except AgentBusError as exc:
         print(f"quota:          UNAVAILABLE — {exc.code}: {exc.detail}")
-        ok = False
+        return False
+    return True
 
+
+def _report_credential_scope(bus: AgentBus) -> None:
     # #64: report what credentials are reachable from THIS directory and at what
     # scope. A send-or-above credential sitting in an auto-inherited slot
     # (user-scope ~/.claude.json / opencode.json MCP entry) is the exact
@@ -246,15 +233,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 print(f"credential:     {line}")
         else:
             print("credential:     none reachable from this directory")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(f"credential:     UNAVAILABLE — {exc}")
 
+
+def _report_skill(bus: AgentBus) -> bool:
     # #196: AN INSTALLED SKILL COULD NOT TELL IT WAS STALE. `setup` compares and
     # reports; nothing else did, so every agent wired before a skill change kept
     # the old copy indefinitely and the only way to find out was to re-run setup
     # and watch whether it said "updated". Reported here because doctor is the
     # command people run when something is wrong, and a skill three releases
     # behind is a plausible cause of exactly that.
+    from agentbus_client import onboarding as _onboarding
+
+    ok = True
     try:
         state, detail = _onboarding.skill_state(base_url=bus.base_url)
         print(f"skill:          {state.upper()} — {detail}")
@@ -262,9 +254,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # Not fatal: a stale skill is guidance, not a broken wake path. But
             # it must not read as clean either.
             ok = False
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(f"skill:          NOT CHECKED — {exc}")
+    return ok
 
+
+def _report_cli_freshness() -> None:
     # IS THE BINARY ITSELF CURRENT? (agentbus #342)
     #
     # BESIDE `skill:`, NOT INSIDE THE WAKE-CHAIN BLOCK. It was written there
@@ -288,26 +283,101 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print(f"cli:            NOT CHECKED — {detail}")
         elif state == "current":
             print(f"cli:            OK ({detail})")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(f"cli:            NOT CHECKED — {exc}")
 
-    agent = bus.agent
-    if not agent:
-        print("loop test:      SKIPPED (no acting agent; run `agentbus register` first)")
-        return 0 if ok else 1
+
+def _inbox_end(bus: AgentBus) -> int:
+    # Advance to the END of the inbox, not the first page. inbox() returns
+    # the oldest messages after the cursor, so taking seq from a limit=1
+    # call left the cursor at the START and the self-test then looked only a
+    # few messages ahead — on any inbox with a backlog it never saw its own
+    # message and reported a loop timeout that had not happened.
+    cursor = 0
+    while True:
+        page = bus.inbox(cursor, limit=200)
+        if not page:
+            return cursor
+        cursor = page[-1].seq
+
+
+def _read_back(bus: AgentBus, delivery_id: str, elapsed: float) -> bool:
+    # #49: ASSERT WHAT THE USER CAN OBSERVE, NOT AN INTERNAL STATE.
+    #
+    # This used to require `state in (delivered, read, acked)`. That
+    # value is not part of any contract, and on 2026-08-17 it stopped
+    # advancing for SEALED deliveries — so on an encrypted workspace
+    # NO delivery ever reached a terminal state. doctor then reported
+    # a broken loop three runs running WHILE HOLDING THE MESSAGE in
+    # the very page it had just fetched. It had the evidence of
+    # success and rejected it on a field.
+    #
+    # Readability is both the question the user actually has and a
+    # STRICTLY STRONGER assertion: a delivery marked `delivered` but
+    # sealed beyond our reach passes the old check and fails this
+    # one, and that case is data loss rather than health.
+    try:
+        body = (bus.read(delivery_id) or {}).get("text_body") or ""
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"bus loop:       BROKEN — arrived in {elapsed:.1f}s but "
+            f"could not be read back ({type(exc).__name__}). The loop "
+            f"delivered something this agent cannot open."
+        )
+        return False
+    if "self-test" not in body:
+        # Arrived and unreadable is WORSE than not arriving: the
+        # sender believes it landed.
+        print(
+            f"bus loop:       BROKEN — arrived in {elapsed:.1f}s but the "
+            f"body did not come back readable ({len(body)} chars). "
+            f"A delivery this agent cannot read is data loss, not health."
+        )
+        return False
+    print(
+        f"bus loop:       OK (arrived and READABLE in {elapsed:.1f}s; "
+        f"{_loop_path(bus, delivery_id)})"
+    )
+    print(
+        "                a bus self-test: it does not show that email from "
+        "outside the bus arrives (see `agentbus whoami`)"
+    )
+    bus.ack(delivery_id)
+    print("ack:            OK")
+    return True
+
+
+def _report_not_confirmed(message_id: str) -> None:
+    # NOT "TIMEOUT", AND NOT A FAILURE. Reported by
+    # financial-freedom-projec-195737: their run printed this, and the
+    # message HAD delivered — it arrived as 01M15BBQ8263DSYHXE210MA8M3
+    # and they acked it. The loop was slow past 90s, not broken, and
+    # doctor rendered a LATENCY figure as a hard outage. An agent
+    # reading it would file a delivery incident that never happened.
+    #
+    # Same class as the `count` field this client was just fixed for: a
+    # well-formed answer that means something narrower than it reads.
+    # The honest statement is that we stopped looking, and that the
+    # message is still in flight — the sender can check it themselves.
+    print(
+        f"bus loop:       NOT CONFIRMED within {LOOP_WAIT_SECONDS}s — this is a "
+        f"LATENCY result, not a delivery failure."
+    )
+    print(f"                The message ({message_id}) was accepted and is still")
+    print("                in flight; the loop is often slower than this")
+    print("                window under load. Check it rather than assume:")
+    print(f"                  agentbus inbox --unread    # look for {message_id}")
+    print("                Only treat it as an outage if it never arrives.")
+    # DELIBERATELY NOT `ok = False`. A slow loop is not a broken host,
+    # and doctor's exit code is read by scripts — failing on latency
+    # trains people to ignore the one command that tells them the truth.
+
+
+def _bus_loop(bus: AgentBus, agent: str) -> bool:
+    import time
 
     try:
-        # Advance to the END of the inbox, not the first page. inbox() returns
-        # the oldest messages after the cursor, so taking seq from a limit=1
-        # call left the cursor at the START and the self-test then looked only a
-        # few messages ahead — on any inbox with a backlog it never saw its own
-        # message and reported a loop timeout that had not happened.
-        cursor = 0
-        while True:
-            page = bus.inbox(cursor, limit=200)
-            if not page:
-                break
-            cursor = page[-1].seq
+        cursor = _inbox_end(bus)
         sent = bus.send([agent], subject="agentbus doctor", text="self-test")
         print(f"send:           OK ({sent['id']})")
         deadline = time.time() + LOOP_WAIT_SECONDS
@@ -315,87 +385,51 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             arrived = bus.inbox(cursor, limit=200)
             match = [d for d in arrived if d.message_id == sent["id"]]
             if match:
-                # #49: ASSERT WHAT THE USER CAN OBSERVE, NOT AN INTERNAL STATE.
-                #
-                # This used to require `state in (delivered, read, acked)`. That
-                # value is not part of any contract, and on 2026-08-17 it stopped
-                # advancing for SEALED deliveries — so on an encrypted workspace
-                # NO delivery ever reached a terminal state. doctor then reported
-                # a broken loop three runs running WHILE HOLDING THE MESSAGE in
-                # the very page it had just fetched. It had the evidence of
-                # success and rejected it on a field.
-                #
-                # Readability is both the question the user actually has and a
-                # STRICTLY STRONGER assertion: a delivery marked `delivered` but
-                # sealed beyond our reach passes the old check and fails this
-                # one, and that case is data loss rather than health.
                 elapsed = LOOP_WAIT_SECONDS - (deadline - time.time())
-                try:
-                    body = (bus.read(match[0].delivery_id) or {}).get("text_body") or ""
-                except Exception as exc:
-                    print(
-                        f"bus loop:       BROKEN — arrived in {elapsed:.1f}s but "
-                        f"could not be read back ({type(exc).__name__}). The loop "
-                        f"delivered something this agent cannot open."
-                    )
-                    return 1
-                if "self-test" not in body:
-                    # Arrived and unreadable is WORSE than not arriving: the
-                    # sender believes it landed.
-                    print(
-                        f"bus loop:       BROKEN — arrived in {elapsed:.1f}s but the "
-                        f"body did not come back readable ({len(body)} chars). "
-                        f"A delivery this agent cannot read is data loss, not health."
-                    )
-                    return 1
-                print(
-                    f"bus loop:       OK (arrived and READABLE in {elapsed:.1f}s; "
-                    f"{_loop_path(bus, match[0].delivery_id)})"
-                )
-                print(
-                    "                a bus self-test: it does not show that email from "
-                    "outside the bus arrives (see `agentbus whoami`)"
-                )
-                bus.ack(match[0].delivery_id)
-                print("ack:            OK")
-                break
+                return _read_back(bus, match[0].delivery_id, elapsed)
             time.sleep(2)
-        else:
-            # NOT "TIMEOUT", AND NOT A FAILURE. Reported by
-            # financial-freedom-projec-195737: their run printed this, and the
-            # message HAD delivered — it arrived as 01M15BBQ8263DSYHXE210MA8M3
-            # and they acked it. The loop was slow past 90s, not broken, and
-            # doctor rendered a LATENCY figure as a hard outage. An agent
-            # reading it would file a delivery incident that never happened.
-            #
-            # Same class as the `count` field this client was just fixed for: a
-            # well-formed answer that means something narrower than it reads.
-            # The honest statement is that we stopped looking, and that the
-            # message is still in flight — the sender can check it themselves.
-            print(
-                f"bus loop:       NOT CONFIRMED within {LOOP_WAIT_SECONDS}s — this is a "
-                f"LATENCY result, not a delivery failure."
-            )
-            print(f"                The message ({sent['id']}) was accepted and is still")
-            print("                in flight; the loop is often slower than this")
-            print("                window under load. Check it rather than assume:")
-            print(f"                  agentbus inbox --unread    # look for {sent['id']}")
-            print("                Only treat it as an outage if it never arrives.")
-            # DELIBERATELY NOT `ok = False`. A slow loop is not a broken host,
-            # and doctor's exit code is read by scripts — failing on latency
-            # trains people to ignore the one command that tells them the truth.
+        _report_not_confirmed(sent["id"])
     except QuotaExceeded as exc:
         policy = exc.blocking_policy.get("policy_name") if exc.blocking_policy else None
         print(
             f"loop test:      QUOTA — {policy or 'unknown policy'} exhausted, "
             f"retry after {exc.retry_after}s" + (f", resets {exc.reset_at}" if exc.reset_at else "")
         )
-        ok = False
+        return False
     except ServiceUnavailable as exc:
         print(f"loop test:      SERVICE UNAVAILABLE — {exc.detail}")
-        ok = False
+        return False
     except AgentBusError as exc:
         print(f"loop test:      FAILED — {exc.code}: {exc.detail}")
-        ok = False
+        return False
+    return True
 
-    return 0 if ok else 1
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    if getattr(args, "wake", False):
+        from agentbus_client import onboarding
+
+        return onboarding.doctor_wake(args)
+    """Prove the whole path works, rather than reporting that nothing failed."""
+    bus = _common._bus(args)
+    print(f"base url:      {bus.base_url}")
+
+    try:
+        who = bus.whoami()
+        print(f"authentication: OK (workspace {who['workspace']['slug']})")
+    except AgentBusError as exc:
+        print(f"authentication: FAILED — {exc.code}: {exc.detail}")
+        return 1
+
+    quota_ok = _report_quota(bus)
+    _report_credential_scope(bus)
+    skill_ok = _report_skill(bus)
+    _report_cli_freshness()
+
+    agent = bus.agent
+    if not agent:
+        print("loop test:      SKIPPED (no acting agent; run `agentbus register` first)")
+        return 0 if quota_ok and skill_ok else 1
+
+    loop_ok = _bus_loop(bus, agent)
+    return 0 if quota_ok and skill_ok and loop_ok else 1

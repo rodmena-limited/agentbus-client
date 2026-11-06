@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import sys
 import time
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
 from agentbus_client.client import AgentBusError
@@ -14,6 +15,146 @@ from ._common import _print
 
 if TYPE_CHECKING:
     import argparse
+    from pathlib import Path
+
+    from agentbus_client.client import AgentBus
+
+_KEY_ID_SEGMENTS = 3
+
+
+def _key_id_in(path: Path) -> str | None:
+    key_id = None
+    with contextlib.suppress(OSError, ValueError):
+        for raw in path.read_text().splitlines():
+            entry = raw.strip().removeprefix("export ")
+            name, sep, value = entry.partition("=")
+            if sep and name.strip() == "AGENTBUS_API_KEY":
+                secret = value.strip().strip("'\"")
+                # ab_sk_<key_id>_<secret> — the key_id half is not secret.
+                parts = secret.split("_")
+                key_id = (
+                    "_".join(parts[:_KEY_ID_SEGMENTS]) if len(parts) >= _KEY_ID_SEGMENTS else None
+                )
+                break
+    return key_id
+
+
+def _stored_identities(keys_dir: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in sorted(keys_dir.glob("*.env")):
+        agent = path.stem
+        key_id = _key_id_in(path)
+        st = path.stat()
+        rows.append(
+            {
+                "agent": agent,
+                "key_id": key_id,
+                "path": str(path),
+                "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                "mode": oct(st.st_mode & 0o777),
+            }
+        )
+    return rows
+
+
+def _add_live_columns(bus: AgentBus, rows: list[dict[str, Any]], acting: str | None) -> None:
+    # WHICH DEVICE IS EACH IDENTITY ACTUALLY LIVE ON?
+    #
+    # macbook's SEV-1 asked for an evidence-of-use trail. `wake_channel`
+    # answers "is this identity live"; it does NOT answer "live WHERE",
+    # and the second question is the one that distinguishes "my own
+    # watcher" from "somebody else holding my credential".
+    #
+    # ui-c760a1 suggested the agent events endpoint carries device_hash.
+    # Checked: it does not — stream-attached details are
+    # {key_id, wake_capable} and no event type carries a device field.
+    # The PHONEBOOK does carry device_hash per agent, so that is the
+    # source used here.
+    #
+    # The reference point is THIS agent's own device_hash: every identity
+    # credentialled on this machine and used from this machine reports
+    # the same one. A row whose hash differs is registered from another
+    # device — which is exactly the signal the SEV-1 wanted surfaced.
+    by_name: dict[str, dict[str, Any]] = {}
+    with contextlib.suppress(Exception):
+        for peer in bus.phonebook():
+            peer_name = peer.get("name")
+            if peer_name:
+                by_name[str(peer_name)] = peer
+    this_device = None
+    if acting and acting in by_name:
+        this_device = by_name[acting].get("device_hash")
+    for row in rows:
+        with contextlib.suppress(Exception):
+            health = bus.health(row["agent"])
+            row["wake_channel_state"] = health.get("wake_channel_state")
+            row["watcher_alive"] = health.get("watcher_alive")
+            row["last_seen_at"] = health.get("last_seen_at")
+        peer_row = by_name.get(row["agent"]) or {}
+        dev = peer_row.get("device_hash")
+        row["device_hash"] = dev
+        # None on either side means "cannot tell" — never assert a match
+        # we have not earned, and never cry elsewhere on missing data.
+        row["elsewhere"] = bool(dev and this_device and dev != this_device)
+
+
+def _print_identity_table(rows: list[dict[str, Any]], *, remote: bool) -> None:
+    width = max(len(r["agent"]) for r in rows)
+    header = f"{'AGENT':<{width}}  {'KEY ID':<26} {'STORED':<17} MODE"
+    if remote:
+        header += "   WAKE      ALIVE  DEVICE            LAST SEEN"
+    print(header)
+    for r in rows:
+        line = (
+            f"{r['agent']:<{width}}  {(r['key_id'] or '(unreadable)'):<26} "
+            f"{r['mtime']:<17} {r['mode']}"
+        )
+        if remote:
+            state = r.get("wake_channel_state") or "-"
+            alive = r.get("watcher_alive")
+            alive_s = "-" if alive is None else str(alive)
+            dev = r.get("device_hash")
+            # Mark the rows that matter. A short hash is enough to eyeball
+            # "these are all the same box"; ELSEWHERE is the actionable bit.
+            dev_s = dev[:16] if dev else "-"
+            if r.get("elsewhere"):
+                dev_s += " ELSEWHERE"
+            line += f"   {state:<9} {alive_s:<6} {dev_s:<17} {r.get('last_seen_at') or '-'}"
+        print(line)
+
+
+def _print_identity_notes(rows: list[dict[str, Any]], acting: str | None, *, remote: bool) -> int:
+    print()
+    print(f"this directory acts as: {acting or '(no identity — nothing would be sent)'}")
+    if len(rows) > 1:
+        print()
+        print(
+            f"NOTE: {len(rows)} agent identities are credentialled on this machine. "
+            "Every process running as this user can read all of them and act as "
+            "any of them — that is the bearer-credential model, not a defect. "
+            "If you run several AI CLIs on one box, each has full "
+            "read/impersonate access to every identity above."
+        )
+        if not remote:
+            print("Pass --remote to see which of them are currently live somewhere.")
+    if remote:
+        strays = [r["agent"] for r in rows if r.get("elsewhere")]
+        if strays:
+            print()
+            print(
+                "WARNING: these identities last REGISTERED from a different device "
+                "than this one: " + ", ".join(strays) + ". You hold their credential "
+                "locally, but the registration came from elsewhere. If that is not a "
+                "machine you control, treat the credential as compromised: rotate it "
+                "(agentbus keys rotate) and revoke the old key."
+            )
+            print(
+                "  SCOPE: this compares REGISTRATION device, not live use. An "
+                "impersonator reusing a stolen key WITHOUT re-registering leaves this "
+                "column unchanged, so silence here is not evidence of exclusive use."
+            )
+            return 1
+    return 0
 
 
 def cmd_identities(args: argparse.Namespace) -> int:
@@ -39,30 +180,7 @@ def cmd_identities(args: argparse.Namespace) -> int:
     from agentbus_client import onboarding as _onboarding
 
     keys_dir = _onboarding._keys_dir()
-    rows: list[dict[str, Any]] = []
-    for path in sorted(keys_dir.glob("*.env")):
-        agent = path.stem
-        key_id = None
-        with contextlib.suppress(OSError, ValueError):
-            for raw in path.read_text().splitlines():
-                entry = raw.strip().removeprefix("export ")
-                name, sep, value = entry.partition("=")
-                if sep and name.strip() == "AGENTBUS_API_KEY":
-                    secret = value.strip().strip("'\"")
-                    # ab_sk_<key_id>_<secret> — the key_id half is not secret.
-                    parts = secret.split("_")
-                    key_id = "_".join(parts[:3]) if len(parts) >= 3 else None
-                    break
-        st = path.stat()
-        rows.append(
-            {
-                "agent": agent,
-                "key_id": key_id,
-                "path": str(path),
-                "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
-                "mode": oct(st.st_mode & 0o777),
-            }
-        )
+    rows = _stored_identities(keys_dir)
 
     # Which identity would THIS directory actually act as? That is the
     # question an operator staring at N key files actually has, and it is
@@ -71,46 +189,9 @@ def cmd_identities(args: argparse.Namespace) -> int:
     with contextlib.suppress(Exception):
         _key, acting = _onboarding.resolve_credentials()
 
-    if getattr(args, "remote", False) and rows:
-        bus = _common._bus(args)
-        # WHICH DEVICE IS EACH IDENTITY ACTUALLY LIVE ON?
-        #
-        # macbook's SEV-1 asked for an evidence-of-use trail. `wake_channel`
-        # answers "is this identity live"; it does NOT answer "live WHERE",
-        # and the second question is the one that distinguishes "my own
-        # watcher" from "somebody else holding my credential".
-        #
-        # ui-c760a1 suggested the agent events endpoint carries device_hash.
-        # Checked: it does not — stream-attached details are
-        # {key_id, wake_capable} and no event type carries a device field.
-        # The PHONEBOOK does carry device_hash per agent, so that is the
-        # source used here.
-        #
-        # The reference point is THIS agent's own device_hash: every identity
-        # credentialled on this machine and used from this machine reports
-        # the same one. A row whose hash differs is registered from another
-        # device — which is exactly the signal the SEV-1 wanted surfaced.
-        by_name: dict[str, dict[str, Any]] = {}
-        with contextlib.suppress(Exception):
-            for peer in bus.phonebook():
-                peer_name = peer.get("name")
-                if peer_name:
-                    by_name[str(peer_name)] = peer
-        this_device = None
-        if acting and acting in by_name:
-            this_device = by_name[acting].get("device_hash")
-        for row in rows:
-            with contextlib.suppress(Exception):
-                health = bus.health(row["agent"])
-                row["wake_channel_state"] = health.get("wake_channel_state")
-                row["watcher_alive"] = health.get("watcher_alive")
-                row["last_seen_at"] = health.get("last_seen_at")
-            peer_row = by_name.get(row["agent"]) or {}
-            dev = peer_row.get("device_hash")
-            row["device_hash"] = dev
-            # None on either side means "cannot tell" — never assert a match
-            # we have not earned, and never cry elsewhere on missing data.
-            row["elsewhere"] = bool(dev and this_device and dev != this_device)
+    remote = getattr(args, "remote", False)
+    if remote and rows:
+        _add_live_columns(_common._bus(args), rows, acting)
 
     if args.json:
         _print({"acting_as": acting, "identities": rows}, as_json=True)
@@ -119,59 +200,8 @@ def cmd_identities(args: argparse.Namespace) -> int:
     if not rows:
         print(f"no agent credentials on this machine ({keys_dir})")
         return 0
-    width = max(len(r["agent"]) for r in rows)
-    header = f"{'AGENT':<{width}}  {'KEY ID':<26} {'STORED':<17} MODE"
-    if getattr(args, "remote", False):
-        header += "   WAKE      ALIVE  DEVICE            LAST SEEN"
-    print(header)
-    for r in rows:
-        line = (
-            f"{r['agent']:<{width}}  {(r['key_id'] or '(unreadable)'):<26} "
-            f"{r['mtime']:<17} {r['mode']}"
-        )
-        if getattr(args, "remote", False):
-            state = r.get("wake_channel_state") or "-"
-            alive = r.get("watcher_alive")
-            alive_s = "-" if alive is None else str(alive)
-            dev = r.get("device_hash")
-            # Mark the rows that matter. A short hash is enough to eyeball
-            # "these are all the same box"; ELSEWHERE is the actionable bit.
-            dev_s = dev[:16] if dev else "-"
-            if r.get("elsewhere"):
-                dev_s += " ELSEWHERE"
-            line += f"   {state:<9} {alive_s:<6} {dev_s:<17} {r.get('last_seen_at') or '-'}"
-        print(line)
-    print()
-    print(f"this directory acts as: {acting or '(no identity — nothing would be sent)'}")
-    if len(rows) > 1:
-        print()
-        print(
-            f"NOTE: {len(rows)} agent identities are credentialled on this machine. "
-            "Every process running as this user can read all of them and act as "
-            "any of them — that is the bearer-credential model, not a defect. "
-            "If you run several AI CLIs on one box, each has full "
-            "read/impersonate access to every identity above."
-        )
-        if not getattr(args, "remote", False):
-            print("Pass --remote to see which of them are currently live somewhere.")
-    if getattr(args, "remote", False):
-        strays = [r["agent"] for r in rows if r.get("elsewhere")]
-        if strays:
-            print()
-            print(
-                "WARNING: these identities last REGISTERED from a different device "
-                "than this one: " + ", ".join(strays) + ". You hold their credential "
-                "locally, but the registration came from elsewhere. If that is not a "
-                "machine you control, treat the credential as compromised: rotate it "
-                "(agentbus keys rotate) and revoke the old key."
-            )
-            print(
-                "  SCOPE: this compares REGISTRATION device, not live use. An "
-                "impersonator reusing a stolen key WITHOUT re-registering leaves this "
-                "column unchanged, so silence here is not evidence of exclusive use."
-            )
-            return 1
-    return 0
+    _print_identity_table(rows, remote=remote)
+    return _print_identity_notes(rows, acting, remote=remote)
 
 
 def cmd_health(args: argparse.Namespace) -> int:
@@ -199,7 +229,7 @@ def cmd_health(args: argparse.Namespace) -> int:
     try:
         result = bus.health(target)
     except AgentBusError as exc:
-        if exc.status == 404:
+        if exc.status == HTTPStatus.NOT_FOUND:
             print(f"unknown agent '{target}' in this workspace", file=sys.stderr)
             return 1
         raise

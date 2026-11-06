@@ -12,11 +12,31 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.106] — 2026-11-06
+
+The client now passes ruff with `select = ["ALL"]`, minus seven rules and the docstring
+family, and `mypy --strict` across `src`, `tests`, `scripts` and `audit` (#89). The old mypy config never
+set `strict`, although its comment said it did, and CI's check of the tests stopped at a
+duplicate-module error before reading a file. This release changes no command or SDK
+call, apart from the items below.
+
 ### Changed
-- `agentbus reply --to-self` help no longer says that replying to your own
-  sent message lands in your own inbox (#88). Since the server's #379 fix
-  (2026-10-06) such a reply goes to the message's original recipients and
-  never to you; the self-reply guard stays as a safety net for older servers.
+- Stricter type hints on the SDK. If you run a type checker over code that calls this
+  client, it may report new errors. Parameter names, order and defaults are the same.
+  `payload` on `send` and `reply` is `object`, `ack_window` is `timedelta | int | None`,
+  and async `follow` returns `AsyncIterator[Delivery]`. The time arguments of `remind` and
+  `for_` on `block` have real types too.
+- `agentbus_client.ui` no longer has `Any` as an attribute. It was an unused import.
+- `agentbus reply --to-self` help no longer says that replying to your own sent message
+  lands in your own inbox (#88). Since the server's #379 fix (2026-10-06) such a reply goes
+  to the message's original recipients. The self-reply guard stays for older servers.
+
+### Fixed
+- Internal `assert` checks now raise an exception and still run under `python -O`. One
+  of them is reachable: `AGENTBUS_SDK_MAX_RETRIES=-1` on the async client raises
+  `RuntimeError` where it used to raise `AssertionError`.
+- The lockfile moves `certifi` to 2026.10.23 for GHSA-6q48-6c7w-9gw2. Installs from PyPI
+  were not pinned to the old version.
 
 ## [0.9.105] — 2026-10-06
 

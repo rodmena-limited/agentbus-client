@@ -87,7 +87,7 @@ def _dead_wake_socket_reason() -> str | None:
     )
 
 
-class DeadWakeSocket(RuntimeError):
+class DeadWakeSocket(RuntimeError):  # noqa: N818
     """The session socket this watcher injects into no longer exists."""
 
 
@@ -139,5 +139,5 @@ def _client_version() -> str:
         from . import __version__
 
         return str(__version__)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "unknown"

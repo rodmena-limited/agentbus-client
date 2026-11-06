@@ -142,13 +142,13 @@ class WatcherStateMixin(_WatcherBase):
         """
         try:
             self.bus.whoami()
-            return None
         except AuthError as exc:
             return int(exc.status or 401)
         except AgentBusError as exc:
             return exc.status if exc.status in (401, 403, 410) else None
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
+        return None
 
     def _key_really_revoked(self) -> bool:
         """Second opinion before this client ever gives up for good.

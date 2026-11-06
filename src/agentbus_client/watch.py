@@ -19,7 +19,7 @@ import random
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 import httpx
 
@@ -110,7 +110,7 @@ EXIT_DEAD_WAKE_SOCKET = 7
 
 
 class Watcher(WatcherStateMixin, WatcherDrainMixin):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         bus: AgentBus,
         agent: str,
@@ -280,7 +280,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
                     # not race the SSE read deadline.
                     self._drain_async()
 
-    def run(self, once: bool = False) -> int:
+    def run(self, once: bool = False) -> int:  # noqa: FBT001, FBT002
         # CHECK THE WAKE TARGET BEFORE ANYTHING ELSE. The 2026-08-11 outage was
         # a watcher from a dead session still streaming: it drained, it answered
         # liveness, it advanced its cursor — and every --exec injected into a
@@ -306,6 +306,14 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
         # rewritten when the cursor advanced, so the version field lagged
         # arbitrarily on a healthy watcher with nothing arriving yet).
         self._save_cursor()
+        delivered = self._startup_drain()
+        if delivered:
+            print(f"agentbus watch: {delivered} message(s) waiting at startup", file=sys.stderr)
+        if once:
+            return 0
+        return self._reconnect_loop()
+
+    def _startup_drain(self) -> int:
         # REG-3 (round-3 audit): startup drain must serialize with any
         # background drain _drain_async might spawn later. The lock is idle
         # here; acquiring it is instant and keeps the invariant honest.
@@ -334,7 +342,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
                 file=sys.stderr,
                 flush=True,
             )
-        except Exception as exc:  # startup drain MUST NOT block launch
+        except Exception as exc:  # startup drain MUST NOT block launch  # noqa: BLE001
             # The reconnect envelope in the while loop below handles this
             # exact class of failure. Defer to it — announcement is one
             # stderr line so the operator can see the deferral happened.
@@ -344,11 +352,9 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
                 file=sys.stderr,
                 flush=True,
             )
-        if delivered:
-            print(f"agentbus watch: {delivered} message(s) waiting at startup", file=sys.stderr)
-        if once:
-            return 0
+        return delivered
 
+    def _reconnect_loop(self) -> int:
         while True:
             try:
                 self._stream_once()
@@ -376,7 +382,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
                     "been waiting during that window",
                     stream=sys.stdout,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 self._backoff_and_drain(f"stream dropped ({exc})")
             else:
                 # A CLEAN EOF IS A DROP TOO (review #23, issuedb #27). The server
@@ -385,7 +391,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
                 # line. Back off and log exactly like any other drop.
                 self._backoff_and_drain("stream ended (closed cleanly by the far end)")
 
-    def _backoff_and_drain(self, reason: str, stream: Any = None) -> None:
+    def _backoff_and_drain(self, reason: str, stream: TextIO | None = None) -> None:
         """Announce the failure, opportunistically drain HTTP, THEN back off.
 
         SEV-1 (macbook-admin-bd8e86 thread 01M08ZBXDD8PQ9J70MM4VDBZR0): this
@@ -419,7 +425,7 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
         # trip the server's 30 QPS bulkhead. The jitter is per-call so tests
         # can seed random themselves; here we just call random.uniform.
         jitter = base_delay * _BACKOFF_JITTER_FRACTION
-        delay = max(0.0, base_delay + random.uniform(-jitter, jitter))
+        delay = max(0.0, base_delay + random.uniform(-jitter, jitter))  # noqa: S311
         self._failures += 1
         self._last_failure_at = time.time()
         # Persist the new backoff position IMMEDIATELY so an OS-supervisor
@@ -465,7 +471,9 @@ class Watcher(WatcherStateMixin, WatcherDrainMixin):
                     # The session is gone, or we were told to stop: do NOT sleep
                     # and retry. Re-raise (finally still runs) so run() sees it.
                     raise
-                except BaseException as exc:  # deliberate: reconnect handler MUST be total
+                except BaseException as exc:  # noqa: BLE001
+                    # deliberate: reconnect handler MUST be total
+                    #
                     # Empty message diagnostic: some exceptions (notably
                     # concurrent.futures.TimeoutError()) stringify to '',
                     # which produced logs like `handler failed:` with nothing

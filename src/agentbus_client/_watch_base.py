@@ -28,7 +28,7 @@ class WatcherBase:
     _failures: int
     _last_failure_at: float
 
-    def _save_cursor(self, *args: Any, **kwargs: Any) -> Any:
+    def _save_cursor(self, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError
 
     def _load_state(self, *args: Any, **kwargs: Any) -> dict[str, Any]:

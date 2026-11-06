@@ -146,7 +146,7 @@ class WatcherDrainMixin(_WatcherBase):
                     "will exit on next reconnect",
                     file=sys.stderr,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 # SEV-1 diagnostic fix (macbook-admin-bd8e86, thread
                 # 01M08ZBXDD8PQ9J70MM4VDBZR0): str(exc) is '' for some
                 # network-shaped errors — notably concurrent.futures.TimeoutError().
@@ -177,7 +177,7 @@ class WatcherDrainMixin(_WatcherBase):
                 target=_run, name=f"agentbus-drain-{self.agent}", daemon=True
             )
             self._drain_thread.start()
-        except BaseException as exc:  # must not strand the lock
+        except BaseException as exc:  # must not strand the lock  # noqa: BLE001
             self._drain_lock.release()
             tag = str(exc) or f"({type(exc).__name__})"
             print(
@@ -213,7 +213,7 @@ class WatcherDrainMixin(_WatcherBase):
                 seen += 1
                 try:
                     self.on_message(message.raw)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     print(f"agentbus watch: handler failed: {exc}", file=sys.stderr)
             self._save_cursor()
             if self.cursor <= before:

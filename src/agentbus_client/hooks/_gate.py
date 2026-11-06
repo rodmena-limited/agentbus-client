@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Claude Code hooks for AgentBus.
 
 Two jobs, deliberately separate:
@@ -83,20 +82,23 @@ def _bus_reachable(base: str, timeout: float) -> tuple[bool, str]:
         return False, f"no host in AGENTBUS_BASE_URL {base!r}"
     try:
         socket.create_connection((host, port), timeout=timeout).close()
-        return True, ""
     except OSError as exc:
         return False, f"{type(exc).__name__}: {exc}"
+    return True, ""
 
 
 GUARD_FIELD_LIMIT = 4096
 _GUARD_KEEP = 2000
+_HTTP_GONE = 410
+_HTTP_UNPROCESSABLE = 422
+_HTTP_SERVER_ERROR = 500
 
 
-class GuardRequestRejected(Exception):
+class GuardRequestRejected(Exception):  # noqa: N818
     pass
 
 
-def fit_to_guard_limit(value: Any) -> Any:
+def fit_to_guard_limit(value: object) -> Any:  # noqa: ANN401
     if isinstance(value, str):
         if len(value) <= GUARD_FIELD_LIMIT:
             return value
@@ -108,6 +110,260 @@ def fit_to_guard_limit(value: Any) -> Any:
     if isinstance(value, list):
         return [fit_to_guard_limit(item) for item in value]
     return value
+
+
+def _read_tool_call() -> tuple[str, object]:
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    return str(payload.get("tool_name") or ""), payload.get("tool_input")
+
+
+def _decide(decision: str, reason: str) -> int:
+    # `permissionDecision` is the field Claude Code acts on; the reason is
+    # shown to the agent, so it has to say what to DO, not just "no".
+    #
+    # SCRUBBED HERE, at the single point every branch passes through, so a
+    # future message that interpolates an exception cannot reintroduce the
+    # leak. Scrubbing at each call site is how the first one survived.
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": decision,
+                    "permissionDecisionReason": _scrub(reason),
+                }
+            }
+        )
+    )
+    return 0
+
+
+# OPT-IN IS PER-PROJECT, NEVER PER-HOST. A session is AgentBus-gated only
+# when ITS OWN project config declares the identity, so an unrelated
+# session that merely inherited `AGENTBUS_AGENT` from the shell (or from
+# another app's env) is NOT gated. This is the 2026-08-10 incident: a
+# plugin auto-loaded for every opencode session on the host made a prism
+# session that never opted in get EVERY tool denied.
+#
+# The project's own declaraton is the honest opt-in: `.claude/
+# settings.local.json` is written by `agentbus setup`, is per-checkout,
+# and is the most specific signal a Claude session has. An env var alone
+# is not enough — it leaks. A hosted key file alone is not enough —
+# another project on the host may be wired. Only the project declaring
+# the identity makes THIS session an AgentBus session.
+# RESOLVED FROM THE REPO ROOT. Reading `.claude` relative to the cwd made
+# this gate FAIL OPEN in a subdirectory: a project that HAD opted in
+# looked un-opted-in to a hook firing from `sdk/`, so the deny branch
+# below was skipped and the session sailed through ungated. Wrong in the
+# unsafe direction, and invisible, because the symptom of a skipped gate
+# is that nothing happens.
+def _project_opted_in() -> bool:
+    try:
+        from pathlib import Path
+
+        local = (_identity._repo_root() or Path.cwd()) / ".claude" / "settings.local.json"
+        if not local.is_file():
+            return False
+        import json as _json
+
+        data = _json.loads(local.read_text())
+        return bool((data.get("env") or {}).get("AGENTBUS_AGENT"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _decide_without_credential(agent: str | None) -> int:
+    if _project_opted_in():
+        # The project opted in but THIS session presents no credential.
+        # Per #107 this DEGRADES rather than blocks: the action runs, but
+        # the warning must be explicit that it is running WITHOUT approval
+        # checking, so a degraded session is never mistaken for a protected
+        # one. (Before #107 this was a deny — that is the hostage behaviour
+        # that locked the operator out of their own machine.)
+        # SEV-1-A: telemetry so a week of silent allowlisting is discoverable.
+        with contextlib.suppress(Exception):
+            record_gate_degraded(
+                agent or "unknown", "no_credential", "project opted-in, session has no key"
+            )
+        return _decide(
+            "allow",
+            "this project is wired for AgentBus but this session has no "
+            "credential, so the guard CANNOT check whether this action "
+            "needs approval. The action runs UNVETTED. This is a degraded "
+            "session, not a protected one. To restore gating, source the "
+            "agent's key file (agentbus signin) and re-run.",
+        )
+    return _decide("allow", "this project has not opted into AgentBus; ungated")
+
+
+def _fast_fail_verdict(agent: str, threshold: int, cooldown: float) -> int | None:
+    try:
+        state_path = _gate_degraded_file(agent)
+        if state_path.exists():
+            state = json.loads(state_path.read_text())
+            count = int(state.get("count") or 0)
+            last_at = state.get("last_at") or ""
+            # A CONNECT failure opens the circuit at once (peer review C5): the
+            # network is gone, and making the next ten tool calls each re-discover
+            # that is what a user feels as "the client freezes on network drop".
+            if last_at and (count >= threshold or state.get("reason") == "connect_failure"):
+                # REG-1 (round-3 audit): last_at is written with time.gmtime()
+                # (UTC — see record_gate_degraded), so it MUST be parsed back as
+                # UTC. time.mktime() interprets local; on BST that reads the
+                # timestamp ~1h in the past and the cooldown never trips, on
+                # US-Pacific ~8h in the future and it always trips. calendar.timegm
+                # is the timezone-safe pair for gmtime.
+                import calendar
+
+                opened_at = state.get("opened_at") or last_at
+                opened_ts = calendar.timegm(time.strptime(opened_at, "%Y-%m-%dT%H:%M:%SZ"))
+                if (time.time() - opened_ts) < cooldown:
+                    # Record this too — a fast-fail is still a degraded call.
+                    with contextlib.suppress(Exception):
+                        record_gate_degraded(agent, "fast_fail", f"circuit open (count={count})")
+                    return _decide(
+                        "allow",
+                        f"AgentBus gate is FAST-FAILING (circuit open, {count} recent "
+                        f"failures; cooldown {int(cooldown)}s). Action runs "
+                        "UNVETTED — approval checking is OFF. Fix the bus or the "
+                        "credential; a real verdict clears the circuit.",
+                    )
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return None
+
+
+def _ask_guard(
+    base: str, api_key: str, agent: str, check: dict[str, Any], timeout: float
+) -> dict[str, Any]:
+    request = urllib.request.Request(  # noqa: S310
+        f"{base.rstrip('/')}/v1/guard/check",
+        data=json.dumps(check).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "X-AgentBus-Agent": agent,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        parsed = json.loads(response.read().decode())
+    if not isinstance(parsed, dict):
+        msg = f"guard answered with a JSON {type(parsed).__name__}, not an object"
+        raise ValueError(msg)  # noqa: TRY004
+    return parsed
+
+
+def _rejection_from(exc: urllib.error.HTTPError) -> BaseException:
+    with contextlib.suppress(Exception):
+        problem = json.loads(exc.read().decode())
+        return GuardRequestRejected(
+            f"HTTP 422 {problem.get('code') or 'validation_error'}: {problem.get('detail') or ''}"
+        )
+    return exc
+
+
+def _retired_detail_from(exc: urllib.error.HTTPError) -> str | None:
+    try:
+        detail: str = json.loads(exc.read().decode()).get("detail") or ""
+        if "retired" in detail.lower():
+            return detail
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return None
+
+
+def _consult_guard(
+    base: str, api_key: str, agent: str, check: dict[str, Any], timeout: float
+) -> tuple[dict[str, Any] | None, BaseException | None, str | None]:
+    # ONE retry, on TRANSIENT failures only. david measured five 503s in an
+    # evening, each recovered within seconds with /healthz green immediately
+    # after — they are our own rolling reloads, not an outage.
+    #
+    # The gate changed what a blip costs. Before it, a 503 failed the send you
+    # were making; with a `*` matcher it now stops whatever you were doing,
+    # whether or not the bus was involved. A single retry absorbs every blip of
+    # that shape.
+    #
+    # THIS DOES NOT WEAKEN FAIL-CLOSED, and the distinction is the whole point:
+    # exhausting the retry still DENIES. A refusal is never retried, because a
+    # refusal is an answer — only the absence of an answer is retried. Retrying
+    # a 403 or a parsed `deny` would be the change that guts this control, so
+    # the retry is scoped to the exception path and nothing else.
+    last_exc: BaseException | None = None
+    retired_detail: str | None = None
+    for attempt in (0, 1):
+        try:
+            body = _ask_guard(base, api_key, agent, check, timeout)
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            # A retired agent is a DEFINITIVE answer, not an absence of one:
+            # the bus is fine, the identity is gone, and the fix is on the
+            # caller's side. Read the problem body so we can say exactly that
+            # instead of "could not be checked", which sent the container-registry
+            # builder session hunting a phantom bus outage (2026-08-11, #89).
+            if exc.code == _HTTP_UNPROCESSABLE:
+                last_exc = _rejection_from(exc)
+            if exc.code == _HTTP_GONE:
+                retired_detail = _retired_detail_from(exc)
+                break
+            # 5xx is "we could not answer"; 4xx is an answer we must not retry.
+            # Retrying a 401 would hammer the bus with a credential that will
+            # never work, and turn one clear failure into two.
+            if exc.code < _HTTP_SERVER_ERROR or attempt:
+                break
+            time.sleep(0.25)
+        except Exception as exc:  # noqa: BLE001
+            # Transport-class failure (timeout, reset, DNS): NO retry (peer review
+            # C5) — the reachability check above already passed, so this is a
+            # slow or dying bus and a second full budget buys nothing.
+            last_exc = exc
+            break
+        else:
+            return body, last_exc, retired_detail
+    return None, last_exc, retired_detail
+
+
+def _decide_without_verdict(
+    agent: str, last_exc: BaseException | None, retired_detail: str | None
+) -> int:
+    # NO ANSWER FROM THE GUARD = THE SESSION RUNS UNVETTED, IT IS NEVER
+    # BLOCKED. Operator directive #107: a revoked key or unreachable bus
+    # must degrade, not imprison. The action is allowed because the guard
+    # could not produce a verdict — and the warning says so loudly, so a
+    # degraded session is never mistaken for a protected one.
+    if retired_detail:
+        # SEV-1-A telemetry: agent-retired is a real, actionable state.
+        with contextlib.suppress(Exception):
+            record_gate_degraded(agent, "identity_retired", retired_detail)
+        return _decide(
+            "allow",
+            f"{retired_detail} The guard could not verify this action "
+            "because the agent identity is retired, so it runs UNVETTED. "
+            "Re-register the agent name (agentbus register) to restore "
+            "gating.",
+        )
+
+    # SEV-1-A telemetry: the reason names the exception class so watch-status
+    # can distinguish a burst of 401s (rotate a key) from a burst of 503s (bus
+    # rolling deploy) without opening the file.
+    with contextlib.suppress(Exception):
+        reason_slug = type(last_exc).__name__.lower() if last_exc else "unknown"
+        record_gate_degraded(agent, reason_slug, f"{last_exc}")
+    return _decide(
+        "allow",
+        f"AgentBus could not verify this action ({last_exc}), so it runs "
+        "UNVETTED — approval checking is OFF for this call, not just for "
+        "this action. If this session's actions need human approval, "
+        "restore the credential (agentbus signin) and re-run.",
+    )
 
 
 def pre_tool_use(_args: argparse.Namespace) -> int:
@@ -157,36 +413,7 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     Exit 0 always. A hook that crashes is a hook the harness may ignore, and
     the decision is carried in the JSON on stdout, not in the exit code.
     """
-    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
-    try:
-        payload = json.loads(raw) if raw.strip() else {}
-    except ValueError:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-
-    tool_name = str(payload.get("tool_name") or "")
-    tool_input = payload.get("tool_input")
-
-    def decide(decision: str, reason: str) -> int:
-        # `permissionDecision` is the field Claude Code acts on; the reason is
-        # shown to the agent, so it has to say what to DO, not just "no".
-        #
-        # SCRUBBED HERE, at the single point every branch passes through, so a
-        # future message that interpolates an exception cannot reintroduce the
-        # leak. Scrubbing at each call site is how the first one survived.
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": decision,
-                        "permissionDecisionReason": _scrub(reason),
-                    }
-                }
-            )
-        )
-        return 0
+    tool_name, tool_input = _read_tool_call()
 
     # THE FAIL-OPEN BRANCH, and it was bypassable by the party being gated.
     #
@@ -208,60 +435,7 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     api_key = os.environ.get("AGENTBUS_API_KEY")
     agent = _resolve_agent()
     if not api_key or not agent:
-        # OPT-IN IS PER-PROJECT, NEVER PER-HOST. A session is AgentBus-gated only
-        # when ITS OWN project config declares the identity, so an unrelated
-        # session that merely inherited `AGENTBUS_AGENT` from the shell (or from
-        # another app's env) is NOT gated. This is the 2026-08-10 incident: a
-        # plugin auto-loaded for every opencode session on the host made a prism
-        # session that never opted in get EVERY tool denied.
-        #
-        # The project's own declaraton is the honest opt-in: `.claude/
-        # settings.local.json` is written by `agentbus setup`, is per-checkout,
-        # and is the most specific signal a Claude session has. An env var alone
-        # is not enough — it leaks. A hosted key file alone is not enough —
-        # another project on the host may be wired. Only the project declaring
-        # the identity makes THIS session an AgentBus session.
-        # RESOLVED FROM THE REPO ROOT. Reading `.claude` relative to the cwd made
-        # this gate FAIL OPEN in a subdirectory: a project that HAD opted in
-        # looked un-opted-in to a hook firing from `sdk/`, so the deny branch
-        # below was skipped and the session sailed through ungated. Wrong in the
-        # unsafe direction, and invisible, because the symptom of a skipped gate
-        # is that nothing happens.
-        def _project_opted_in() -> bool:
-            try:
-                from pathlib import Path as _P
-
-                local = (_identity._repo_root() or _P.cwd()) / ".claude" / "settings.local.json"
-                if not local.is_file():
-                    return False
-                import json as _json
-
-                data = _json.loads(local.read_text())
-                return bool((data.get("env") or {}).get("AGENTBUS_AGENT"))
-            except Exception:
-                return False
-
-        if _project_opted_in():
-            # The project opted in but THIS session presents no credential.
-            # Per #107 this DEGRADES rather than blocks: the action runs, but
-            # the warning must be explicit that it is running WITHOUT approval
-            # checking, so a degraded session is never mistaken for a protected
-            # one. (Before #107 this was a deny — that is the hostage behaviour
-            # that locked the operator out of their own machine.)
-            # SEV-1-A: telemetry so a week of silent allowlisting is discoverable.
-            with contextlib.suppress(Exception):
-                record_gate_degraded(
-                    agent or "unknown", "no_credential", "project opted-in, session has no key"
-                )
-            return decide(
-                "allow",
-                "this project is wired for AgentBus but this session has no "
-                "credential, so the guard CANNOT check whether this action "
-                "needs approval. The action runs UNVETTED. This is a degraded "
-                "session, not a protected one. To restore gating, source the "
-                "agent's key file (agentbus signin) and re-run.",
-            )
-        return decide("allow", "this project has not opted into AgentBus; ungated")
+        return _decide_without_credential(agent)
 
     base = os.environ.get("AGENTBUS_BASE_URL", "https://agentbus.rodmena.co.uk")
 
@@ -274,167 +448,36 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     # short cooldown, subsequent calls fail-fast (still degrade to allow, but at
     # 0ms) until a real verdict resets it. Turns a 5-minute wall clock into a
     # sub-second one, without weakening the deny path (a deny is still uncached).
-    _FAST_FAIL_THRESHOLD = int(os.environ.get("AGENTBUS_GATE_FAST_FAIL_AFTER", "3"))
-    _FAST_FAIL_COOLDOWN = float(os.environ.get("AGENTBUS_GATE_FAST_FAIL_COOLDOWN", "30"))
-    try:
-        state_path = _gate_degraded_file(agent)
-        if state_path.exists():
-            state = json.loads(state_path.read_text())
-            count = int(state.get("count") or 0)
-            last_at = state.get("last_at") or ""
-            # A CONNECT failure opens the circuit at once (peer review C5): the
-            # network is gone, and making the next ten tool calls each re-discover
-            # that is what a user feels as "the client freezes on network drop".
-            if last_at and (
-                count >= _FAST_FAIL_THRESHOLD or state.get("reason") == "connect_failure"
-            ):
-                # REG-1 (round-3 audit): last_at is written with time.gmtime()
-                # (UTC — see record_gate_degraded), so it MUST be parsed back as
-                # UTC. time.mktime() interprets local; on BST that reads the
-                # timestamp ~1h in the past and the cooldown never trips, on
-                # US-Pacific ~8h in the future and it always trips. calendar.timegm
-                # is the timezone-safe pair for gmtime.
-                import calendar
-
-                opened_at = state.get("opened_at") or last_at
-                opened_ts = calendar.timegm(time.strptime(opened_at, "%Y-%m-%dT%H:%M:%SZ"))
-                if (time.time() - opened_ts) < _FAST_FAIL_COOLDOWN:
-                    # Record this too — a fast-fail is still a degraded call.
-                    with contextlib.suppress(Exception):
-                        record_gate_degraded(agent, "fast_fail", f"circuit open (count={count})")
-                    return decide(
-                        "allow",
-                        f"AgentBus gate is FAST-FAILING (circuit open, {count} recent "
-                        f"failures; cooldown {int(_FAST_FAIL_COOLDOWN)}s). Action runs "
-                        "UNVETTED — approval checking is OFF. Fix the bus or the "
-                        "credential; a real verdict clears the circuit.",
-                    )
-    except Exception:
-        pass
+    fast_fail_threshold = int(os.environ.get("AGENTBUS_GATE_FAST_FAIL_AFTER", "3"))
+    fast_fail_cooldown = float(os.environ.get("AGENTBUS_GATE_FAST_FAIL_COOLDOWN", "30"))
+    fast_failed = _fast_fail_verdict(agent, fast_fail_threshold, fast_fail_cooldown)
+    if fast_failed is not None:
+        return fast_failed
 
     # Budgets (peer review C5; previously 12s x 2 attempts = ~24s per tool call
     # on a dead network): a 1.5s TCP reachability check first, then a 4s read
     # budget for the verdict. A guard must be fast; a slow bus is a broken bus.
-    _GATE_TIMEOUT = float(os.environ.get("AGENTBUS_GATE_TIMEOUT", "4"))
-    _GATE_CONNECT_TIMEOUT = float(os.environ.get("AGENTBUS_GATE_CONNECT_TIMEOUT", "1.5"))
-    reachable, why = _bus_reachable(base, _GATE_CONNECT_TIMEOUT)
+    gate_timeout = float(os.environ.get("AGENTBUS_GATE_TIMEOUT", "4"))
+    connect_timeout = float(os.environ.get("AGENTBUS_GATE_CONNECT_TIMEOUT", "1.5"))
+    reachable, why = _bus_reachable(base, connect_timeout)
     if not reachable:
         with contextlib.suppress(Exception):
             record_gate_degraded(agent, "connect_failure", why)
-        return decide(
+        return _decide(
             "allow",
             f"AgentBus is unreachable ({why}), so this action runs UNVETTED — approval "
             f"checking is OFF until the bus is reachable again (circuit open for "
-            f"{int(_FAST_FAIL_COOLDOWN)}s). Restore the network or the bus, then re-run "
+            f"{int(fast_fail_cooldown)}s). Restore the network or the bus, then re-run "
             "any gated tool to confirm gating is back on.",
         )
 
-    # ONE retry, on TRANSIENT failures only. david measured five 503s in an
-    # evening, each recovered within seconds with /healthz green immediately
-    # after — they are our own rolling reloads, not an outage.
-    #
-    # The gate changed what a blip costs. Before it, a 503 failed the send you
-    # were making; with a `*` matcher it now stops whatever you were doing,
-    # whether or not the bus was involved. A single retry absorbs every blip of
-    # that shape.
-    #
-    # THIS DOES NOT WEAKEN FAIL-CLOSED, and the distinction is the whole point:
-    # exhausting the retry still DENIES. A refusal is never retried, because a
-    # refusal is an answer — only the absence of an answer is retried. Retrying
-    # a 403 or a parsed `deny` would be the change that guts this control, so
-    # the retry is scoped to the exception path and nothing else.
     fitted = fit_to_guard_limit(tool_input)
     check: dict[str, Any] = {"tool_name": tool_name, "tool_input": fitted}
     if fitted != tool_input:
         check["truncated"] = True
-    body: dict[str, Any] | None = None
-    last_exc: BaseException | None = None
-    retired_detail: str | None = None
-    for attempt in (0, 1):
-        try:
-            request = urllib.request.Request(
-                f"{base.rstrip('/')}/v1/guard/check",
-                data=json.dumps(check).encode(),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                    "X-AgentBus-Agent": agent,
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(request, timeout=_GATE_TIMEOUT) as response:
-                parsed = json.loads(response.read().decode())
-            if not isinstance(parsed, dict):
-                msg = f"guard answered with a JSON {type(parsed).__name__}, not an object"
-                raise ValueError(msg)
-            body = parsed
-            break
-        except urllib.error.HTTPError as exc:
-            last_exc = exc
-            # A retired agent is a DEFINITIVE answer, not an absence of one:
-            # the bus is fine, the identity is gone, and the fix is on the
-            # caller's side. Read the problem body so we can say exactly that
-            # instead of "could not be checked", which sent the container-registry
-            # builder session hunting a phantom bus outage (2026-08-11, #89).
-            if exc.code == 422:
-                with contextlib.suppress(Exception):
-                    problem = json.loads(exc.read().decode())
-                    last_exc = GuardRequestRejected(
-                        f"HTTP 422 {problem.get('code') or 'validation_error'}: "
-                        f"{problem.get('detail') or ''}"
-                    )
-            if exc.code == 410:
-                try:
-                    detail = json.loads(exc.read().decode()).get("detail") or ""
-                    if "retired" in detail.lower():
-                        retired_detail = detail
-                except Exception:
-                    pass
-                break
-            # 5xx is "we could not answer"; 4xx is an answer we must not retry.
-            # Retrying a 401 would hammer the bus with a credential that will
-            # never work, and turn one clear failure into two.
-            if exc.code < 500 or attempt:
-                break
-            time.sleep(0.25)
-        except Exception as exc:
-            # Transport-class failure (timeout, reset, DNS): NO retry (peer review
-            # C5) — the reachability check above already passed, so this is a
-            # slow or dying bus and a second full budget buys nothing.
-            last_exc = exc
-            break
-
+    body, last_exc, retired_detail = _consult_guard(base, api_key, agent, check, gate_timeout)
     if body is None:
-        # NO ANSWER FROM THE GUARD = THE SESSION RUNS UNVETTED, IT IS NEVER
-        # BLOCKED. Operator directive #107: a revoked key or unreachable bus
-        # must degrade, not imprison. The action is allowed because the guard
-        # could not produce a verdict — and the warning says so loudly, so a
-        # degraded session is never mistaken for a protected one.
-        if retired_detail:
-            # SEV-1-A telemetry: agent-retired is a real, actionable state.
-            with contextlib.suppress(Exception):
-                record_gate_degraded(agent, "identity_retired", retired_detail)
-            return decide(
-                "allow",
-                f"{retired_detail} The guard could not verify this action "
-                "because the agent identity is retired, so it runs UNVETTED. "
-                "Re-register the agent name (agentbus register) to restore "
-                "gating.",
-            )
-
-        # SEV-1-A telemetry: the reason names the exception class so watch-status
-        # can distinguish a burst of 401s (rotate a key) from a burst of 503s (bus
-        # rolling deploy) without opening the file.
-        with contextlib.suppress(Exception):
-            reason_slug = type(last_exc).__name__.lower() if last_exc else "unknown"
-            record_gate_degraded(agent, reason_slug, f"{last_exc}")
-        return decide(
-            "allow",
-            f"AgentBus could not verify this action ({last_exc}), so it runs "
-            "UNVETTED — approval checking is OFF for this call, not just for "
-            "this action. If this session's actions need human approval, "
-            "restore the credential (agentbus signin) and re-run.",
-        )
+        return _decide_without_verdict(agent, last_exc, retired_detail)
 
     # A REAL verdict from the guard (allow or deny) clears the degraded record —
     # gating is provably back on. Only real answers clear it; the degraded paths
@@ -442,5 +485,5 @@ def pre_tool_use(_args: argparse.Namespace) -> int:
     with contextlib.suppress(Exception):
         clear_gate_degraded(agent)
     if body.get("decision") == "allow":
-        return decide("allow", str(body.get("reason") or "permitted"))
-    return decide("deny", str(body.get("reason") or "this action requires human approval"))
+        return _decide("allow", str(body.get("reason") or "permitted"))
+    return _decide("deny", str(body.get("reason") or "this action requires human approval"))

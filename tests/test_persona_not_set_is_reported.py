@@ -17,7 +17,7 @@ success for something that had not happened.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client.cli._register import _print_persona_outcome
 
@@ -109,7 +109,7 @@ def test_register_wires_the_reporter_into_its_output() -> None:
 # conclusion was generalised to the capability. Each call site is its own claim.
 
 
-def _setup_report(result: dict, requested: str | None) -> list[str]:
+def _setup_report(result: dict[str, Any], requested: str | None) -> list[str]:
     """The persona branch of the setup panel, as _provision builds it."""
     report: list[str] = []
     if requested:
@@ -145,7 +145,7 @@ def test_setup_panel_falls_back_when_the_server_is_old() -> None:
     assert any("ADMIN-scope" in line for line in lines)
 
 
-def test_BOTH_register_and_setup_paths_report_it() -> None:
+def test_both_register_and_setup_paths_report_it() -> None:
     """THE REGRESSION GUARD FOR THE MISS ITSELF.
 
     There are exactly two call sites that pass persona to register(). The first

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -24,6 +25,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from agentbus_client import sealing
+
+if TYPE_CHECKING:
+    from agentbus_client.client import AgentBus
 
 
 @pytest.fixture
@@ -58,7 +62,7 @@ def _rotate() -> tuple[str, str]:
 
     old = sealing.load_private_key() or ""
     cli._keys_rotate(
-        _NoServer(),
+        cast("AgentBus", _NoServer()),
         argparse.Namespace(keys_action="rotate", label="t", yes=True, json=False, agent="a"),
         "a",
         cli._this_machines_fingerprint(),
@@ -137,7 +141,7 @@ def test_no_keys_at_all_is_distinguishable_from_a_wrong_key() -> None:
 
 
 @pytest.mark.usefixtures("store")
-def test_rotating_TWICE_keeps_all_three_keys() -> None:
+def test_rotating_twice_keeps_all_three_keys() -> None:
     """DATA LOSS, found on 0.5.4 from PyPI by macbook-admin-bd8e86.
 
     `.key.superseded` was a fixed filename, so the second rotation overwrote the
@@ -182,7 +186,7 @@ def test_a_retired_key_is_readable_only_by_its_owner() -> None:
 
 
 @pytest.mark.usefixtures("store")
-def test_a_key_retired_by_an_OLDER_client_is_still_read() -> None:
+def test_a_key_retired_by_an_older_client_is_still_read() -> None:
     """0.5.2-0.5.4 wrote one fixed `sealing.key.superseded`, and machines that
     rotated under those still have it. Reading only the new per-fingerprint
     shape would strand exactly the mail this whole mechanism exists to keep."""

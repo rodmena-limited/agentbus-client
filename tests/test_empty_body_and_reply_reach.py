@@ -82,7 +82,7 @@ async def test_the_async_client_refuses_an_empty_body_too() -> None:
 class _ReplyBus:
     agent = "alice-1"
 
-    def __init__(self, plain: list[str], everyone: list[str], fail: bool = False) -> None:
+    def __init__(self, plain: list[str], everyone: list[str], *, fail: bool = False) -> None:
         self._sets = {False: plain, True: everyone}
         self._fail = fail
         self.replies: list[dict[str, Any]] = []

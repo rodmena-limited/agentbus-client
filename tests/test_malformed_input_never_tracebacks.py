@@ -30,6 +30,7 @@ def _cli(tmp_path: Path, *argv: str, **env: str) -> subprocess.CompletedProcess[
         cwd=str(work),
         timeout=60,
         stdin=subprocess.DEVNULL,
+        check=False,
     )
 
 

@@ -96,7 +96,7 @@ def test_a_signing_key_cannot_be_read_without_an_agent(
     monkeypatch.setattr(sealing, "config_dir", lambda: tmp_path)
     monkeypatch.delenv("AGENTBUS_AGENT", raising=False)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="no acting agent"):
         sealing.signing_key_path(None)
     assert sealing.load_signing_key(None) is None
 

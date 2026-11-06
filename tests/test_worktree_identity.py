@@ -55,7 +55,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _resolve_from(directory: Path) -> str | None:
-    cwd = os.getcwd()
+    cwd = Path.cwd()
     try:
         os.chdir(directory)
         return ob._resolve_agent_name([])
@@ -176,7 +176,7 @@ def test_two_worktrees_are_two_agents_on_one_repo(repo: Path, tmp_path: Path) ->
 
 
 def test_project_claude_dir_points_at_the_checkout_root(repo: Path) -> None:
-    cwd = os.getcwd()
+    cwd = Path.cwd()
     try:
         os.chdir(repo / "sdk")
         assert ob._project_claude_dir() == repo / ".claude"

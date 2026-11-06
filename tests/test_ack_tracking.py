@@ -28,7 +28,7 @@ from agentbus_client.client import AgentBus, AsyncAgentBus, _ack_window_seconds
 
 def test_sdk_send_require_ack_adds_fields() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
@@ -44,7 +44,7 @@ def test_sdk_send_require_ack_adds_fields() -> None:
 
 def test_sdk_send_require_ack_respects_explicit_window() -> None:
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
@@ -60,7 +60,7 @@ def test_sdk_send_omit_require_ack_leaves_payload_clean() -> None:
     """Absence is not empty string. Without --require-ack, no require_ack
     or ack_window_seconds in the payload — old servers never see them."""
     bus = AgentBus(api_key="ab_sk_test_test", agent="me")
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
@@ -92,7 +92,7 @@ def test_sdk_send_rejects_zero_or_negative_window() -> None:
 def test_sdk_send_rejects_bool_as_window() -> None:
     """bool is an int subclass; accepting it would let True==1s pass."""
     with pytest.raises(ValueError, match="not a bool"):
-        _ack_window_seconds(True, default_when_set=True)
+        _ack_window_seconds(ack_window=True, default_when_set=True)
 
 
 def test_ack_window_seconds_helper_direct() -> None:
@@ -106,7 +106,7 @@ async def test_async_send_require_ack_parity() -> None:
     """Async must have parity — the drift that bit `phonebook(label=)`
     and `derived_from` before."""
     bus = AsyncAgentBus(api_key="ab_sk_test_test", agent="me")
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     async def fake_request(method: Any, path: Any, json: Any = None, **kw: Any) -> dict[str, Any]:
         captured.update(json or {})
@@ -165,7 +165,7 @@ def _send_args(**over: Any) -> argparse.Namespace:
 def test_cli_send_require_ack_passes_through(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _Bus:
         agent = "me"
@@ -189,7 +189,7 @@ def test_cli_send_no_require_ack_is_clean(monkeypatch: pytest.MonkeyPatch) -> No
     ack_window=None. The SDK then omits both from the payload (proven by
     test_sdk_send_omit_require_ack_leaves_payload_clean), so old servers
     never see them."""
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _Bus:
         def send(self, to: Any, **kw: Any) -> dict[str, Any]:
@@ -207,7 +207,7 @@ def test_cli_send_no_require_ack_is_clean(monkeypatch: pytest.MonkeyPatch) -> No
 def test_cli_send_batch_require_ack_per_item(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    captured: list[dict] = []
+    captured: list[dict[str, Any]] = []
 
     class _Bus:
         def send(self, to: Any, **kw: Any) -> dict[str, Any]:

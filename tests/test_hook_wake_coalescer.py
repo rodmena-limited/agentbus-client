@@ -43,7 +43,7 @@ def test_lone_message_fires_immediately_and_is_never_wrapped() -> None:
     """The wake for a single delivery must NOT be delayed by the window,
     and MUST arrive with its original per-message shape — installed hooks
     grep on subject / sender_display."""
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=2500, quiet_ms=800)
 
     t0 = time.monotonic()
@@ -69,7 +69,7 @@ def test_lone_message_fires_immediately_and_is_never_wrapped() -> None:
 def test_burst_of_five_produces_one_leading_wake_and_one_envelope() -> None:
     """The peer's burst-test shape: leading fires once, tail coalesces
     into ONE envelope containing the remaining 4."""
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=200, quiet_ms=50)
 
     for i in range(5):
@@ -102,7 +102,7 @@ def test_envelope_projects_first_and_last_fields_for_placeholder_templates() -> 
     envelope must carry those top-level keys so templates do not
     KeyError. First message's fields for id/thread; last message's
     agent_seq (so the cursor placement is correct)."""
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=100, quiet_ms=30)
 
     c.handle(_msg("01F1", subject="first", thread_id="T1", agent_seq=10))
@@ -129,7 +129,7 @@ def test_urgent_message_bypasses_the_window_and_flushes_pending() -> None:
     and fire immediately (leading-edge, then override the accumulation)'.
     A pending buffer is flushed FIRST to preserve arrival order, then the
     urgent message fires as a lone wake."""
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=5000, quiet_ms=2000)
 
     # Open a slow window with two accumulated messages.
@@ -155,7 +155,7 @@ def test_urgent_message_bypasses_the_window_and_flushes_pending() -> None:
 
 
 def test_urgent_when_no_window_is_open_still_fires_immediately() -> None:
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=1000, quiet_ms=200)
     c.handle(_msg("01URG", priority="urgent"))
     assert len(seen) == 1
@@ -169,7 +169,7 @@ def test_arrivals_faster_than_quiet_still_flush_before_hard_cap() -> None:
     """A stream that arrives every quiet_ms - X forever must still flush
     before the hard window elapses — the quiet timer cannot extend past
     the hard deadline."""
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     # 250 ms hard, 100 ms quiet.
     c = Coalescer(seen.append, window_ms=250, quiet_ms=100)
 
@@ -192,7 +192,7 @@ def test_arrivals_faster_than_quiet_still_flush_before_hard_cap() -> None:
 
 
 def test_close_flushes_pending_buffer_synchronously() -> None:
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=5000, quiet_ms=2000)
 
     c.handle(_msg("01C0"))  # leading — fires
@@ -209,7 +209,7 @@ def test_close_flushes_pending_buffer_synchronously() -> None:
 
 
 def test_arrivals_after_close_deliver_directly_and_do_not_reopen_window() -> None:
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=5000, quiet_ms=2000)
     c.handle(_msg("01D0"))
     c.close()
@@ -258,7 +258,7 @@ def test_notify_command_survives_a_coalesced_envelope(tmp_path: Path) -> None:
     # references every placeholder, including the new envelope_count.
     calls: list[str] = []
 
-    def fake_run(command: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+    def fake_run(command: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append(command)
         return subprocess.CompletedProcess(args=command, returncode=0)
 
@@ -297,7 +297,7 @@ def test_notify_command_still_works_for_a_lone_message(tmp_path: Path) -> None:
     calls = []
     handler = watch_module.notify_command('touch "solo-{envelope_count}"')
 
-    def fake_run(command: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+    def fake_run(command: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append(command)
         return subprocess.CompletedProcess(args=command, returncode=0)
 
@@ -309,7 +309,7 @@ def test_notify_command_still_works_for_a_lone_message(tmp_path: Path) -> None:
 def test_concurrent_handle_calls_are_serialized() -> None:
     """The drain thread and background timer thread both call in — count
     and ordering must be honest under contention."""
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
     c = Coalescer(seen.append, window_ms=200, quiet_ms=50)
 
     def spam(offset: int) -> None:

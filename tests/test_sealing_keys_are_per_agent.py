@@ -100,7 +100,7 @@ def test_a_retired_key_is_not_shared_across_agents(store: Path) -> None:
 def test_a_key_with_no_owner_is_refused() -> None:
     """A sealing key with no agent IS the shared key this design removed, so it
     must be impossible to ask for one rather than silently defaulting."""
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match="no acting agent") as exc:
         sealing.key_path()
     assert "one agent" in str(exc.value).lower()
 

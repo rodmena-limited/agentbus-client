@@ -49,13 +49,13 @@ def test_none_stays_none_so_callers_can_splat_it() -> None:
 def test_bool_is_refused_even_though_it_is_an_int() -> None:
     """`--delay True` is a bug, not a 1-second delay. bool subclasses int, so
     without this it would silently mean one second."""
-    with pytest.raises(ValueError):
-        _duration_seconds(True)
+    with pytest.raises(ValueError, match="invalid duration: True"):
+        _duration_seconds(value=True)
 
 
 def test_nonsense_duration_is_refused_locally() -> None:
     """Caught here, not as a confusing server 422."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid duration 'tuesday'"):
         _duration_seconds("tuesday")
 
 
@@ -72,19 +72,23 @@ def test_subsecond_precision_survives() -> None:
     not-yet-due row, which reads as a green run that accomplished nothing.
     Their mail-api incident was exactly this."""
     moment = dt.datetime(2026, 8, 21, 9, 0, 25, 822000, tzinfo=dt.timezone.utc)
-    assert "25.822" in _as_instant(moment)
+    instant = _as_instant(moment)
+    assert instant is not None
+    assert "25.822" in instant
 
 
 def test_a_datetime_is_never_sent_as_a_bare_local_string() -> None:
     """A naive datetime must be resolved against the local zone and converted,
     not shipped as-is for a server in another zone to read as UTC. An
     off-by-hours reminder looks like flakiness, not like a defect."""
-    naive = dt.datetime(2026, 8, 21, 9, 0)
-    assert _as_instant(naive).endswith("Z")
+    naive = dt.datetime(2026, 8, 21, 9, 0, tzinfo=dt.timezone.utc).replace(tzinfo=None)
+    instant = _as_instant(naive)
+    assert instant is not None
+    assert instant.endswith("Z")
 
 
 def test_a_wrong_type_is_refused_rather_than_stringified() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="expected a datetime or ISO-8601 string, got int"):
         _as_instant(12345)
 
 
@@ -136,7 +140,7 @@ def test_remind_and_reminders_are_different_commands() -> None:
 
 class _Spy:
     def __init__(self, sealed_marker: str = "-----BEGIN AGE ENCRYPTED FILE-----") -> None:
-        self.body = None
+        self.body: Any = None
         self.marker = sealed_marker
 
     def __call__(self, method: Any, path: Any, **kw: Any) -> dict[str, Any]:
@@ -148,7 +152,7 @@ class _Spy:
 def _bus_with_spy() -> Any:
     from agentbus_client.client import AgentBus
 
-    bus = AgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
+    bus: Any = AgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
     spy = _Spy()
     bus._request = spy
     return bus, spy
@@ -169,12 +173,12 @@ def test_a_self_note_seals_to_self_not_to_a_recipient() -> None:
     assert called.get("self"), "a self-note must seal to the author's own key"
 
 
-def test_a_targeted_reminder_seals_to_THAT_agent() -> None:
+def test_a_targeted_reminder_seals_to_that_agent() -> None:
     """Sealing a targeted reminder to SELF would deliver something the recipient
     cannot open — data loss wearing security's clothes, and it would only be
     discovered when the reminder came due."""
     bus, _spy = _bus_with_spy()
-    seen = {}
+    seen: dict[str, Any] = {}
 
     def fake_seal(body: str, agent: str, **kw: Any) -> Any:
         seen["resolve"] = kw.get("resolve_body")
@@ -301,7 +305,9 @@ def test_an_absolute_expiry_date_passes_through_unconverted() -> None:
     from agentbus_client._timefmt import _expiry_instant
 
     assert _expiry_instant("2026-12-01T00:00:00Z") == "2026-12-01T00:00:00Z"
-    assert _expiry_instant("3d").endswith("Z")
+    resolved = _expiry_instant("3d")
+    assert resolved is not None
+    assert resolved.endswith("Z")
 
 
 def test_timezone_is_never_defaulted_by_the_client() -> None:
@@ -359,7 +365,9 @@ def test_the_payload_carries_only_fields_the_server_accepts() -> None:
     assert set(spy.body) <= served, f"sends fields the server forbids: {set(spy.body) - served}"
 
 
-def test_a_targeted_reminder_does_not_send_fields_the_route_forbids() -> None:
+def test_a_targeted_reminder_does_not_send_fields_the_route_forbids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """REGRESSION: `--target` was broken while a self-note worked.
 
     `_apply_seal` sets `html=None` because it was written for POST /v1/messages,
@@ -379,15 +387,15 @@ def test_a_targeted_reminder_does_not_send_fields_the_route_forbids() -> None:
 
     bus = AgentBus(api_key="ab_sk_x_y", base_url="http://localhost")
     spy = _Spy()
-    bus._request = spy
+    monkeypatch.setattr(bus, "_request", spy)
 
-    def seal_like_the_send_route(body: str, agent: str, **kw: Any) -> Any:
+    def seal_like_the_send_route(body: dict[str, Any], agent: str, **kw: Any) -> Any:
         out = dict(body)
         out["html"] = None  # what _apply_seal really does
         out["sealed"] = True
         return out, None
 
-    bus._seal_if_needed = seal_like_the_send_route
+    monkeypatch.setattr(bus, "_seal_if_needed", seal_like_the_send_route)
     bus.remind("note", target="alice", delay="2h")
 
     served = {

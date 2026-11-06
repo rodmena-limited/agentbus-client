@@ -42,7 +42,7 @@ class _Bus:
         return {"keys": self._sealing}
 
 
-def _run(bus: Any, as_json: bool = False) -> Any:
+def _run(bus: Any, *, as_json: bool = False) -> Any:
     buf = io.StringIO()
     with redirect_stdout(buf):
         rc = _keys._keys_list(bus, argparse.Namespace(json=as_json), "a", None)

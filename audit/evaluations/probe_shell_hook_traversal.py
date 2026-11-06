@@ -38,7 +38,9 @@ def main() -> int:
             ("STOP_REWAKE", onboarding.STOP_REWAKE_SH),
         ]:
             s = snippet.replace("exec agentbus-hook monitor", "exit 0")
-            p = subprocess.run(["sh", "-c", s], capture_output=True, text=True, env=env, timeout=10)
+            p = subprocess.run(
+                ["sh", "-c", s], capture_output=True, text=True, env=env, timeout=10, check=False
+            )
             if "OPERATOR_SHOULD_NOT_LEAK" in p.stdout or "OPERATOR_SHOULD_NOT_LEAK" in p.stderr:
                 print(f"FAIL: {name} sourced the operator key via traversal")
                 return 1
@@ -51,7 +53,9 @@ def main() -> int:
         (cfg / "keys" / "legit.env").write_text("export AGENTBUS_API_KEY=ab_sk_LEGIT_OK\n")
         env = {"HOME": str(home), "AGENTBUS_AGENT": "legit", "PATH": os.environ.get("PATH", "")}
         s = onboarding._SESSION_START_CMD + "; echo KEY=${AGENTBUS_API_KEY:-NONE}"
-        p = subprocess.run(["sh", "-c", s], capture_output=True, text=True, env=env, timeout=10)
+        p = subprocess.run(
+            ["sh", "-c", s], capture_output=True, text=True, env=env, timeout=10, check=False
+        )
         if "KEY=ab_sk_LEGIT_OK" not in p.stdout:
             print("FAIL: legit agent key not sourced (known-positive)")
             return 1

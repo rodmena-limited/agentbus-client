@@ -18,12 +18,12 @@ from typing import Any
 
 import pytest
 
-from agentbus_client.cli import _directory
+from agentbus_client.cli import _common, _directory
 
 
 def _whoami(monkeypatch: pytest.MonkeyPatch, result: Any) -> Any:
     monkeypatch.setattr(
-        _directory._common,
+        _common,
         "_bus",
         lambda _a: type("B", (), {"whoami": lambda s: result})(),
     )

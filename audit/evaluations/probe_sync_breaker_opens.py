@@ -15,7 +15,7 @@ os.environ["AGENTBUS_SDK_MAX_RETRIES"] = "0"
 import resilient_circuit.retry as _rr
 from _common import verdict
 
-_rr.sleep = lambda *_a, **_k: None  # classification is under test, not timing
+vars(_rr)["sleep"] = lambda *_a, **_k: None  # classification is under test, not timing
 import contextlib
 from typing import NoReturn
 
@@ -25,15 +25,15 @@ from agentbus_client.client import AgentBus, AgentBusError, resilience
 
 
 class Down:
-    def __init__(s: Any) -> None:
-        s.calls = 0
+    def __init__(self) -> None:
+        self.calls = 0
 
-    def request(s: Any, *a: Any, **k: Any) -> NoReturn:
-        s.calls += 1
+    def request(self, *a: Any, **k: Any) -> NoReturn:
+        self.calls += 1
         msg = "down"
         raise httpx.ConnectError(msg)
 
-    def close(s: Any) -> None:
+    def close(self) -> None:
         pass
 
 
@@ -46,7 +46,8 @@ for _ in range(10):
         bus._request("GET", "/v1/whoami")
 cb = resilience._SDK_SAFETY_NET.policies[0]
 print(
-    f"sync breaker after 10 failing sequences: {cb.status.value}; window={cb.execution_log.size}; wire calls={bus._client.calls}"
+    f"sync breaker after 10 failing sequences: {cb.status.value}; "
+    f"window={cb.execution_log.size}; wire calls={bus._client.calls}"
 )
 opened = cb.status.value == "OPEN" and cb.execution_log.size >= 2
 
@@ -56,15 +57,16 @@ cb.status = CircuitStatus.OPEN
 typed = False
 try:
     bus._request("GET", "/v1/whoami")
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     typed = isinstance(e, AgentBusError)
     print(
-        f"open-breaker exception: {type(e).__module__}.{type(e).__name__} str={str(e)!r} AgentBusError={typed}"
+        f"open-breaker exception: {type(e).__module__}.{type(e).__name__} "
+        f"str={str(e)!r} AgentBusError={typed}"
     )
 
 import resilient_circuit as rc
 
-cap = {}
+cap: dict[str, Any] = {}
 
 
 class Spy(rc.SafetyNet):
@@ -73,7 +75,7 @@ class Spy(rc.SafetyNet):
         cap["net"] = self
 
 
-rc.SafetyNet = Spy
+vars(rc)["SafetyNet"] = Spy
 from agentbus_client import rewake
 
 rewake._unread_text = lambda agent, wait=0: (_ for _ in ()).throw(ConnectionError("wifi off"))
@@ -85,7 +87,8 @@ print(f"rewake breaker after 8 failing polls: {rb.status.value}; window={rb.exec
 raise SystemExit(
     verdict(
         opened and typed and rb.status.value == "OPEN",
-        "breaker never opens (RetryLimitReached classified as success; Fraction(n,n) is a 1-slot window) "
+        "breaker never opens (RetryLimitReached classified as success; "
+        "Fraction(n,n) is a 1-slot window) "
         "and/or an open breaker leaks resilient_circuit.ProtectedCallError to callers",
     )
 )

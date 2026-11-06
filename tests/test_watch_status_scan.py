@@ -26,12 +26,14 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from agentbus_client import cli
 from agentbus_client.hooks import claude_code
 
 if TYPE_CHECKING:
+    import argparse
+
     import pytest
 
 
@@ -74,7 +76,7 @@ class TestScanWatchProcess:
 
 class TestEnvAgentReversal:
     def test_injected_main_identity_is_reversed_with_notice(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         monkeypatch.setenv("AGENTBUS_AGENT", "main-agent")
         monkeypatch.setattr(
@@ -100,11 +102,11 @@ class TestEnvAgentReversal:
         assert cli._resolve_env_agent() is None
 
     def test_reversed_agent_uses_its_own_stored_key(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """#161's credential half: the injected env key is the MAIN agent's
         bound key; after reversal the worktree agent's own key file must win."""
-        captured: dict = {}
+        captured: dict[str, Any] = {}
 
         class _CapturingBus:
             def __init__(self, api_key: Any = None, agent: Any = None, **_kw: object) -> None:
@@ -121,7 +123,7 @@ class TestEnvAgentReversal:
         )
         monkeypatch.setattr(cli._common, "AgentBus", _CapturingBus)
         args = SimpleNamespace(api_key=None, agent=None, base_url=None)
-        cli._bus(args)
+        cli._bus(cast("argparse.Namespace", args))
         assert captured["agent"] == "worktree-agent"
         assert captured["api_key"] == "ab_sk_" + "w" * 16 + "_ownkey"
         capsys.readouterr()  # drain the stderr notice
@@ -133,7 +135,7 @@ class TestEnvAgentReversal:
             msg = "bleed check must not run for an explicit --agent"
             raise AssertionError(msg)
 
-        captured: dict = {}
+        captured: dict[str, Any] = {}
 
         class _CapturingBus:
             def __init__(self, agent: Any = None, **_kw: object) -> None:
@@ -144,5 +146,5 @@ class TestEnvAgentReversal:
         monkeypatch.setattr(claude_code._identity, "_worktree_identity_bleed", explode)
         monkeypatch.setattr(cli._common, "AgentBus", _CapturingBus)
         args = SimpleNamespace(api_key=None, agent="chosen-one", base_url=None)
-        cli._bus(args)
+        cli._bus(cast("argparse.Namespace", args))
         assert captured["agent"] == "chosen-one"

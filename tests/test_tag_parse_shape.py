@@ -38,7 +38,7 @@ class _CapturingBus:
     """Records the labels dict that got POST'd to the server."""
 
     def __init__(self) -> None:
-        self.tag_called_with: dict[str, str] | None = None
+        self.tag_called_with: Any = None
         self.register_called_with: dict[str, str] | None = None
         self.agent = "test-agent"
 
@@ -64,7 +64,7 @@ def _tag_args(
 
 
 def _register_args(**over: Any) -> argparse.Namespace:
-    base = {
+    base: dict[str, Any] = {
         "name": "test-agent",
         "role": None,
         "workdir": None,
@@ -174,7 +174,7 @@ def test_cmd_tag_and_cmd_register_produce_identical_shape(
 # ------------------------------------------------------------- forbidden shapes
 
 
-def test_colon_alone_is_NOT_treated_as_a_key_value_separator(
+def test_colon_alone_is_not_treated_as_a_key_value_separator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The peer's suspicion was that ONE path might partition on `:`

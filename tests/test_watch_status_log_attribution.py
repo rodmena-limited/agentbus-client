@@ -66,7 +66,7 @@ def test_a_state_keyed_log_is_reported_as_this_watchers(runtime: Any) -> None:
     assert is_ours is True
 
 
-def test_a_legacy_log_is_reported_but_NOT_claimed_as_this_watchers(runtime: Any) -> None:
+def test_a_legacy_log_is_reported_but_not_claimed_as_this_watchers(runtime: Any) -> None:
     """THIS HOST'S CASE, and the one that keeps the fix honest. The file exists
     and is worth naming; the filename cannot support the claim that it belongs
     to the state-keyed watcher being reported on."""

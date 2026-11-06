@@ -27,17 +27,20 @@ from agentbus_client import cli
 if TYPE_CHECKING:
     import pytest
 
-ARMOR = "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3Yx\n-----END AGE ENCRYPTED FILE-----"
+ARMOR = (
+    "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3Yx\n"
+    "-----END AGE ENCRYPTED FILE-----"
+)
 
 
 class FakeBus:
     """Records whether the caller asked to skip unsealing."""
 
-    def __init__(self, sealed: bool = True) -> None:
+    def __init__(self, *, sealed: bool = True) -> None:
         self.sealed = sealed
         self.raw_calls: list[bool] = []
 
-    def read(self, delivery_id: str, raw: bool = False) -> dict:
+    def read(self, delivery_id: str, *, raw: bool = False) -> dict[str, Any]:
         self.raw_calls.append(raw)
         body = ARMOR if (self.sealed and raw) else "the decrypted body"
         return {
@@ -52,7 +55,7 @@ class FakeBus:
             "your_role": "to",
         }
 
-    def thread(self, thread_id: str) -> dict:  # pragma: no cover - guard path
+    def thread(self, thread_id: str) -> dict[str, Any]:  # pragma: no cover - guard path
         msg = "--raw must never fetch a thread"
         raise AssertionError(msg)
 

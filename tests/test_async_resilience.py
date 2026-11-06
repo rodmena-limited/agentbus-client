@@ -30,8 +30,8 @@ sys.path.insert(0, str(REPO / "src"))
 from typing import NoReturn
 
 from agentbus_client.client import errors as client_errors, resilience as client_resilience
+from agentbus_client.client._async_breaker import _AsyncCircuitBreaker
 from agentbus_client.client.async_client import AsyncAgentBus
-from agentbus_client.client.resilience import _AsyncCircuitBreaker
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +43,7 @@ def _isolate_breaker(monkeypatch: pytest.MonkeyPatch) -> Any:
     return fresh
 
 
-def _stub_client(calls: list) -> Any:
+def _stub_client(calls: list[Any]) -> Any:
     """A stub httpx.AsyncClient whose request appends to `calls` and succeeds."""
 
     class _Stub:
@@ -88,7 +88,7 @@ def test_breaker_opens_then_calls_fail_fast(monkeypatch: pytest.MonkeyPatch) -> 
     """After `failure_limit` consecutive failing retry-sequences the breaker
     opens; subsequent calls fail fast with the last error and attempt no retry
     and no new transport call."""
-    calls: list = []
+    calls: list[Any] = []
 
     class _Flaky:
         def __init__(self) -> None:

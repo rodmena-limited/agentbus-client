@@ -24,7 +24,7 @@ import argparse
 import hashlib
 import io
 from contextlib import redirect_stderr
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentbus_client import cli
 
@@ -54,7 +54,7 @@ class FakeBus:
     def __init__(self, body: str) -> None:
         self.body = body
 
-    def read(self, delivery_id: str, raw: bool = False) -> dict:
+    def read(self, delivery_id: str, *, raw: bool = False) -> dict[str, Any]:
         return {
             "message_id": "msg_1",
             "thread_id": "th_1",
@@ -67,7 +67,7 @@ class FakeBus:
             "your_role": "to",
         }
 
-    def thread(self, thread_id: str) -> dict:
+    def thread(self, thread_id: str) -> dict[str, Any]:
         msg = "--raw must never fetch a thread"
         raise AssertionError(msg)
 

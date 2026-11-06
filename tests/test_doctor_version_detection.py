@@ -61,7 +61,7 @@ def test_unreadable_state_is_none_rather_than_an_exception(cfg: Any) -> None:
     assert _doctor._running_watcher_version("a") is None
 
 
-def test_the_NEWEST_state_file_wins(cfg: Any) -> None:
+def test_the_newest_state_file_wins(cfg: Any) -> None:
     """A session leaves its state file behind. Reading a stale one would report
     the version of a watcher that exited days ago as if it were running."""
     old = _monitor(cfg, "a", "0.1.0", name="old")

@@ -10,6 +10,7 @@ from agentbus_client.client._reply_guard import _refuse_self_reply
 from agentbus_client.client.attachments import _encode_attachments
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 DETAIL = (
@@ -57,11 +58,12 @@ def test_refusal_detail_carries_the_call_specific_names() -> None:
 
 
 def test_a_reply_to_someone_else_or_to_two_selves_is_not_refused() -> None:
-    assert _refuse_self_reply({"to": ["peer"], "cc": []}, "me", "m", allow_self=False) is None
-    assert _refuse_self_reply({"to": ["me", "me"], "cc": []}, "me", "m", allow_self=False) is None
-    assert _refuse_self_reply({"to": ["me"], "cc": ["me"]}, "me", "m", allow_self=False) is None
-    assert _refuse_self_reply({}, "me", "m", allow_self=False) is None
-    assert _refuse_self_reply({"to": ["me"]}, "", "m", allow_self=False) is None
+    refuse: Callable[..., object] = _refuse_self_reply
+    assert refuse({"to": ["peer"], "cc": []}, "me", "m", allow_self=False) is None
+    assert refuse({"to": ["me", "me"], "cc": []}, "me", "m", allow_self=False) is None
+    assert refuse({"to": ["me"], "cc": ["me"]}, "me", "m", allow_self=False) is None
+    assert refuse({}, "me", "m", allow_self=False) is None
+    assert refuse({"to": ["me"]}, "", "m", allow_self=False) is None
 
 
 def _write(path: Path, size: int) -> Path:
@@ -161,7 +163,7 @@ def test_the_server_cap_error_states_the_encrypted_effective_limit(
 ) -> None:
     monkeypatch.setenv("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024))
     f = tmp_path / "big.bin"
-    with open(f, "wb") as handle:
+    with f.open("wb") as handle:
         handle.seek(10 * 1024 * 1024)
         handle.write(b"\0")
     with pytest.raises(AgentBusError) as info:

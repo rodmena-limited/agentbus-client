@@ -62,15 +62,15 @@ SERVER_UNVERIFIABLE = {
 }
 
 
-def _show(block: dict) -> str:
+def _show(block: dict[str, Any]) -> str:
     return "\n".join(_sigline.signature_lines({"provenance": {"signature": block}}, "DEL"))
 
 
-def _thread(block: dict) -> str:
+def _thread(block: dict[str, Any]) -> str:
     return _sigline.thread_signature_line({"id": "m1", "provenance": {"signature": block}}) or ""
 
 
-def _notice(block: dict) -> str:
+def _notice(block: dict[str, Any]) -> str:
     return _sigline.notice_fragment(block["state"])
 
 

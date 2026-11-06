@@ -3,7 +3,8 @@ from __future__ import annotations
 import io
 import json
 import sys
-from typing import TYPE_CHECKING, Any
+import urllib.request
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typing_extensions import Self
@@ -12,7 +13,10 @@ import agentbus_client.hooks.claude_code as hk
 from agentbus_client.hooks import _gate
 
 if TYPE_CHECKING:
+    import argparse
     from pathlib import Path
+
+NO_ARGS = cast("argparse.Namespace", None)
 
 
 class _Resp:
@@ -69,7 +73,7 @@ def _install(
             pass
 
     monkeypatch.setattr(_gate, "_bus_reachable", rig.reachable)
-    monkeypatch.setattr(_gate.urllib.request, "urlopen", rig.urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", rig.urlopen)
     for key in (
         "AGENTBUS_GATE_TIMEOUT",
         "AGENTBUS_GATE_CONNECT_TIMEOUT",
@@ -100,7 +104,7 @@ def _run(
     **env: str,
 ) -> _Rig:
     rig = _install(monkeypatch, DENY if verdict is None else verdict, stdin, {**WIRED, **env})
-    assert hk.pre_tool_use(None) == 0
+    assert hk.pre_tool_use(NO_ARGS) == 0
     return rig
 
 
@@ -126,7 +130,7 @@ def test_the_default_base_is_the_production_bus(monkeypatch: pytest.MonkeyPatch)
         monkeypatch, DENY, BASH_LS, {k: v for k, v in WIRED.items() if k != "AGENTBUS_BASE_URL"}
     )
     monkeypatch.delenv("AGENTBUS_BASE_URL", raising=False)
-    assert hk.pre_tool_use(None) == 0
+    assert hk.pre_tool_use(NO_ARGS) == 0
     assert [r.full_url for r in rig.requests] == ["https://agentbus.rodmena.co.uk/v1/guard/check"]
     assert rig.probes == [("https://agentbus.rodmena.co.uk", 1.5)]
 
@@ -260,7 +264,7 @@ def test_a_session_missing_key_or_identity_never_reaches_the_network(
     for key in ("AGENTBUS_API_KEY", "AGENTBUS_AGENT"):
         monkeypatch.delenv(key, raising=False)
     rig = _install(monkeypatch, DENY, BASH_LS, {"AGENTBUS_BASE_URL": "https://bus.example", **env})
-    assert hk.pre_tool_use(None) == 0
+    assert hk.pre_tool_use(NO_ARGS) == 0
     assert rig.requests == []
     assert rig.probes == []
     assert rig.decision()["hookSpecificOutput"] == {
@@ -280,7 +284,7 @@ def test_an_opted_in_project_without_a_key_degrades_loudly_without_asking(
     for key in ("AGENTBUS_API_KEY", "AGENTBUS_AGENT"):
         monkeypatch.delenv(key, raising=False)
     rig = _install(monkeypatch, DENY, BASH_LS, {"AGENTBUS_BASE_URL": "https://bus.example"})
-    assert hk.pre_tool_use(None) == 0
+    assert hk.pre_tool_use(NO_ARGS) == 0
     assert rig.requests == []
     assert rig.probes == []
     out = rig.decision()["hookSpecificOutput"]

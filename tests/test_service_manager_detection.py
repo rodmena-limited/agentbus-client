@@ -35,7 +35,7 @@ def _invoke(manager: str | None, which: dict[str, str | None], system: str = "Fr
     out, err = io.StringIO(), io.StringIO()
     with (
         patch("platform.system", return_value=system),
-        patch("shutil.which", side_effect=lambda name: which.get(name)),
+        patch("shutil.which", side_effect=which.get),
         patch.dict("os.environ", {"AGENTBUS_AGENT": "probe-agent"}),
         contextlib.redirect_stdout(out),
         contextlib.redirect_stderr(err),
@@ -60,7 +60,8 @@ def test_bare_autodetect_hard_fails_where_no_manager_exists() -> None:
     assert "systemctl" not in out, "no instruction may name a binary the host lacks"
     combined = out + err
     assert "rc.d" in combined, "the refusal must name the way out (--manager rc.d)"
-    assert "systemd" in combined and "launchd" in combined, "say what was looked for"
+    assert "systemd" in combined, "say what was looked for"
+    assert "launchd" in combined, "say what was looked for"
 
 
 def test_linux_with_systemd_still_gets_a_unit() -> None:
@@ -79,7 +80,8 @@ def test_explicit_rcd_emits_an_rc_script_not_a_unit() -> None:
     assert "rc.subr" in out
     # the supervisor/child pidfile split — using only one means `service stop`
     # kills the wrong process and daemon(8) restarts the watcher being stopped
-    assert "-P " in out and "-p " in out, "daemon(8) needs BOTH pidfiles (-P supervisor, -p child)"
+    assert "-P " in out, "daemon(8) needs BOTH pidfiles (-P supervisor, -p child)"
+    assert "-p " in out, "daemon(8) needs BOTH pidfiles (-P supervisor, -p child)"
     assert "-r" in out, "-r must pair with -R or a config error hot-loops"
     _m = re.search(r"-R (\d+)", out)
     assert _m, "-r without -R is a hot loop"

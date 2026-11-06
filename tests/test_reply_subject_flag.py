@@ -19,7 +19,7 @@ class FakeBus:
     agent = "me"
 
     def __init__(self) -> None:
-        self.kwargs: dict = {}
+        self.kwargs: dict[str, Any] = {}
 
     def read(self, ident: Any, **_: Any) -> NoReturn:
         msg = "not a delivery"

@@ -12,7 +12,7 @@ try:
     out = b.unseal_message({"text_body": "plain"})
     print(f"unseal_message -> {out}")
     ok = True
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     print(f"unseal_message -> {type(e).__name__}: {e}")
     ok = False
 raise SystemExit(verdict(ok, "AsyncAgentBus.read()/thread() crash with NameError"))

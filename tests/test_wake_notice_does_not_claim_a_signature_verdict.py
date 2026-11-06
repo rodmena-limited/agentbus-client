@@ -27,13 +27,15 @@ from __future__ import annotations
 import argparse
 import json as _json
 import socket as _socket
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 from unittest.mock import patch
 
 from agentbus_client.hooks import _inject, claude_code as hooks
 
 if TYPE_CHECKING:
     import pytest
+
+FAKE_SOCKET = "/tmp/fake"  # noqa: S108
 
 
 class _FakeSock:
@@ -66,12 +68,12 @@ def _notice(direction: str = "bus", sender: str = "peer-1234") -> str:
     )
     captured: list[bytes] = []
     with (
-        patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/fake"}),
+        patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": FAKE_SOCKET}),
         patch.object(_socket, "socket", return_value=_FakeSock(captured)),
     ):
         hooks.inject(args)
     assert captured, "no payload was sent to the socket"
-    return _json.loads(captured[0])["message"]["content"]
+    return cast("str", _json.loads(captured[0])["message"]["content"])
 
 
 def test_the_harness_reaches_the_bus_branch_at_all() -> None:
@@ -89,7 +91,7 @@ def test_a_bus_message_notice_does_not_use_the_word_verified_unqualified() -> No
     assert "verified by AgentBus" not in _notice()
 
 
-def test_it_still_says_what_agentbus_DID_check() -> None:
+def test_it_still_says_what_agentbus_did_check() -> None:
     """Stripping the false claim must not strip the true one. A notice that says
     nothing about provenance is not an improvement."""
     assert "authenticated the SENDER" in _notice()
@@ -132,11 +134,11 @@ def _notice_with_state(state: Any) -> str:
     )
     captured: list[bytes] = []
     with (
-        patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/fake"}),
+        patch.dict("os.environ", {"CLAUDE_CODE_MESSAGING_SOCKET": FAKE_SOCKET}),
         patch.object(_socket, "socket", return_value=_FakeSock(captured)),
     ):
         hooks.inject(args)
-    return _json.loads(captured[0])["message"]["content"]
+    return cast("str", _json.loads(captured[0])["message"]["content"])
 
 
 def test_a_valid_signature_is_reported_as_the_buss_word() -> None:
@@ -180,6 +182,7 @@ def test_the_notice_and_show_agree_on_what_a_failure_is() -> None:
 def _dry_run(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    *,
     socket_set: bool,
     state: Any = None,
 ) -> str:
@@ -196,7 +199,7 @@ def _dry_run(
         my_lane=None,
     )
     if socket_set:
-        monkeypatch.setenv("CLAUDE_CODE_MESSAGING_SOCKET", "/tmp/fake")
+        monkeypatch.setenv("CLAUDE_CODE_MESSAGING_SOCKET", FAKE_SOCKET)
     else:
         monkeypatch.delenv("CLAUDE_CODE_MESSAGING_SOCKET", raising=False)
 

@@ -40,7 +40,7 @@ def test_an_auth_rejection_still_marks_it_dead() -> None:
     assert "AuthError" in g
 
 
-def test_a_transport_failure_does_NOT_mark_it_dead() -> None:
+def test_a_transport_failure_does_not_mark_it_dead() -> None:
     """THE CONTROL. Widening this too far destroys a good credential every time
     the bus blips — the guard must act on an explicit verdict from the server,
     never on a failure to reach it."""
@@ -56,7 +56,7 @@ def test_the_dead_key_is_renamed_not_deleted() -> None:
     assert ".env.dead" in g
 
 
-def test_a_stored_key_for_ANOTHER_LIVE_workspace_is_not_reused() -> None:
+def test_a_stored_key_for_another_live_workspace_is_not_reused() -> None:
     """THE WORSE CASE, and the one the operator's question exposed.
 
     "Is the key alive" was the only question asked. A stored key for a
@@ -86,7 +86,7 @@ def test_the_mismatched_key_is_set_aside_under_a_distinct_name() -> None:
 
 def _onboarding_source() -> str:
     """onboarding is a package now (one module per concern): read all of it, in a stable order."""
-    from pathlib import Path as _P
+    from pathlib import Path
 
-    pkg = _P(__file__).resolve().parents[1] / "src" / "agentbus_client" / "onboarding"
+    pkg = Path(__file__).resolve().parents[1] / "src" / "agentbus_client" / "onboarding"
     return "".join(f.read_text() for f in sorted(pkg.glob("*.py")))

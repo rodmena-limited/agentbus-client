@@ -47,12 +47,10 @@ def _client(fake: FakeBus, agent: str | None = READER) -> AgentBus:
     return bus
 
 
-def _sender_signs(
-    to: Any, cc: Any, subject: str, priority: Any, text: Any = TEXT, sender: Any = SENDER
-) -> Any:
-    _private, public = sealing.ensure_signing_keypair(sender)
-    origin = AgentBus(api_key="ab_live_sender", base_url=BASE, agent=sender)
-    payload = {"to": to, "cc": cc, "subject": subject, "text": text}
+def _sender_signs(to: Any, cc: Any, subject: str, priority: Any) -> Any:
+    _private, public = sealing.ensure_signing_keypair(SENDER)
+    origin = AgentBus(api_key="ab_live_sender", base_url=BASE, agent=SENDER)
+    payload = {"to": to, "cc": cc, "subject": subject, "text": TEXT}
     if priority is not None:
         payload["priority"] = priority
     signed = origin._sign_if_possible(payload, None)
@@ -63,7 +61,7 @@ def _sender_signs(
 
 
 def _delivery(
-    signed: Any, *, state: str = "valid", priority: str = "urgent", recipients: Any = None
+    signed: Any, *, state: str = "valid", priority: str | None = "urgent", recipients: Any = None
 ) -> Any:
     message = {
         "id": "dlv-1",

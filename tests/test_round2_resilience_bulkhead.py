@@ -3,12 +3,15 @@ from __future__ import annotations
 import threading
 import time
 import weakref
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
 from agentbus_client.client import resilience
 from agentbus_client.client.errors import AgentBusError, TransportError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @pytest.fixture(autouse=True)
@@ -36,11 +39,11 @@ def _wait_until(predicate: Any, limit: float = 5.0) -> bool:
     return False
 
 
-def _background(fn: Any, results: list) -> threading.Thread:
+def _background(fn: Any, results: list[Any]) -> threading.Thread:
     def _run() -> None:
         try:
             results.append(resilience._run_with_resilience(fn, timeout=10))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             results.append(exc)
 
     t = threading.Thread(target=_run, daemon=True)
@@ -113,7 +116,7 @@ def test_concurrency_cap_is_exact(monkeypatch: pytest.MonkeyPatch) -> None:
             state["now"] -= 1
         return "done"
 
-    results: list = []
+    results: list[Any] = []
     threads = [_background(_blocker, results) for _ in range(4)]
     assert _wait_until(lambda: state["now"] == 2)
     time.sleep(0.2)
@@ -130,7 +133,7 @@ def test_queue_full_rejects_then_resumes(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("AGENTBUS_SDK_MAX_CONCURRENT", "1")
     monkeypatch.setenv("AGENTBUS_SDK_MAX_QUEUE", "1")
     release = threading.Event()
-    results: list = []
+    results: list[Any] = []
     threads = [_background(lambda: release.wait(5) and "done", results) for _ in range(2)]
     bulkhead = resilience._sdk_bulkhead()
     assert _wait_until(lambda: bulkhead._in_flight_count == 2)
@@ -156,7 +159,7 @@ def test_inflight_registry_is_empty_after_calls() -> None:
 
 
 def test_inflight_registry_holds_the_cancel_flag_during_a_call() -> None:
-    seen: list = []
+    seen: list[Any] = []
 
     def _peek() -> str:
         seen.extend(resilience._INFLIGHT)
@@ -194,7 +197,7 @@ def test_non_idempotent_5xx_is_attempted_once(monkeypatch: pytest.MonkeyPatch, s
 
 def test_outer_deadline_returns_on_time_and_abandons() -> None:
     attempts: list[int] = []
-    flags: list = []
+    flags: list[Any] = []
 
     def _slow() -> str:
         attempts.append(1)
@@ -243,7 +246,7 @@ def test_exit_hook_abandons_closes_and_cancels(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(resilience, "_INFLIGHT", {flag})
 
     class _Client:
-        def __init__(self, fail: bool) -> None:
+        def __init__(self, *, fail: bool) -> None:
             self.fail = fail
             self.closed = 0
 
@@ -253,13 +256,13 @@ def test_exit_hook_abandons_closes_and_cancels(monkeypatch: pytest.MonkeyPatch) 
                 msg = "close failed"
                 raise RuntimeError(msg)
 
-    clients = [_Client(True), _Client(False)]
-    registry: weakref.WeakSet = weakref.WeakSet(clients)
+    clients = [_Client(fail=True), _Client(fail=False)]
+    registry: weakref.WeakSet[_Client] = weakref.WeakSet(clients)
     monkeypatch.setattr(resilience, "_SYNC_CLIENTS", registry)
 
     class _Executor:
         def __init__(self) -> None:
-            self.calls: list[dict] = []
+            self.calls: list[dict[str, Any]] = []
 
         def shutdown(self, **kwargs: object) -> None:
             self.calls.append(kwargs)
@@ -295,4 +298,5 @@ def test_exit_hook_survives_a_failing_shutdown(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(resilience, "_SYNC_CLIENTS", weakref.WeakSet())
     monkeypatch.setattr(resilience, "_SDK_BULKHEAD", _Bulkhead())
-    assert resilience._abandon_inflight_on_exit() is None
+    abandon: Callable[[], object] = resilience._abandon_inflight_on_exit
+    assert abandon() is None

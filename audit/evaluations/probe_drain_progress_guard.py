@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from _common import verdict
 
 from agentbus_client.client.models import Delivery
 from agentbus_client.watch import Watcher
+
+if TYPE_CHECKING:
+    from agentbus_client.client import AgentBus
 
 
 class Bus:
@@ -20,16 +23,16 @@ class Bus:
     base_url = "http://probe.invalid"
     agent = "probe"
 
-    def __init__(s: Any) -> None:
-        s.calls = 0
+    def __init__(self) -> None:
+        self.calls = 0
 
-    def inbox(s: Any, cursor: Any, limit: int = 100, agent: Any = None) -> list[Any]:
-        s.calls += 1
+    def inbox(self, cursor: Any, limit: int = 100, agent: Any = None) -> list[Any]:
+        self.calls += 1
         return [Delivery.from_api({"delivery_id": "d1", "agent_seq": None, "subject": "s"})]
 
 
 bus = Bus()
-w = Watcher(bus, "probe", on_message=lambda m: None, cursor=5)
+w = Watcher(cast("AgentBus", bus), "probe", on_message=lambda m: None, cursor=5)
 done = threading.Event()
 
 

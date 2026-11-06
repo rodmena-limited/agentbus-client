@@ -18,14 +18,12 @@ of verifying it teaches the reader to distrust the check.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 from agentbus_client.onboarding import _skill
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # Deliberately multi-byte: this is what the served skill is made of.
 BODY = "# AgentBus — the skill\n" + ("an em-dash — and an arrow →\n" * 60)
@@ -41,7 +39,7 @@ class _Resp:
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(_skill.Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
     return tmp_path
 
 

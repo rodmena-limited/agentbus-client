@@ -35,7 +35,7 @@ from agentbus_client.client.memory import _open_entries, _reseal_plan
 # ------------------------------------------------------------------ opening
 
 
-def _entry(seq: int, text: str, sealed: bool = True, **extra: Any) -> dict[str, Any]:
+def _entry(seq: int, text: str, *, sealed: bool = True, **extra: Any) -> dict[str, Any]:
     return {
         "position": seq,
         "seq": seq,

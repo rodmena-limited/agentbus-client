@@ -29,12 +29,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agentbus_client import cli
 
 if TYPE_CHECKING:
     import pytest
+
+    from agentbus_client.client import AgentBus
 
 
 class _Bus:
@@ -58,7 +60,7 @@ def _revoke(bus: _Bus, fingerprint: str, mine: str | None = None) -> str:
     args = argparse.Namespace(fingerprint=fingerprint, yes=False, reason=None, json=False)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = cli._keys_revoke(bus, args, "an-agent", mine)
+        rc = cli._keys_revoke(cast("AgentBus", bus), args, "an-agent", mine)
     assert rc == 2, "the warning path must refuse without --yes"
     return buf.getvalue()
 
@@ -68,7 +70,7 @@ def test_revoking_a_signing_key_does_not_talk_about_sealing(
 ) -> None:
     """The bug, exactly."""
     monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: None)
-    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", set)
 
     out = _revoke(_Bus(), _Bus.SIGNING)
 
@@ -91,7 +93,7 @@ def test_the_locality_line_is_true_for_a_signing_key_held_here(
     NOT held here, otherwise this passes against a version that hardcodes one
     answer — which is how the original bug behaved.
     """
-    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", set)
 
     monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: _Bus.SIGNING)
     held = _revoke(_Bus(), _Bus.SIGNING)
@@ -108,7 +110,7 @@ def test_revoking_a_sealing_key_still_says_what_it_always_said(
 ) -> None:
     """The regression guard. The sealing wording was correct and must survive."""
     monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: None)
-    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", set)
 
     out = _revoke(_Bus(), _Bus.SEALING)
 
@@ -126,7 +128,7 @@ def test_an_unknown_fingerprint_claims_nothing_about_either_algorithm(
     consequence is the only honest answer when the algorithm is unestablished.
     """
     monkeypatch.setattr(cli._keys, "_local_signing_fingerprint", lambda _agent: None)
-    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", lambda: set())
+    monkeypatch.setattr(cli._keys, "_superseded_fingerprints", set)
 
     out = _revoke(_Bus(), "cccccccccccccccc")
 
@@ -143,9 +145,10 @@ def test_the_algorithm_is_asked_of_the_server_not_guessed() -> None:
     algorithm from the string would reintroduce the bug silently.
     """
     bus = _Bus()
-    assert cli._key_algorithm(bus, "an-agent", _Bus.SIGNING) == "ed25519"
-    assert cli._key_algorithm(bus, "an-agent", _Bus.SEALING) == "age"
-    assert cli._key_algorithm(bus, "an-agent", "ffffffffffffffff") == "unknown"
+    client = cast("AgentBus", bus)
+    assert cli._key_algorithm(client, "an-agent", _Bus.SIGNING) == "ed25519"
+    assert cli._key_algorithm(client, "an-agent", _Bus.SEALING) == "age"
+    assert cli._key_algorithm(client, "an-agent", "ffffffffffffffff") == "unknown"
     assert any((params or {}).get("algorithm") == "ed25519" for _m, _p, params in bus.calls), (
         "the ed25519 list was never consulted"
     )

@@ -30,7 +30,7 @@ class _BatchBus:
     def __init__(self, responses: Any = None, errors: Any = None) -> None:
         self._responses = list(responses or [])
         self._errors = list(errors or [])
-        self.calls: list[dict] = []
+        self.calls: list[dict[str, Any]] = []
         self.agent = "test-agent"
 
     def send(self, to: Any, **kw: Any) -> Any:
@@ -90,7 +90,7 @@ def test_batch_of_three_sends_all_and_returns_zero(
     assert all(line["ok"] for line in lines)
 
 
-def test_bus_is_instantiated_ONCE_across_the_whole_batch(
+def test_bus_is_instantiated_once_across_the_whole_batch(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The point of the whole feature: startup pays once."""

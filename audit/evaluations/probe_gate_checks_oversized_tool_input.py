@@ -8,7 +8,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = os.environ.get("AGENTBUS_CLIENT_SRC") or str(REPO / "src")
@@ -48,7 +48,7 @@ class Guard(BaseHTTPRequestHandler):
         pass
 
 
-def decide(base_url: str, command: str, home: str) -> dict:
+def decide(base_url: str, command: str, home: str) -> dict[str, Any]:
     env = {
         "HOME": home,
         "PATH": "/usr/bin:/bin",
@@ -56,15 +56,24 @@ def decide(base_url: str, command: str, home: str) -> dict:
         "AGENTBUS_API_KEY": "ab_sk_probe",
         "AGENTBUS_AGENT": "probe-agent",
         "AGENTBUS_BASE_URL": base_url,
-        "AGENTBUS_CONFIG_DIR": os.path.join(home, ".config", "agentbus"),
+        "AGENTBUS_CONFIG_DIR": str(Path(home) / ".config" / "agentbus"),
     }
     stdin = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
-    code = "import sys; from agentbus_client.hooks.claude_code import main; sys.argv=['agentbus-hook','pre-tool-use']; raise SystemExit(main())"
+    code = (
+        "import sys; from agentbus_client.hooks.claude_code import main; "
+        "sys.argv=['agentbus-hook','pre-tool-use']; raise SystemExit(main())"
+    )
     out = subprocess.run(
-        [PY, "-c", code], input=stdin, capture_output=True, text=True, env=env, timeout=60
+        [PY, "-c", code],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
     ).stdout
     line = next(chunk for chunk in out.splitlines() if "hookSpecificOutput" in chunk)
-    return json.loads(line)["hookSpecificOutput"]
+    return cast("dict[str, Any]", json.loads(line)["hookSpecificOutput"])
 
 
 def main() -> int:
@@ -88,7 +97,8 @@ def main() -> int:
         )
         ok &= good
         print(
-            f"  {'ok  ' if good else 'FAIL'}    {label}: {got['permissionDecision']} ({got['permissionDecisionReason'][:70]})"
+            f"  {'ok  ' if good else 'FAIL'}    {label}: {got['permissionDecision']} "
+            f"({got['permissionDecisionReason'][:70]})"
         )
     server.shutdown()
     if os.environ.get("AUDIT_ALLOW_LIVE") == "1":
@@ -100,7 +110,7 @@ def main() -> int:
         data = json.dumps(
             {"tool_name": "Read", "tool_input": fit_to_guard_limit({"note": "a" * 10_000})}
         ).encode()
-        request = urllib.request.Request(
+        request = urllib.request.Request(  # noqa: S310
             (os.environ.get("AGENTBUS_BASE_URL") or "https://agentbus.rodmena.co.uk")
             + "/v1/guard/check",
             data=data,
@@ -111,7 +121,7 @@ def main() -> int:
                 "X-AgentBus-Agent": os.environ["AGENTBUS_AGENT"],
             },
         )
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
             live = response.status == 200
         ok &= live
         print(

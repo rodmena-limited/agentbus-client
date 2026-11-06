@@ -28,9 +28,9 @@ if TYPE_CHECKING:
 _AGE_PUBLIC_KEY = _sealing.generate_keypair()[1]  # a real, valid age public key
 
 
-def _write(path: Any, size: int) -> None:
+def _write(path: Path, size: int) -> None:
     """A file of `size` bytes on disk WITHOUT reading it into Python RAM."""
-    with open(path, "wb") as f:
+    with path.open("wb") as f:
         f.seek(size - 1)
         f.write(b"\0")
 

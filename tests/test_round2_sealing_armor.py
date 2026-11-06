@@ -16,9 +16,13 @@ FOOTER = "-----END AGE ENCRYPTED FILE-----"
 needs_age = pytest.mark.skipif(shutil.which("age") is None, reason="age(1) not installed")
 
 
-def _age_decrypt(armored: bytes, keyfile: Any) -> subprocess.CompletedProcess:
+def _age_decrypt(armored: bytes, keyfile: Any) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [AGE, "-d", "-i", str(keyfile)], input=armored, capture_output=True, timeout=30
+        [AGE, "-d", "-i", str(keyfile)],
+        input=armored,
+        capture_output=True,
+        timeout=30,
+        check=False,
     )
 
 
@@ -87,6 +91,7 @@ def test_real_age_keygen_derives_the_same_public_key() -> None:
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == public

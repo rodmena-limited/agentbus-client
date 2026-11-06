@@ -59,6 +59,7 @@ def _run(selection: list[str], extra: dict[str, str]) -> tuple[dict[str, int], s
             capture_output=True,
             text=True,
             timeout=1800,
+            check=False,
         )
         res = subprocess.run(
             [str(MUTMUT), "results", "--all", "true"],
@@ -66,6 +67,7 @@ def _run(selection: list[str], extra: dict[str, str]) -> tuple[dict[str, int], s
             capture_output=True,
             text=True,
             timeout=300,
+            check=False,
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)

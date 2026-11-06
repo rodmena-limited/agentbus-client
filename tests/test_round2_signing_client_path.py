@@ -45,9 +45,9 @@ class _Server:
         self.resolve_reply = resolve_reply
         self.delivery = delivery
         self.keys = keys
-        self.posted: list[tuple[str, dict]] = []
+        self.posted: list[tuple[str, Any]] = []
 
-    def __call__(self, request: httpx.Request) -> httpx.Response:
+    def __call__(self, request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         path = request.url.path
         body = json.loads(request.content) if request.content else None
         if path == "/v1/recipients/resolve":
@@ -185,7 +185,7 @@ def _delivery(
     }
 
 
-def _verify(delivery: Any) -> dict:
+def _verify(delivery: Any) -> dict[str, Any]:
     keys = [{"fingerprint": FINGERPRINT, "public_key": PUBLIC}]
     return _bus(_Server(delivery=delivery, keys=keys)).verify("d-1")
 

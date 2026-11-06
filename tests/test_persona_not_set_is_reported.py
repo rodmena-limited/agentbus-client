@@ -17,6 +17,7 @@ success for something that had not happened.
 
 from __future__ import annotations
 
+import argparse
 from typing import TYPE_CHECKING, Any
 
 from agentbus_client.cli._register import _print_persona_outcome
@@ -109,40 +110,63 @@ def test_register_wires_the_reporter_into_its_output() -> None:
 # conclusion was generalised to the capability. Each call site is its own claim.
 
 
-def _setup_report(result: dict[str, Any], requested: str | None) -> list[str]:
-    """The persona branch of the setup panel, as _provision builds it."""
+SETUP_AGENT = "setup-agent"
+
+
+class _SetupBus:
+    def __init__(self, registered: dict[str, Any]) -> None:
+        self.registered = registered
+        self.sent_persona: str | None = None
+
+    def whoami(self) -> dict[str, Any]:
+        return {"agent": {"name": SETUP_AGENT}, "workspace": {"slug": "w"}}
+
+    def register(self, _name: str, **kw: Any) -> dict[str, Any]:
+        self.sent_persona = kw["persona"]
+        return {"address": f"{SETUP_AGENT}@mail.test", "rooms": [], **self.registered}
+
+
+def _setup_report(
+    monkeypatch: pytest.MonkeyPatch, agent: dict[str, Any], requested: str | None, **fields: Any
+) -> list[str]:
+    """The persona lines of the setup panel, from the shared setup path."""
+    from agentbus_client.onboarding import _provision
+
+    bus = _SetupBus({"agent": {"name": SETUP_AGENT, **agent}, **fields})
+    monkeypatch.setattr(_provision, "_resolve_agent_name", lambda explain=None: SETUP_AGENT)
+    monkeypatch.setattr(_provision, "_operator_key", lambda: "ab_sk_op")
+    monkeypatch.setattr(_provision, "_agent_key", lambda _name: "k")
+    monkeypatch.setattr(_provision, "AgentBus", lambda **_kw: bus)
+
+    args = argparse.Namespace(role=None, base_url=None, persona=requested, force_new=False)
     report: list[str] = []
-    if requested:
-        advisory = result.get("persona_ignored")
-        if advisory:
-            report.append(f"PERSONA NOT SET: {advisory}")
-        elif not (result.get("agent") or {}).get("persona"):
-            report.append(f"PERSONA NOT SET: asked for '{requested}' ... ADMIN-scope")
-        else:
-            report.append(f"persona: {requested}")
-    return report
+    assert _provision._provision_project_agent(args, report, "claude") == SETUP_AGENT
+    assert bus.sent_persona == requested
+    return [line for line in report if line.startswith(("PERSONA NOT SET", "persona:"))]
 
 
-def test_setup_panel_reports_a_dropped_persona() -> None:
+def test_setup_panel_reports_a_dropped_persona(monkeypatch: pytest.MonkeyPatch) -> None:
     """The exact case the operator hit: a clean panel hiding one failed flag."""
     lines = _setup_report(
-        {"persona_ignored": LIVE_ADVISORY, "agent": {"persona": None}}, "test-engineer"
+        monkeypatch, {"persona": None}, "test-engineer", persona_ignored=LIVE_ADVISORY
     )
-    assert any("PERSONA NOT SET" in line for line in lines)
+    assert lines == [f"PERSONA NOT SET: {LIVE_ADVISORY}"]
 
 
-def test_setup_panel_is_silent_when_no_persona_requested() -> None:
-    assert _setup_report({"agent": {"persona": None}}, None) == []
+def test_setup_panel_is_silent_when_no_persona_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _setup_report(monkeypatch, {"persona": None}, None) == []
 
 
-def test_setup_panel_confirms_a_persona_that_took() -> None:
-    lines = _setup_report({"agent": {"persona": "backend"}}, "backend")
+def test_setup_panel_confirms_a_persona_that_took(monkeypatch: pytest.MonkeyPatch) -> None:
+    lines = _setup_report(monkeypatch, {"persona": "backend"}, "backend")
     assert lines == ["persona: backend"]
 
 
-def test_setup_panel_falls_back_when_the_server_is_old() -> None:
-    lines = _setup_report({"agent": {"persona": None}}, "backend")
-    assert any("ADMIN-scope" in line for line in lines)
+def test_setup_panel_falls_back_when_the_server_is_old(monkeypatch: pytest.MonkeyPatch) -> None:
+    lines = _setup_report(monkeypatch, {"persona": None}, "backend")
+    assert len(lines) == 1
+    assert lines[0].startswith("PERSONA NOT SET: asked for 'backend'")
+    assert "ADMIN-scope" in lines[0]
 
 
 def test_both_register_and_setup_paths_report_it() -> None:

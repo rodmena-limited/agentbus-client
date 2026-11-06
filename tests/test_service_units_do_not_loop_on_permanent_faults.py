@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import re
 from contextlib import redirect_stdout
 from typing import Any
 
@@ -68,7 +69,7 @@ def test_a_manager_without_exit_status_suppression_says_so(manager: Any) -> None
     platform where it is merely slower."""
     out = _emit(manager)
     assert "per-exit-status" in out, "must name the missing capability, not imply parity"
-    assert "8" in out, "must name the exit status and what causes it"
+    assert re.search(r"\bexits? 8\b", out), "must name the exit status and what causes it"
     assert "revoked" in out, "must name the exit status and what causes it"
 
 

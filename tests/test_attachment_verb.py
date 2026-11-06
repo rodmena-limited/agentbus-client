@@ -53,9 +53,8 @@ def bus(monkeypatch: pytest.MonkeyPatch) -> Any:
     return b
 
 
-@pytest.mark.usefixtures("bus")  # patches cli._bus; value unused
 def test_writes_the_bytes_under_the_senders_filename(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    bus: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert cli.cmd_attachment(_args()) == 0
@@ -65,6 +64,24 @@ def test_writes_the_bytes_under_the_senders_filename(
     # BYTES, not just existence — a zero-length file would satisfy exists().
     assert written.read_bytes() == PAYLOAD
     assert "958" not in capsys.readouterr().out  # size reported from disk, not fabricated
+    assert bus.asked == [("01D", 0)]
+
+
+def test_the_delivery_and_index_reach_the_bus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bytes come from the delivery and index the caller named, and the
+    file takes that attachment's name."""
+    monkeypatch.chdir(tmp_path)
+    second = {"filename": "second.bin", "size": len(PAYLOAD)}
+    two = _Bus(attachments=[META, second])
+    monkeypatch.setattr(cli._common, "_bus", lambda _a: two)
+
+    assert cli.cmd_attachment(_args(delivery_id="01OTHER", index=1)) == 0
+
+    assert two.asked == [("01OTHER", 1)]
+    assert (tmp_path / "second.bin").read_bytes() == PAYLOAD
+    assert not (tmp_path / "shot.png").exists()
 
 
 @pytest.mark.usefixtures("bus")

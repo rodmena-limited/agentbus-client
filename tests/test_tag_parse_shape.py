@@ -48,7 +48,7 @@ class _CapturingBus:
 
     def register(self, name: str, **kw: Any) -> dict[str, Any]:
         self.register_called_with = kw.get("labels") or {}
-        return {"agent": {"name": name or "test-agent"}}
+        return {"agent": {"name": name or "test-agent"}, "address": "a@b", "rooms": []}
 
     # required by cmd_register post-register wiring; make it a no-op
     def whoami(self, agent: Any = None) -> dict[str, Any]:
@@ -61,23 +61,6 @@ def _tag_args(
     return argparse.Namespace(
         set=list(positional), remove=list(remove or []), agent=agent, json=json
     )
-
-
-def _register_args(**over: Any) -> argparse.Namespace:
-    base: dict[str, Any] = {
-        "name": "test-agent",
-        "role": None,
-        "workdir": None,
-        "repo_remote": None,
-        "capability": [],
-        "label": [],
-        "unlisted": False,
-        "ephemeral": False,
-        "agent": None,
-        "json": False,
-    }
-    base.update(over)
-    return argparse.Namespace(**base)
 
 
 # ------------------------------------------------------------- cmd_tag parse
@@ -145,27 +128,22 @@ def test_cmd_tag_and_cmd_register_produce_identical_shape(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The peer's hypothesis was that two write paths might parse
-    differently. This test proves they don't: cmd_tag(--set X=Y) and
-    cmd_register(--label X=Y) MUST produce the same labels dict for the
-    same input."""
+    differently. This test runs both commands: `tag` and `register --label`
+    must send the same labels dict for the same input, and that dict is the
+    one the grammar defines."""
     bus = _CapturingBus()
     monkeypatch.setattr(cli._common, "_bus", lambda _a: bus)
+    monkeypatch.chdir(tmp_path)
 
     same_inputs = ["skill:playwright", "skill=playwright", "team:frontend=takes shots"]
+    expected = {"skill:playwright": "", "skill": "playwright", "team:frontend": "takes shots"}
 
-    cli.cmd_tag(_tag_args(*same_inputs))
-    from_tag = dict(bus.tag_called_with)
+    assert cli.main(["--agent", "test-agent", "tag", *same_inputs]) == 0
+    labels = [word for item in same_inputs for word in ("--label", item)]
+    assert cli.main(["register", "test-agent", *labels]) == 0
 
-    # cmd_register does more than parse labels (writes files, wires session);
-    # we can't run it end-to-end in a unit test without a fixture heap. But
-    # the parse itself is the two lines we care about — replicate them
-    # verbatim and assert equality. If someone changes ONE of the two
-    # partitions, this test fails.
-    from_register: dict[str, str] = {}
-    for item in same_inputs:
-        key, _, value = item.partition("=")
-        from_register[key] = value
-    assert from_tag == from_register, (
+    assert bus.tag_called_with == expected
+    assert bus.register_called_with == bus.tag_called_with, (
         "cmd_tag and cmd_register parse label input differently — that is "
         "the exact drift issuedb #14 was opened to prevent"
     )

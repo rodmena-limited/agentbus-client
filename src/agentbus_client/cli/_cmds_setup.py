@@ -26,7 +26,7 @@ def cmd_signin_cli() -> None: ...
 )
 @argument(
     "harness",
-    type=click.Choice(["claude", "opencode", "codex", "agy", "antigravity"]),
+    type=click.Choice(["claude", "opencode", "codex", "agy", "antigravity", "omo"]),
     help="the coding tool to wire into this project",
 )
 @click.option(

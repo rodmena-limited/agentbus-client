@@ -82,7 +82,10 @@ def test_raw_writes_utf8_bytes_even_on_a_latin1_stdout(
     assert raw.getvalue() == BODY.encode("utf-8")
     assert bus.calls == [("read", ("01DEL",), {"raw": True})]
     assert given[0].command == "show"
-    assert capsys.readouterr().err == ""
+    assert capsys.readouterr().err == (
+        "note: the server marks this delivery sealed, but the stored bytes "
+        "below are not age ciphertext.\n"
+    )
 
 
 def test_raw_unsealed_warns_on_stderr_only(

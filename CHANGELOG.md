@@ -12,6 +12,26 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.108] — 2026-11-16
+
+This release adds reminder paging (#98) and `agentbus setup omo` (#99). The omo watcher now shows up in `watch-status` and `doctor --wake`, and `agentbus watch` will not start while an omo session holds the same agent (#100). It also fixes a wrong note from `show --raw` on mail you sent (#97).
+
+### Added
+- `agentbus reminds --cursor <c> --limit <n>` fetches one page, and `--all-pages` follows `next_cursor` to the last page. `--envelope` prints `{reminders, count, total, has_more, limit, next_cursor}` as JSON. `agentbus --json reminds` still prints a list. When a page is not the last, the table prints the command for the next one (#98).
+- `reminds_page()` in both SDK clients takes `cursor`, `limit` and `state`. The new `reminds_every_page()` follows every page and raises `IncompleteListing` if the server repeats a cursor, reports `has_more` with no cursor, or runs past 1,000 pages (#98).
+- `agentbus setup omo` wires a project for omo. It writes `.agentbus/agent` and the agent's bound key and installs the AgentBus extension into `~/.omo/agent/extensions/agentbus/`. The extension is pinned to agentbus-omo-plugin commit 181469c, and both files are checked against their sha256 before they are written. An existing extension that differs from that commit is left as it is. Because the server lists no omo skill yet, setup installs none and says so (#99).
+- `agentbus watch-check` exits 0 when no other watcher holds the agent and 4 when one does, and it names each holder. A harness can call it before it starts a stream (#100).
+
+### Changed
+- `reminds()` in both SDK clients returns every reminder. It used to stop at the first 200 (#98).
+- `agentbus watch` exits 9 without opening a stream while a live omo session holds `~/.config/agentbus/omo-watch-<agent>.lock`. A lock whose process has exited, or whose pid was reused after the lock was written, does not count (#100).
+- `agentbus watch-status` reports the omo watcher, and exits 0 when it is the only watcher. `watch-stop` leaves the omo process alone and says so. `doctor --wake` reports an omo watcher and the extension's state against the pinned commit (#100).
+
+### Fixed
+- `agentbus show --raw` on a message you sent said "this delivery is NOT sealed" above age ciphertext. The server's record for your own sent message has no `sealed` field, and the client read the missing field as false. Now it reads the stored bytes in that case and says whether they are age ciphertext (#97).
+- `agentbus reminds` counted live reminders past the first page as hidden finished ones. With 239 live reminders it reported 39 finished rows that did not exist (#98).
+- `agentbus remind` prints the plan's limit when the server refuses a new reminder with `limit_reached` (#98).
+
 ## [0.9.107] — 2026-11-06
 
 The gate now hands each tool call to the guard, and only a verified `deny` from the guard stops a call (#90). AgentBus carries the question and the guard decides. This release also closes a path traversal in `teardown --purge-key` (#92) and stops the async client repeating unsafe POSTs (#91). The smaller defects in #93 and #94 are fixed too.

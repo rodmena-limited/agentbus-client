@@ -101,4 +101,32 @@ def cmd_remind_cli() -> None: ...
         "dead rows crowd out the ones you can still act on."
     ),
 )
+@click.option(
+    "--limit",
+    "limit",
+    type=int,
+    default=None,
+    help="rows per page, 1 to 200 (default 200)",
+)
+@click.option(
+    "--cursor",
+    "cursor",
+    metavar="CURSOR",
+    help="start at this page: the next_cursor value from the previous page",
+)
+@click.option(
+    "--all-pages",
+    "all_pages",
+    is_flag=True,
+    help="follow next_cursor until the last page and list every row",
+)
+@click.option(
+    "--envelope",
+    "envelope",
+    is_flag=True,
+    help=(
+        "print JSON {reminders, count, total, has_more, limit, next_cursor} "
+        "in place of the table or the bare --json list"
+    ),
+)
 def cmd_reminds_cli() -> None: ...

@@ -92,6 +92,7 @@ SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("watch", "Stay connected and act on arriving mail"),
             ("watch-status", "Is a watcher running for this agent?"),
             ("watch-stop", "Stop the detached watcher"),
+            ("watch-check", "May a new watcher start for this agent?"),
             ("service", "Emit a systemd or launchd unit for the watcher"),
         ),
     ),

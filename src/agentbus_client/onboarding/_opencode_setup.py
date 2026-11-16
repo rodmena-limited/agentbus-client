@@ -373,6 +373,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return _setup_opencode(args)
     if harness == "agy":
         return _setup_agy(args)
+    if harness == "omo":
+        from ._omo_setup import _setup_omo
+
+        return _setup_omo(args)
 
     # SPECS/0021: an unimplemented harness SHALL say so and name the ticket,
     # NEVER half-wire. The blocker is named per harness, because a refusal that
@@ -390,7 +394,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         _say("  identity — config is global-only, which re-opens the #82/#83 gate")
         _say("  asymmetry. Tracked in #31. Nothing was changed.")
         return 1
-    _say(f"unknown harness '{harness}' (choose from claude, opencode, codex, agy).")
+    _say(f"unknown harness '{harness}' (choose from claude, opencode, codex, agy, omo).")
     return 1
 
 

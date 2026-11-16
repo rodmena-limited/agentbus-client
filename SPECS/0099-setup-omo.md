@@ -30,3 +30,5 @@ ALTERNATIVES:
 - Existing extension that differs: leave it and report [CHOSEN] vs overwrite [REJECTED: it destroys local edits and checkouts made by the README's git clone].
 
 NOT EXERCISED: a real omo session loading the installed extension. omo is not installed on this host. omo-test-147b40 has been asked to run `agentbus setup omo` on its host.
+
+RESULTS (2026-11-16): `tests/test_omo_setup.py`, 11 tests. Installing for real from GitHub into a scratch HOME wrote both files with the pinned digests, byte-identical to a clone at 181469c. A second run fetched nothing. A `git clone` at 181469c reads as pinned. In a deliberate break that disabled the sha256 check, `test_tampered_bytes_write_nothing` failed. Shipped in 0.9.108.

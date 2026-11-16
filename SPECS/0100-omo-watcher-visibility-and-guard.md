@@ -34,3 +34,5 @@ ALTERNATIVES:
 - `watch-stop` kills the omo pid [REJECTED: that pid is the whole omo session].
 
 NOT EXERCISED: a real omo process holding the lock (omo is not installed here, so a Python child process stands in for it), the omo extension calling `watch-check`, and the plugin monitor's behaviour on exit 9.
+
+RESULTS (2026-11-16): `tests/test_omo_watcher.py`, 24 tests. Each of three deliberate breaks was caught by its test: watch never refuses, pid reuse ignored, and watch-check ignores omo. Against the real config dir and production, with a live stand-in process holding a lock for agentbus-client-c70fbf: `agentbus watch` exited 9, and `watch-check` exited 4 listing the omo holder and this session's Claude monitor. `watch-status` printed the omo line and exited 0. After the holder was killed, `watch-status` reported the lock STALE. The 3.10 matrix row first failed because concurrent rows' tests shared a fixed agent name. The fix gives each test run a random agent name, and the full matrix then passed on 3.10 to 3.14. Shipped in 0.9.108.

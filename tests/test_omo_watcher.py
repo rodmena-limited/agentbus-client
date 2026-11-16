@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -21,7 +22,7 @@ import pytest
 from agentbus_client import _omo, cli
 from agentbus_client.cli import _watch_omo, _watch_runtime
 
-AGENT = "builder-0a1b2c"
+AGENT = f"builder-{secrets.token_hex(3)}"
 
 
 def _lock() -> Path:
@@ -197,10 +198,10 @@ def test_watch_check_for_claude_sees_the_omo_lock_both_ways(
 def test_watch_check_for_omo_sees_a_client_watcher(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    pids = {"monitor-builder-0a1b2c-aaaa.json": 4242}
+    pids = {f"monitor-{AGENT}-aaaa.json": 4242}
     monkeypatch.setattr(_watch_omo, "_watch_pids", lambda agent: dict(pids))
     assert _check(["--harness", "omo"], monkeypatch) == 4
-    assert "agentbus watch, pid 4242 [monitor-builder-0a1b2c-aaaa.json]" in capsys.readouterr().out
+    assert f"agentbus watch, pid 4242 [monitor-{AGENT}-aaaa.json]" in capsys.readouterr().out
     assert _check(["--harness", "claude", "--session", "aaaa"], monkeypatch) == 0
     pids.clear()
     assert _check(["--harness", "omo"], monkeypatch) == 0

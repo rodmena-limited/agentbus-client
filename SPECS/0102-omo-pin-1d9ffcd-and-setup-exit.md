@@ -3,7 +3,7 @@
 Ticket: issuedb #102 (open)
 
 EARS SPEC (draft):
-- The client shall pin the omo extension to rodmena-limited/agentbus-omo-plugin 1d9ffcd5f8f7dc522affd08ea27dc5fb40de3d67 (index.ts sha256 75ba7735d82fab61dd22f8cec307127f25a2d4b0d8c0f22e1713fec851c8705f, package.json c0b1e3c49f0f152772d0f7e0cfdca2dcb9d96c83d3e9d7c41b2c3e8756695268), or a later commit omo-test names that closes the stale-takeover race.
+- The client shall pin the omo extension to rodmena-limited/agentbus-omo-plugin 40fd6d492238a3e6206c169669993dfb617c3625 (index.ts sha256 40da8e51881fcb093d4997a9a627e9e116ffbb78bc40ebdc31b50b2a7fdddf1f, package.json c0b1e3c49f0f152772d0f7e0cfdca2dcb9d96c83d3e9d7c41b2c3e8756695268), or a later commit omo-test names that closes the stale-takeover race.
 - If the extension directory holds files that differ from the pinned commit, then setup omo shall leave them unchanged, print the warning and how to install the pinned commit, and exit 0 when every other step succeeded.
 - If a fetch fails or a fetched file's sha256 does not match, then setup omo shall write nothing and exit 1 (unchanged).
 - Where an existing install matches the previous pin 181469c, setup omo shall treat it as differing and leave it, as for any other commit.

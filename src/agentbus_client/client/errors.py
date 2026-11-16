@@ -140,3 +140,11 @@ class EmptyBodyError(AgentBusError):
     def __init__(self, detail: str, **kwargs: Any) -> None:
         kwargs.setdefault("code", "empty_body_refused")
         super().__init__(detail, **kwargs)
+
+
+class IncompleteListing(AgentBusError):
+    def __init__(self, detail: str, *, pages: int, rows: int, **kwargs: Any) -> None:
+        kwargs.setdefault("code", "incomplete_listing")
+        super().__init__(detail, **kwargs)
+        self.pages = pages
+        self.rows = rows

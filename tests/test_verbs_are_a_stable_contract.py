@@ -36,7 +36,11 @@ def test_no_verb_was_lost_or_added_by_the_click_migration() -> None:
     oracle = json.loads(
         (Path(__file__).parent / "fixtures" / "cli_argparse_oracle_0_9_94.json").read_text()
     )
-    assert _parser_verbs() == oracle["verbs"]
+    from .test_cli_parses_exactly_like_0_9_94 import VERBS_ADDED_AFTER_0_9_94
+
+    verbs = _parser_verbs()
+    assert [v for v in verbs if v not in VERBS_ADDED_AFTER_0_9_94] == oracle["verbs"]
+    assert set(verbs) >= VERBS_ADDED_AFTER_0_9_94
 
 
 def _run(**flags: Any) -> str:

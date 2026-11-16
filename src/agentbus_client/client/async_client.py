@@ -22,6 +22,7 @@ from .async_block import AsyncBlockMixin
 from .async_directory import AsyncDirectoryMixin
 from .async_messaging import AsyncMessagingMixin
 from .async_misc import AsyncMiscMixin
+from .async_reminders import AsyncRemindersMixin
 from .base import _Base
 from .errors import (
     TransportError,
@@ -72,6 +73,7 @@ class AsyncAgentBus(
     AsyncMessagingMixin,
     AsyncDirectoryMixin,
     AsyncMiscMixin,
+    AsyncRemindersMixin,
     AsyncMemoryMixin,
     AsyncBlockMixin,
 ):

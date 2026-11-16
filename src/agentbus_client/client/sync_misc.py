@@ -249,46 +249,6 @@ class SyncMiscMixin(SyncVerifyMixin, _MixinBase):
             idempotency_key=idempotency_key,
         )
 
-    def reminds(self, *, agent: str | None = None, all: bool = False) -> list[dict[str, Any]]:
-        """Scheduled reminders — mine by default, everything I can see with all=True.
-
-        NOT `reminders()`, which is the ack-tracking surface (#265) and answers a
-        different question: that one chases messages already delivered, this one
-        lists messages not yet sent. Two features, similar words, and conflating
-        them would make both harder to reason about.
-        """
-        # #336 — `all=true` WAS NOT A PARAMETER THIS API HAS.
-        #
-        # The server's query parameter is `state` (scheduled | all). `all=true`
-        # was silently ignored, so EVERY call asked for every state and got the
-        # newest 50 by created_at, and the CLI then filtered live rows locally —
-        # i.e. the truncation happened BEFORE the state filter. An old but live
-        # recurring reminder was crowded out by newer FINISHED one-shots and
-        # simply disappeared. A customer reported five as vanished; every row was
-        # still in the database.
-        #
-        # Now the filter is server-side, so the limit applies to the rows the
-        # caller actually asked for. `limit=200` is the API maximum: the listing
-        # has no cursor, so asking for the most it will give is the honest
-        # maximum this client can offer, and `reminds_page()` exposes the
-        # truncation flags for a caller that needs to know.
-        return cast("list[dict[str, Any]]", self.reminds_page(agent=agent, all=all)["reminders"])
-
-    def reminds_page(self, *, agent: str | None = None, all: bool = False) -> dict[str, Any]:
-        """The whole listing envelope: reminders, count, total, has_more, limit.
-
-        SEPARATE FROM `reminds()` BECAUSE A LIST CANNOT CARRY A TRUNCATION FLAG,
-        and that is the bug (#336): the response looked complete whether it was
-        or not. A caller that only wants the rows keeps `reminds()`; a caller
-        that must not silently under-report — the CLI — uses this.
-
-        `total` is the count under the SAME state filter, so `has_more` answers
-        "is this page all of what I asked for", not "does anything else exist".
-        """
-        params = {"state": "all" if all else "scheduled", "limit": "200"}
-        result: dict[str, Any] = self._request("GET", "/v1/reminders", params=params, agent=agent)
-        return result
-
     def cancel_remind(self, reminder_id: str, agent: str | None = None) -> dict[str, Any]:
         """Cancel a scheduled reminder before it fires."""
         return self._request("DELETE", f"/v1/reminders/{reminder_id}", agent=agent)

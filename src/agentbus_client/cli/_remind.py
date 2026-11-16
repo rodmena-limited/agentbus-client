@@ -20,13 +20,16 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
-from agentbus_client.client import AgentBusError
+from agentbus_client.client import AgentBusError, IncompleteListing, ValidationError
+from agentbus_client.client._reminder_paging import API_MAX_LIMIT
 
 from . import _common
 from ._common import _parse_duration, _print
 
 if TYPE_CHECKING:
     import argparse
+
+    from agentbus_client.client import AgentBus
 
 
 def _render(row: dict[str, Any]) -> str:
@@ -153,6 +156,9 @@ def cmd_remind(args: argparse.Namespace) -> int:
         # encrypted workspace, and the scheduler's capacity cap. Both are
         # actionable; "429" and "422" alone are not.
         print(f"could not schedule: {exc}", file=sys.stderr)
+        limit = exc.body.get("limit") if exc.code == "limit_reached" else None
+        if isinstance(limit, int):
+            print(f"  this agent's plan allows {limit} live reminders", file=sys.stderr)
         return 3
 
     if args.json:
@@ -162,76 +168,110 @@ def cmd_remind(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_reminds(args: argparse.Namespace) -> int:
-    """List reminders — LIVE ONES BY DEFAULT.
+def _page_flags_refused(args: argparse.Namespace) -> bool:
+    limit = getattr(args, "limit", None)
+    if limit is not None and not 1 <= limit <= API_MAX_LIMIT:
+        print(f"--limit takes 1 to {API_MAX_LIMIT}; got {limit}", file=sys.stderr)
+        return True
+    return False
 
-    THE POINT OF THIS COMMAND IS TO FIND SOMETHING TO CANCEL, and a list where
-    every fired and cancelled reminder is mixed in with the two that are still
-    pending does not serve that. After a handful of one-shots the live entries
-    are a minority of the output, and a recurring reminder — the thing you most
-    need to find, because it fires forever until someone stops it — is buried
-    among dead rows that read almost identically.
 
-    So the default is live: `scheduled` only. `--all` shows history, and the
-    footer says how many were hidden so the filtering is never silent.
-    """
+def _fetch_listing(args: argparse.Namespace, bus: AgentBus, show_all: bool) -> dict[str, Any]:  # noqa: FBT001
+    limit = getattr(args, "limit", None) or API_MAX_LIMIT
+    cursor = getattr(args, "cursor", None)
+    if getattr(args, "all_pages", False):
+        return bus.reminds_every_page(all=show_all, limit=limit, cursor=cursor)
+    return bus.reminds_page(all=show_all, limit=limit, cursor=cursor)
+
+
+def _next_page_command(args: argparse.Namespace, show_all: bool, nxt: str) -> str:  # noqa: FBT001
+    parts = ["agentbus reminds"]
+    if show_all:
+        parts.append("--all")
+    if getattr(args, "limit", None):
+        parts.append(f"--limit {args.limit}")
+    parts.append(f"--cursor {nxt}")
+    return " ".join(parts)
+
+
+def _truncation_footer(args: argparse.Namespace, page: dict[str, Any], show_all: bool) -> None:  # noqa: FBT001
+    if not page.get("has_more"):
+        return
+    nxt = page.get("next_cursor")
+    if isinstance(nxt, str) and nxt:
+        print(
+            f"\nSHOWING {page.get('count')} OF {page.get('total')} — more rows exist.\n"
+            f"  next page:  {_next_page_command(args, show_all, nxt)}\n"
+            f"  every page: agentbus reminds{' --all' if show_all else ''} --all-pages"
+        )
+        return
+    print(
+        f"\nSHOWING {page.get('count')} OF {page.get('total')} — this listing is "
+        f"TRUNCATED at {page.get('limit')} rows and the server sent no cursor for "
+        "the next page."
+    )
+
+
+def _finished_count(bus: AgentBus, page: dict[str, Any]) -> int | None:
+    try:
+        total_all = bus.reminds_page(all=True, limit=1).get("total")
+    except AgentBusError:
+        return None
+    live_total = page.get("total")
+    if not isinstance(total_all, int):
+        return None
+    if not isinstance(live_total, int):
+        live_total = len(page["reminders"])
+    return total_all - live_total
+
+
+def _render_listing(
+    args: argparse.Namespace,
+    page: dict[str, Any],
+    shown: list[dict[str, Any]],
+    finished: int | None,
+) -> None:
     show_all = getattr(args, "all", False)
-    bus = _common._bus(args)
-    page = bus.reminds_page(all=show_all)
-    rows = page["reminders"]
-    # #336 — THE LOCAL FILTER IS NOW BELT, NOT BRACES. The server applies the
-    # state filter in SQL before the limit; this keeps the same rows out if an
-    # older server ignores `state`, which is the version that produced the
-    # vanished-reminder report. It must never be the ONLY filter again.
-    live = [r for r in rows if r.get("state") == "scheduled"]
-    shown = rows if show_all else live
-
-    # HOW MANY EXIST IN TOTAL, so the footer can still say what is being hidden.
-    #
-    # Filtering server-side (the fix) means the finished rows never arrive, so
-    # `len(rows)` can no longer count them — and the old footer, "27 finished —
-    # see them with --all", silently became "no reminders". That footer IS the
-    # promise in this function's docstring that the filtering is never silent,
-    # so losing it would have traded one silent omission for another. One extra
-    # call, only on the default view, only to say a true number.
-    total_all = None
-    if not show_all:
-        try:
-            total_all = bus.reminds_page(all=True).get("total")
-        except AgentBusError:
-            total_all = None  # never let a footer break the listing
-
-    if args.json:
-        # --json is the machine surface and must not lose data to a display
-        # choice: it returns whatever the server sent for the requested scope.
-        _print(shown, as_json=True)
-        return 0
-
     if not shown:
-        finished = (total_all - len(rows)) if total_all is not None else 0
-        if finished > 0 and not show_all:
+        if finished and finished > 0 and not show_all:
             print(f"no live reminders ({finished} finished — see them with --all)")
         else:
             print("no reminders")
-        return 0
-
-    # Recurring first: they are the ones that keep firing until cancelled, so
-    # they are what a reader is most often here to find.
+        return
     for row in sorted(shown, key=lambda r: (not r.get("repeat"), r.get("due_at") or "")):
         print(_render(row))
-
-    hidden = (total_all - len(shown)) if total_all is not None else (len(rows) - len(shown))
+    hidden = 0 if show_all else (finished or 0)
     if hidden > 0:
         print(f"\n({hidden} finished reminder(s) hidden — `agentbus reminds --all`)")
-    # #336's FIRST EARS LINE: the listing must say when it returned fewer rows
-    # than exist. Without this a truncated page is indistinguishable from a
-    # complete one, which is the whole reason five reminders read as vanished.
-    if page.get("has_more"):
-        print(
-            f"\nSHOWING {page.get('count')} OF {page.get('total')} — this listing is "
-            f"TRUNCATED at the API maximum ({page.get('limit')}). Rows exist that are "
-            f"not on this page; cancel or let some resolve to see the rest."
-        )
+    _truncation_footer(args, page, show_all)
     if any(r.get("repeat") for r in shown):
         print("cancel a recurring one: agentbus remind --cancel <id>")
+
+
+def cmd_reminds(args: argparse.Namespace) -> int:
+    """List reminders, live ones by default; --all adds fired and cancelled rows."""
+    if _page_flags_refused(args):
+        return 2
+    show_all = getattr(args, "all", False)
+    bus = _common._bus(args)
+    try:
+        page = _fetch_listing(args, bus, show_all)
+    except IncompleteListing as exc:
+        print(f"could not list every reminder: {exc.detail}", file=sys.stderr)
+        return 1
+    except ValidationError as exc:
+        print(f"could not list reminders: {exc.detail}", file=sys.stderr)
+        return 2
+    if getattr(args, "envelope", False):
+        _print(page, as_json=True)
+        return 0
+    rows = page["reminders"]
+    shown = rows if show_all else [r for r in rows if r.get("state") == "scheduled"]
+    if args.json:
+        _print(shown, as_json=True)
+        return 0
+    finished = None if show_all else _finished_count(bus, page)
+    if finished is None and not show_all:
+        finished = len(rows) - len(shown)
+    _render_listing(args, page, shown, finished)
     return 0

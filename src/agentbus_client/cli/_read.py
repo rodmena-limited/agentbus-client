@@ -263,6 +263,36 @@ def _show_by_thread_id(args: argparse.Namespace, bus: AgentBus, not_found: NotFo
     return 0
 
 
+_AGE_ARMOR_HEADER = "-----BEGIN AGE ENCRYPTED FILE-----"
+
+
+def _raw_seal_note(sealed: object, body: str) -> str | None:
+    armored = body.startswith(_AGE_ARMOR_HEADER)
+    if sealed is True:
+        if armored:
+            return None
+        return (
+            "note: the server marks this delivery sealed, but the stored bytes "
+            "below are not age ciphertext."
+        )
+    if sealed is False:
+        return (
+            "note: this delivery is NOT sealed — the bytes below are the "
+            "stored plaintext, not ciphertext, and prove nothing about "
+            "encryption."
+        )
+    if armored:
+        return (
+            "note: the server did not say whether this record is sealed; the "
+            "stored bytes below are age ciphertext."
+        )
+    return (
+        "note: the server did not say whether this record is sealed, and the "
+        "stored bytes below are not age ciphertext. They prove nothing about "
+        "encryption."
+    )
+
+
 def _show_raw(args: argparse.Namespace, delivery: dict[str, Any]) -> int:
     # #39, reported by macbook-admin-bd8e86: emit the stored body and NOTHING
     # else on stdout, so it pipes straight into `age -d` with no filtering.
@@ -274,16 +304,9 @@ def _show_raw(args: argparse.Namespace, delivery: dict[str, Any]) -> int:
     if args.json:
         _print(delivery, as_json=True)
     else:
-        if not delivery.get("sealed"):
-            # An UNSEALED body printed under --raw looks exactly like a successful
-            # decryption. Say which one it is, or --raw becomes a check that
-            # reports "verified" for mail that was never encrypted at all.
-            print(
-                "note: this delivery is NOT sealed — the bytes below are the "
-                "stored plaintext, not ciphertext, and prove nothing about "
-                "encryption.",
-                file=sys.stderr,
-            )
+        note = _raw_seal_note(delivery.get("sealed"), body)
+        if note:
+            print(note, file=sys.stderr)
         buffer = getattr(sys.stdout, "buffer", None)
         if buffer is not None:
             buffer.write(body.encode())

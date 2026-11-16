@@ -257,8 +257,11 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
     bus = _common._bus(args)
     agent = _common.require_acting_agent(args, bus)
-    if not agent:
-        return 2
+    from ._watch_omo import watch_refusal
+
+    refused = 2 if not agent else watch_refusal(args, agent)
+    if refused is not None or not agent:
+        return refused or 2
 
     fanout = _fanout(args)
 

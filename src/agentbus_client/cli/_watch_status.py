@@ -8,7 +8,7 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
-from . import _common, _watch_runtime
+from . import _common, _watch_omo, _watch_runtime
 from ._common import _cfg_dir
 from ._watch_runtime import (
     _existing_logfile,
@@ -246,6 +246,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
     want_state = getattr(args, "state", None)
     if want_state:
         pids = _scope_pids_by_state(pids, agent, want_state)
+    omo_live = False if want_state else _watch_omo.print_omo_status(agent)
     if pids:
         _print_running(agent, pids)
         # #204: report a log only if one EXISTS, and say why when it does not.
@@ -255,7 +256,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
         for st in pids:
             state_key = None if st == "(legacy)" else st
             _print_log(st, _existing_logfile(agent, state_key))
-    else:
+    elif not omo_live:
         # #160: PIDFILE-ABSENT MUST NOT READ AS CHECKED-AND-DEAD. The pid-from-
         # pidfile check above is correct (verified on FreeBSD both directions by
         # its reporter) — but with no pidfile it had NOTHING to check and still
@@ -275,7 +276,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
     # 1 = no watcher. 0 = watcher running and arrivals can be recorded.
     if wake_broken:
         return 3
-    return 0 if pids else 1
+    return 0 if (pids or omo_live) else 1
 
 
 def cmd_watch_stop(args: argparse.Namespace) -> int:
@@ -293,6 +294,8 @@ def cmd_watch_stop(args: argparse.Namespace) -> int:
     pids = _watch_pids(agent)
     if want_state:
         pids = _scope_pids_by_state(pids, agent, want_state)
+    else:
+        _watch_omo.omo_stop_note(agent)
     if not pids:
         # FAIL LOUDLY: "no watcher matches this selector" is NOT "no watcher".
         # A silent no-match on a scoped stop means the operator believes the

@@ -54,7 +54,7 @@ def _reminds_output(rows: Any, *, monkeypatch: pytest.MonkeyPatch, show_all: boo
     # regression to local-only filtering pass unnoticed here.
     live = [r for r in rows if r.get("state") == "scheduled"]
 
-    def _page(self: Any, *, all: bool = False) -> dict[str, Any]:  # noqa: A002
+    def _page(self: Any, *, all: bool = False, **_kw: Any) -> dict[str, Any]:  # noqa: A002
         chosen = rows if all else live
         return {
             "reminders": chosen,

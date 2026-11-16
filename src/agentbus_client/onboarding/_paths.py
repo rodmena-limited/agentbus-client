@@ -51,7 +51,7 @@ def _device_hash(device_id: str | None) -> str:
     return hashlib.sha256((device_id or "").encode()).hexdigest()
 
 
-HARNESSES = ("claude", "opencode", "codex", "agy")
+HARNESSES = ("claude", "opencode", "codex", "agy", "omo")
 
 # `agy` is the binary's name and matches how every other harness here is named
 # after its command. "antigravity" is the product name people actually type, so

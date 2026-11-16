@@ -26,6 +26,7 @@ from .sync_block import SyncBlockMixin
 from .sync_directory import SyncDirectoryMixin
 from .sync_messaging import SyncMessagingMixin
 from .sync_misc import SyncMiscMixin
+from .sync_reminders import SyncRemindersMixin
 
 
 class AgentBus(
@@ -33,6 +34,7 @@ class AgentBus(
     SyncMessagingMixin,
     SyncDirectoryMixin,
     SyncMiscMixin,
+    SyncRemindersMixin,
     SyncMemoryMixin,
     SyncBlockMixin,
 ):

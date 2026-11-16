@@ -365,6 +365,11 @@ def doctor_wake(args: argparse.Namespace) -> int:
     # host that is genuinely wake-capable. Under-claiming with the wrong command
     # is the "diagnostic looking for the mechanism IT understands" failure this
     # module already documents for the plugin case.
+    from ._doctor_omo import doctor_wake_omo
+
+    omo_result = doctor_wake_omo(name)
+    if omo_result is not None:
+        return omo_result
     from ._paths import agy_is_wired
 
     _agy_root = _git_root_or_none() or Path.cwd()

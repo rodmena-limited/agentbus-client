@@ -21,7 +21,12 @@ import pytest
 import agentbus_client
 from agentbus_client.cli._parser import build
 
-from .test_cli_parses_exactly_like_0_9_94 import ADDED_AFTER_0_9_94, ORACLE, delta
+from .test_cli_parses_exactly_like_0_9_94 import (
+    ADDED_AFTER_0_9_94,
+    ORACLE,
+    VERBS_ADDED_AFTER_0_9_94,
+    delta,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SCRIPT = FIXTURES / "capture_cli_oracle.py"
@@ -30,6 +35,7 @@ FLAGS_ADDED_AFTER_0_9_94 = {
     "drafts": {"--delete"},
     "send": {"--allow-empty"},
     "reply": {"--allow-empty"},
+    "reminds": {"--limit", "--cursor", "--all-pages", "--envelope"},
 }
 
 
@@ -107,7 +113,9 @@ def test_the_outcomes_differ_only_by_the_documented_deltas(regenerated: dict[str
 
 
 def test_options_match_except_for_flags_added_since(regenerated: dict[str, Any]) -> None:
-    assert set(regenerated["options"]) == set(ORACLE["options"])
+    assert set(regenerated["options"]) - VERBS_ADDED_AFTER_0_9_94 == set(ORACLE["options"])
+    assert set(regenerated["options"]) >= VERBS_ADDED_AFTER_0_9_94
+    assert not VERBS_ADDED_AFTER_0_9_94 & set(ORACLE["options"])
     for path, known in ORACLE["options"].items():
         added = FLAGS_ADDED_AFTER_0_9_94.get(path, set())
         assert set(regenerated["options"][path]) == set(known) | added, path

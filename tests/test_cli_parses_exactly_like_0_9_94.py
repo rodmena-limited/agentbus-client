@@ -20,7 +20,9 @@ ADDED_AFTER_0_9_94: dict[str, dict[str, Any]] = {
     "drafts": {"delete": None},
     "send": {"allow_empty": False},
     "reply": {"allow_empty": False},
+    "reminds": {"limit": None, "cursor": None, "all_pages": False, "envelope": False},
 }
+VERBS_ADDED_AFTER_0_9_94 = frozenset({"watch-check"})
 
 
 def _path(argv: list[str]) -> tuple[str | None, int]:

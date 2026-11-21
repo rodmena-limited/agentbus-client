@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -20,7 +21,7 @@ from agentbus_client.cli import _watch_argv
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-AGENT = "zz-argv-probe-4f1c"
+AGENT = f"zz-argv-probe-{secrets.token_hex(3)}"
 SHELL_PS = (
     f"  501 bash -c agentbus watch-status --agent {AGENT}; echo agentbus watch --agent {AGENT}\n"
 )

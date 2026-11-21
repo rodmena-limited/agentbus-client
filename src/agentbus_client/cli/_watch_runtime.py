@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import os
-import re
 from pathlib import Path
 
 from ._common import _cfg_dir
+from ._watch_argv import argv_is_watcher, proc_argv, scan_argv
 
 
 def _watch_runtime_dir(*, create: bool = True) -> Path:
@@ -121,21 +121,17 @@ def _scan_watch_process(agent: str) -> int | None:
         ).stdout
     except (OSError, _sp.SubprocessError):
         return None
-    # SEV-3 (#234): match `--agent foo`, `--agent=foo`, and `--agent 'foo'`
-    # (quoted) — an operator alias that uses `=` or quotes never matched the
-    # bare space-separated form and this fallback returned None silently. The
-    # pidfile is still the primary source of truth; this improves the fallback.
-    needle_re = _agent_flag_re(agent)
     for line in out.splitlines():
-        if "agentbus" in line and " watch " in f" {line} " and needle_re.search(line):
-            with contextlib.suppress(ValueError, IndexError):
-                return int(line.split(None, 1)[0])
+        if "agentbus" not in line or "watch" not in line:
+            continue
+        pid_text, _, ps_args = line.strip().partition(" ")
+        try:
+            pid = int(pid_text)
+        except ValueError:
+            continue
+        if argv_is_watcher(scan_argv(pid, ps_args), agent):
+            return pid
     return None
-
-
-def _agent_flag_re(agent: str) -> re.Pattern[str]:
-    """`--agent foo`, `--agent=foo`, `--agent 'foo'` — the forms a watcher argv can carry."""
-    return re.compile(rf"(?:^|\s)--agent(?:=|\s+)['\"]?{re.escape(agent)}['\"]?(?:\s|$)")
 
 
 def _pid_cmdline(pid: int) -> str | None:
@@ -168,12 +164,13 @@ def _pid_is_watcher(pid: int, agent: str) -> bool:
     it. The command line is the identity check; a PID we cannot read is treated
     as stale, never as ours.
     """
-    line = _pid_cmdline(pid)
-    if not line:
-        return False
-    return (
-        "agentbus" in line and " watch " in f" {line} " and bool(_agent_flag_re(agent).search(line))
-    )
+    argv = proc_argv(pid)
+    if argv is None:
+        line = _pid_cmdline(pid)
+        if not line:
+            return False
+        argv = line.split()
+    return argv_is_watcher(argv, agent)
 
 
 def _watch_pids(agent: str) -> dict[str, int]:

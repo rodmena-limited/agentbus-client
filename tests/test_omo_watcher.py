@@ -215,13 +215,13 @@ def test_watch_check_for_omo_ignores_its_own_lock(
 
 
 def test_watch_check_reads_real_pidfiles(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    proc = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(60)", "agentbus", "watch", "--agent", AGENT]
-    )
+    script = tmp_path / "agentbus"
+    script.write_text("import time\ntime.sleep(60)\n")
+    proc = subprocess.Popen([sys.executable, str(script), "watch", "--agent", AGENT])
     try:
-        time.sleep(0.1)
+        time.sleep(0.3)
         pidfile = _watch_runtime._watch_pidfile(AGENT, "monitor-x-1111.json")
         pidfile.write_text(str(proc.pid))
         assert _check([], monkeypatch) == 4

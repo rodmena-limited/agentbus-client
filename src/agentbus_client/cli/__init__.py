@@ -140,7 +140,6 @@ from ._watch_run import (
     cmd_watch as cmd_watch,
 )
 from ._watch_runtime import (
-    _agent_flag_re as _agent_flag_re,
     _existing_logfile as _existing_logfile,
     _pid_cmdline as _pid_cmdline,
     _pid_is_watcher as _pid_is_watcher,

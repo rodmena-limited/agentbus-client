@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from agentbus_client._env_numbers import env_int
+
 if TYPE_CHECKING:
     from datetime import timedelta
 
@@ -63,15 +65,14 @@ class Delivery:
 _DEFAULT_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
+def _size_setting(name: str, default: int) -> int:
+    if not os.environ.get(name):
+        return default
+    return env_int(name, default, minimum=1)
+
+
 def _max_attachment_bytes() -> int:
-    raw = os.environ.get("AGENTBUS_MAX_ATTACHMENT_BYTES")
-    if not raw:
-        return _DEFAULT_MAX_ATTACHMENT_BYTES
-    try:
-        v = int(raw)
-    except ValueError:
-        return _DEFAULT_MAX_ATTACHMENT_BYTES
-    return v if v > 0 else _DEFAULT_MAX_ATTACHMENT_BYTES
+    return _size_setting("AGENTBUS_MAX_ATTACHMENT_BYTES", _DEFAULT_MAX_ATTACHMENT_BYTES)
 
 
 #: F7 (issuedb #4): the SERVER's per-attachment ceiling, applied BEFORE any
@@ -105,14 +106,9 @@ _SEAL_INFLATION_FACTOR = 1.806
 
 
 def _server_max_attachment_bytes() -> int:
-    raw = os.environ.get("AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES")
-    if not raw:
-        return _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
-    try:
-        v = int(raw)
-    except ValueError:
-        return _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
-    return v if v > 0 else _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
+    return _size_setting(
+        "AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES", _DEFAULT_SERVER_MAX_ATTACHMENT_BYTES
+    )
 
 
 # Ack-tracking (SPECS/0022): the ack-window cap the server enforces. The
@@ -137,11 +133,11 @@ def _ack_window_seconds(
     local error instead of a round-trip 422. The error names the cap in
     seconds and days, matching the spec's wording.
     """
-    import datetime as _dt
+    import datetime as dt
 
     if ack_window is None:
         return _ACK_WINDOW_DEFAULT_SECONDS if default_when_set else None
-    if isinstance(ack_window, _dt.timedelta):
+    if isinstance(ack_window, dt.timedelta):
         seconds = int(ack_window.total_seconds())
     elif isinstance(ack_window, bool):  # bool is an int subclass; refuse it
         msg = "ack_window must be a timedelta or seconds, not a bool"

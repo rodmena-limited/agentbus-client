@@ -13,9 +13,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 EXTENSION_REPO = "rodmena-limited/agentbus-omo-plugin"
-EXTENSION_COMMIT = "181469caf0ce0ca88b39da131e9002afa6e7002a"
+EXTENSION_COMMIT = "166de8cb19e4cf414378962c7bb4e0521ada9a3f"
 EXTENSION_FILES = {
-    "index.ts": "937862ca5e0d174d7f151abc79c147315084f007ff370f672c078c2d22e461f8",
+    "index.ts": "557998d6009b5f3dfe2fee394f26fb55bb9d8a51686c756b4765c5bcec6d5790",
     "package.json": "c0b1e3c49f0f152772d0f7e0cfdca2dcb9d96c83d3e9d7c41b2c3e8756695268",
 }
 PINNED = "pinned"
@@ -79,11 +79,11 @@ def install_extension(
         return True
     if state == DIFFERS:
         report.append(
-            f"extension: NOT replaced. {directory} holds files that differ from {short} "
-            f"({', '.join(differing)}). To install {short}, move that directory aside and "
-            "run `agentbus setup omo` again."
+            f"extension: WARNING, NOT replaced. {directory} holds files that differ from "
+            f"{short} ({', '.join(differing)}). To install {short}, move that directory "
+            "aside and run `agentbus setup omo` again."
         )
-        return False
+        return True
     fetched: dict[str, bytes] = {}
     for name, digest in EXTENSION_FILES.items():
         url = extension_url(name)

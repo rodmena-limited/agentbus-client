@@ -48,11 +48,11 @@ from ._agy_plugin import (
     load_hooks,
     plugin_manifest,
 )
+from ._atomic_write import _dump_json
 from ._credentials import doctor_credential_scope
 from ._identity import _write_worktree_identity
 from ._paths import (
     AGY_WAKE_WINDOW_SEC,
-    _dump_json,
     _git_root_or_none,
     _say,
     agy_mark_wired,

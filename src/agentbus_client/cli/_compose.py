@@ -155,10 +155,10 @@ def cmd_send(args: argparse.Namespace) -> int:
     # 24h when --require-ack is set. TO only, never CC.
     ack_window = None
     if getattr(args, "require_ack", False):
-        import datetime as _dt
+        import datetime as dt
 
         raw = getattr(args, "ack_window", None)
-        ack_window = _parse_duration(raw) if raw else _dt.timedelta(hours=24)
+        ack_window = _parse_duration(raw) if raw else dt.timedelta(hours=24)
     try:
         result = bus.send(
             args.to,

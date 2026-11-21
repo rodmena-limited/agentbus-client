@@ -128,16 +128,17 @@ def test_a_read_only_directory_stops_setup_naming_the_file_it_needed(claude_loca
 def test_a_write_error_that_carries_no_path_still_names_the_file(
     claude_local: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real_write = Path.write_text
+    original = b'{"permissions": {"allow": ["x"]}}'
+    claude_local.write_bytes(original)
 
-    def full_disk(self: Path, *a: Any, **k: Any) -> int:
-        if self == claude_local:
-            raise OSError(errno.ENOSPC, "No space left on device")
-        return real_write(self, *a, **k)
+    def full_disk(_fd: int) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
 
-    monkeypatch.setattr(Path, "write_text", full_disk)
+    monkeypatch.setattr(os, "fsync", full_disk)
     message = _stopped(_setup, "claude")
     assert message.startswith(f"setup stopped at {claude_local}: No space left on device.")
+    assert claude_local.read_bytes() == original
+    assert sorted(p.name for p in claude_local.parent.iterdir()) == ["settings.local.json"]
 
 
 def test_an_opencode_config_setup_cannot_write_stops_setup_with_its_bytes_intact(

@@ -21,6 +21,7 @@ from ._agy_setup import (
     _setup_agy as _setup_agy,
     teardown_agy_machine as teardown_agy_machine,
 )
+from ._atomic_write import _dump_json as _dump_json
 from ._claude_setup import (
     _setup_claude as _setup_claude,
 )
@@ -71,7 +72,6 @@ from ._paths import (
     STOP_REWAKE_VERSION as STOP_REWAKE_VERSION,
     _config_dir as _config_dir,
     _device_hash as _device_hash,
-    _dump_json as _dump_json,
     _ensure_hook_entry as _ensure_hook_entry,
     _git_remote_or_none as _git_remote_or_none,
     _git_root_or_none as _git_root_or_none,

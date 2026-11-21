@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     import argparse
     from pathlib import Path
 
+EXIT_UNMANAGED_WATCHER = 10
+
 
 def _read_running_client_version(
     agent: str, state_key: str | None, for_pid: int | None = None
@@ -204,7 +206,7 @@ def _print_log(st: str, found: tuple[Path, bool] | None) -> None:
         )
 
 
-def _print_not_running(agent: str, want_state: str | None) -> None:
+def _print_not_running(agent: str, want_state: str | None) -> int | None:
     orphan = _scan_watch_process(agent)
     if orphan:
         print(
@@ -225,6 +227,7 @@ def _print_not_running(agent: str, want_state: str | None) -> None:
             f"{_watch_runtime._watch_runtime_dir(create=False)} and a full process scan — "
             "neither found it."
         )
+    return orphan
 
 
 def _print_last_log(stale: tuple[Path, bool] | None) -> None:
@@ -243,6 +246,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
     wake_broken = _report_wake_path(agent)
 
     pids = _watch_pids(agent)
+    orphan: int | None = None
     want_state = getattr(args, "state", None)
     if want_state:
         pids = _scope_pids_by_state(pids, agent, want_state)
@@ -266,7 +270,7 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
         # Absence of evidence, worded as evidence of absence. So: scan for a
         # matching live process (ps -axwwo — the #117 form; FreeBSD's -eo sees
         # only gettys), and say WHAT was checked either way.
-        _print_not_running(agent, want_state)
+        orphan = _print_not_running(agent, want_state)
         # #204: same rule on the not-running path. "last log: <path>" for a file
         # that never existed reads as "here is where the evidence is" when there
         # is no evidence at all.
@@ -276,7 +280,9 @@ def cmd_watch_status(args: argparse.Namespace) -> int:
     # 1 = no watcher. 0 = watcher running and arrivals can be recorded.
     if wake_broken:
         return 3
-    return 0 if (pids or omo_live) else 1
+    if pids or omo_live:
+        return 0
+    return EXIT_UNMANAGED_WATCHER if orphan else 1
 
 
 def cmd_watch_stop(args: argparse.Namespace) -> int:

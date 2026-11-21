@@ -24,9 +24,9 @@ jobs:
     # the suite had only ever run on one interpreter, so three of the four
     # claimed versions were an untested promise.
     name: "Tests (py${{ matrix.python }})"
-    image: rodmenalimited/ci-python:${{ matrix.python }}
+    image: containers.rodmena.co.uk/rodmena/ci-python:${{ matrix.python }}
     matrix:
-      python: ["3.10", "3.11", "3.12", "3.13"]
+      python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     timeout_minutes: 20
     steps:
       - name: Install
@@ -43,7 +43,7 @@ jobs:
     # key_agent_mismatch before the registration precedence logic is reached,
     # which is why the team that owns that code could not test it themselves.
     name: "Integration"
-    image: rodmenalimited/ci-python:3.12
+    image: containers.rodmena.co.uk/rodmena/ci-python:3.12
     timeout_minutes: 15
     secrets:
       - AGENTBUS_OPERATOR_KEY
@@ -63,7 +63,7 @@ jobs:
 
   lint:
     name: "Lint"
-    image: rodmenalimited/ci-python:3.12
+    image: containers.rodmena.co.uk/rodmena/ci-python:3.12
     timeout_minutes: 10
     steps:
       - name: Install
@@ -75,7 +75,7 @@ jobs:
 
   types:
     name: "Types"
-    image: rodmenalimited/ci-python:3.12
+    image: containers.rodmena.co.uk/rodmena/ci-python:3.12
     timeout_minutes: 10
     steps:
       - name: Install
@@ -88,7 +88,7 @@ jobs:
     # House rules that no tool enforces. Both were breached in the week before
     # this file existed and neither was noticed by anything but a human reading.
     name: "House limits"
-    image: rodmenalimited/ci-python:3.12
+    image: containers.rodmena.co.uk/rodmena/ci-python:3.12
     timeout_minutes: 5
     steps:
       - name: File size cap (500 soft / 550 hard)

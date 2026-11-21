@@ -9,7 +9,11 @@ from ._app import verb
 @verb(
     "watch-status",
     _watch_status.cmd_watch_status,
-    help="is a watcher running for this agent?",
+    help=(
+        "is a watcher running for this agent?\n\n"
+        "exit 0 running, 1 not running, 3 wake path broken, "
+        "10 running with no pidfile (found by process scan; watch-stop cannot stop it)"
+    ),
     common=True,
 )
 @click.option(

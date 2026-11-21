@@ -12,7 +12,7 @@ filters — thread and since — because the served contract has neither.
 
 from __future__ import annotations
 
-import datetime as _dt
+import datetime as dt
 import json
 import sys
 from typing import TYPE_CHECKING, Any
@@ -31,34 +31,34 @@ if TYPE_CHECKING:
 _MAX_PAGES = 50
 
 
-def _since_instant(value: str | None) -> _dt.datetime | None:
+def _since_instant(value: str | None) -> dt.datetime | None:
     """`--since` is an ISO-8601 instant or a duration such as `2h` (= now - 2h)."""
     if not value:
         return None
     try:
         delta = _parse_duration(value)
-        return _dt.datetime.now(_dt.timezone.utc) - delta
+        return dt.datetime.now(dt.timezone.utc) - delta
     except (ValueError, TypeError):
         pass
     text = value.strip()
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
-        instant = _dt.datetime.fromisoformat(text)
+        instant = dt.datetime.fromisoformat(text)
     except ValueError:
         msg = f"--since takes a duration such as 2h or 3d, or an ISO-8601 time; got {value!r}"
         raise InputError(msg) from None
     if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=_dt.timezone.utc)
+        instant = instant.replace(tzinfo=dt.timezone.utc)
     return instant
 
 
-def _sent_at(row: dict[str, Any]) -> _dt.datetime | None:
+def _sent_at(row: dict[str, Any]) -> dt.datetime | None:
     raw = row.get("sent_at")
     if not raw:
         return None
     try:
-        return _dt.datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return dt.datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except ValueError:
         return None
 
@@ -84,7 +84,7 @@ def _recipients_line(row: dict[str, Any]) -> str:
     return line
 
 
-def _wanted(row: dict[str, Any], thread: str | None, since: _dt.datetime | None) -> bool:
+def _wanted(row: dict[str, Any], thread: str | None, since: dt.datetime | None) -> bool:
     if thread and row.get("thread_id") != thread:
         return False
     if since is not None:
@@ -99,7 +99,7 @@ def _collect(
     *,
     limit: int,
     thread: str | None,
-    since: _dt.datetime | None,
+    since: dt.datetime | None,
     agent: str | None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Page /v1/sent until `limit` matching rows are in hand or the server has

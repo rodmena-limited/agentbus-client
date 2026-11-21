@@ -45,7 +45,7 @@ def test_the_pin_is_a_full_commit_and_real_digests() -> None:
     assert all(len(d) == 64 for d in _omo_extension.EXTENSION_FILES.values())
     assert _omo_extension.extension_url("index.ts") == (
         "https://raw.githubusercontent.com/rodmena-limited/agentbus-omo-plugin/"
-        "181469caf0ce0ca88b39da131e9002afa6e7002a/index.ts"
+        "166de8cb19e4cf414378962c7bb4e0521ada9a3f/index.ts"
     )
 
 
@@ -58,7 +58,7 @@ def test_a_fresh_install_writes_the_checked_files(pinned: dict[str, list[str]]) 
         assert (directory / name).read_bytes() == data
         assert (directory / name).stat().st_mode & 0o777 == 0o644
     assert len(pinned["fetched"]) == 2
-    assert "installed rodmena-limited/agentbus-omo-plugin at 181469c" in report[0]
+    assert "installed rodmena-limited/agentbus-omo-plugin at 166de8c" in report[0]
     assert _omo_extension.extension_state() == (_omo_extension.PINNED, [])
 
 
@@ -87,7 +87,7 @@ def test_a_current_install_is_not_fetched_again(pinned: dict[str, list[str]]) ->
     report: list[str] = []
     assert _omo_extension.install_extension(report, fetch=_fetch(pinned)) is True
     assert pinned["fetched"] == []
-    assert "already at 181469c; left as is" in report[0]
+    assert "already at 166de8c; left as is" in report[0]
 
 
 def test_a_changed_install_is_left_alone(pinned: dict[str, list[str]]) -> None:
@@ -95,10 +95,10 @@ def test_a_changed_install_is_left_alone(pinned: dict[str, list[str]]) -> None:
     directory.mkdir(parents=True)
     (directory / "index.ts").write_text("// my local edit\n")
     report: list[str] = []
-    assert _omo_extension.install_extension(report, fetch=_fetch(pinned)) is False
+    assert _omo_extension.install_extension(report, fetch=_fetch(pinned)) is True
     assert (directory / "index.ts").read_text() == "// my local edit\n"
     assert pinned["fetched"] == []
-    assert "NOT replaced" in report[0]
+    assert "WARNING, NOT replaced" in report[0]
     assert "index.ts" in report[0]
 
 
@@ -183,6 +183,61 @@ def test_setup_omo_exits_1_when_the_extension_is_not_installed(
     assert cli.main(["setup", "omo", "--role", "omo"]) == 1
     assert (repo / ".agentbus" / "agent").exists()
     assert "extension: NOT installed" in capsys.readouterr().out
+
+
+def test_the_pin_is_166de8c_with_the_digests_omo_test_named() -> None:
+    assert _omo_extension.EXTENSION_COMMIT == "166de8cb19e4cf414378962c7bb4e0521ada9a3f"
+    assert _omo_extension.EXTENSION_FILES == {
+        "index.ts": "557998d6009b5f3dfe2fee394f26fb55bb9d8a51686c756b4765c5bcec6d5790",
+        "package.json": "c0b1e3c49f0f152772d0f7e0cfdca2dcb9d96c83d3e9d7c41b2c3e8756695268",
+    }
+
+
+def test_an_install_at_the_previous_pin_is_left_alone(pinned: dict[str, list[str]]) -> None:
+    directory = _omo.omo_extension_dir()
+    directory.mkdir(parents=True)
+    previous = b"previous pin 181469c\n"
+    (directory / "index.ts").write_bytes(previous)
+    (directory / "package.json").write_bytes(FILES["package.json"])
+    report: list[str] = []
+    assert _omo_extension.install_extension(report, fetch=_fetch(pinned)) is True
+    assert (directory / "index.ts").read_bytes() == previous
+    assert pinned["fetched"] == []
+    assert _omo_extension.extension_state() == (_omo_extension.DIFFERS, ["index.ts"])
+
+
+def test_setup_omo_exits_0_when_a_differing_install_is_left_alone(
+    pinned: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    directory = _omo.omo_extension_dir()
+    directory.mkdir(parents=True)
+    (directory / "index.ts").write_text("// my local edit\n")
+    _use_fetch(monkeypatch, _fetch(pinned))
+    repo = _wire_setup(monkeypatch, tmp_path, {"harnesses": []})
+    assert cli.main(["setup", "omo", "--role", "omo"]) == 0
+    out = capsys.readouterr().out
+    assert (repo / ".agentbus" / "agent").read_text().strip() == "omo-0a1b2c"
+    assert (directory / "index.ts").read_text() == "// my local edit\n"
+    assert pinned["fetched"] == []
+    assert "extension: WARNING, NOT replaced" in out
+    assert "agentbus setup omo` again" in out
+
+
+def test_setup_omo_exits_1_when_fetched_bytes_do_not_match(
+    pinned: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bad = {**FILES, "index.ts": b"tampered\n"}
+    _use_fetch(monkeypatch, _fetch(pinned, bad))
+    _wire_setup(monkeypatch, tmp_path, {"harnesses": []})
+    assert cli.main(["setup", "omo", "--role", "omo"]) == 1
+    assert not _omo.omo_extension_dir().exists()
+    assert "Nothing was written" in capsys.readouterr().out
 
 
 def test_doctor_wake_reports_a_live_omo_watcher(

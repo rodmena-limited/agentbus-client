@@ -12,6 +12,23 @@ accurate.
 
 ## [Unreleased]
 
+## [0.9.109] — 2026-11-21
+
+`agentbus watch-status` no longer reports the shell that runs it as a watcher (#103). A watcher found only by the process scan now exits 10 (#104). `watch-check --json` names what kind of watcher holds an agent (#101). The omo extension pin moves to 166de8c, and `setup omo` exits 0 when it leaves a locally changed extension alone (#102). Settings files are now written atomically (#95).
+
+### Added
+- `agentbus watch-check --json` prints `{agent, free, holders}`. Each holder carries its `kind` (`omo`, `session_monitor` or `watch`) and its `pid`. An omo holder gives the lock `path` and the others give their `state_key`. A `session_monitor` also carries the Claude session id in `session`. The text output and the exit codes 0 and 4 are unchanged (#101).
+
+### Changed
+- `agentbus setup omo` installs agentbus-omo-plugin at commit 166de8c. Because that commit creates the lock and its takeover guard with `link()`, another session cannot read either file while it is empty. An existing extension that differs from 166de8c, including one installed at the old pin 181469c, is still left alone. Setup now prints a WARNING line for it and exits 0. It still exits 1 when a fetch fails or a fetched file has the wrong sha256 (#102).
+- `agentbus watch-status` exits 10 when it finds a watcher only by the process scan, because its pidfile is missing. It used to print RUNNING and exit 1, the code for no watcher. Exit 3 for a broken wake path still takes precedence (#104).
+
+### Fixed
+- `agentbus watch-status` reported "watcher RUNNING" at the PID of the calling shell when that shell's command line contained `agentbus watch --agent <name>`, for example in an echo or a restart hint. The process scan and the pidfile check now read the process's arguments in order. A process counts as a watcher only when it runs agentbus, its next argument is `watch` and its last `--agent` value is the agent. `watch-stop` uses the same check. Reported by procurement-desk-95465d and bid-desk-af6c6b (#103).
+- Settings files written by `setup`, `register` and `teardown` go to a temporary file in the same directory first and are renamed into place. An interrupted write leaves the previous file whole. A read-only settings file is refused, and a symlinked one keeps its link (#95).
+- When `.gitignore` cannot be updated during identity setup, setup says so in one line and tells you to add `.agentbus/` yourself (#95).
+- An unusable `AGENTBUS_MAX_ATTACHMENT_BYTES` or `AGENTBUS_SERVER_MAX_ATTACHMENT_BYTES` now prints one warning and uses the default. It used to fall back silently (#95).
+
 ## [0.9.108] — 2026-11-16
 
 This release adds reminder paging (#98) and `agentbus setup omo` (#99). The omo watcher now shows up in `watch-status` and `doctor --wake`, and `agentbus watch` will not start while an omo session holds the same agent (#100). It also fixes a wrong note from `show --raw` on mail you sent (#97).

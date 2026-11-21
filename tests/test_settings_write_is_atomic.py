@@ -46,7 +46,7 @@ CRASH = """
 import os, signal, sys
 from pathlib import Path
 from agentbus_client.onboarding import _dump_json
-os.replace = lambda *_a: os.kill(os.getpid(), signal.SIGKILL)
+Path.replace = lambda *_a: os.kill(os.getpid(), signal.SIGKILL)
 _dump_json(Path(sys.argv[1]), {"new": "x" * 100000})
 """
 

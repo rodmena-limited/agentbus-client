@@ -196,3 +196,32 @@ def test_cli_watch_status_from_a_naming_shell_still_finds_a_real_watcher(
     assert f"watcher RUNNING for {AGENT} (pid {fake_watcher.pid})" in result.stdout, (
         result.stdout + result.stderr
     )
+    assert result.returncode == 10
+
+
+@pytest.mark.parametrize(
+    ("wake", "orphan", "expected"),
+    [("ok", 4242, 10), ("broken", 4242, 3), ("ok", None, 1), ("broken", None, 3)],
+)
+def test_watch_status_exit_code_for_a_scan_found_watcher(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    wake: str,
+    orphan: int | None,
+    expected: int,
+) -> None:
+    from agentbus_client.cli import _common, _watch_omo, _watch_status
+
+    monkeypatch.setattr(_watch_status, "_report_wake_path", lambda _agent: wake == "broken")
+    monkeypatch.setattr(_watch_status, "_watch_pids", lambda _agent: {})
+    monkeypatch.setattr(_watch_omo, "print_omo_status", lambda _agent: False)
+    monkeypatch.setattr(_watch_status, "_scan_watch_process", lambda _agent: orphan)
+    monkeypatch.setattr(_watch_status, "_existing_logfile", lambda *_a: None)
+    monkeypatch.setattr(_common, "require_acting_agent", lambda _args: AGENT)
+    args = SimpleNamespace(agent=AGENT, state=None)
+    assert _watch_status.cmd_watch_status(args) == expected  # type: ignore[arg-type]
+    out = capsys.readouterr().out
+    if orphan:
+        assert f"watcher RUNNING for {AGENT} (pid {orphan})" in out
+    else:
+        assert f"watcher NOT running for {AGENT}" in out

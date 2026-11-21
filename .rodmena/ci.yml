@@ -23,7 +23,7 @@ jobs:
     # THE MATRIX IS THE POINT. pyproject declares requires-python = ">=3.10" and
     # the suite had only ever run on one interpreter, so three of the four
     # claimed versions were an untested promise.
-    name: "Tests (py${{ matrix.python }})"
+    name: "Tests"
     image: containers.rodmena.co.uk/rodmena/ci-python:${{ matrix.python }}
     matrix:
       python: ["3.10", "3.11", "3.12", "3.13", "3.14"]

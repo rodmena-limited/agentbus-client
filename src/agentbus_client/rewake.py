@@ -309,7 +309,7 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
     # (3) the "degrade loudly" comment above the fallback wrote to a stderr
     # nobody reads (background monitor). If the import fails now it raises here,
     # and `agentbus doctor` catches it — the right place to notice a broken install.
-    import datetime as _dt
+    import datetime as dt
 
     import resilient_circuit as rc
     from resilient_circuit.exceptions import ProtectionException
@@ -334,7 +334,7 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
                 # (issuedb #24). (n-1)/n keeps an n-slot window.
                 failure_limit=_cb_window(5),
                 success_limit=_cb_window(2),
-                cooldown=_dt.timedelta(
+                cooldown=dt.timedelta(
                     seconds=max(
                         5,
                         env_int("AGENTBUS_REWAKE_INTERVAL", 15, maximum=LONGEST_SECONDS, below=1),
@@ -345,8 +345,8 @@ def _build_resilient_poll(agent: str, wait: int = 0) -> Callable[[], str]:
             rc.RetryWithBackoffPolicy(
                 max_retries=3,
                 backoff=rc.ExponentialDelay(
-                    min_delay=_dt.timedelta(seconds=1),
-                    max_delay=_dt.timedelta(seconds=10),
+                    min_delay=dt.timedelta(seconds=1),
+                    max_delay=dt.timedelta(seconds=10),
                     factor=2,
                     jitter=0.2,
                 ),

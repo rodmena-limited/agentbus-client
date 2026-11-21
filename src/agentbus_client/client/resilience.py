@@ -238,7 +238,7 @@ def _sdk_safety_net() -> Any:  # noqa: ANN401
     if _SDK_SAFETY_NET is None:
         with _SDK_INIT_LOCK:
             if _SDK_SAFETY_NET is None:
-                import datetime as _dt
+                import datetime as dt
 
                 import resilient_circuit as rc
                 from resilient_circuit.storage import InMemoryStorage
@@ -256,14 +256,14 @@ def _sdk_safety_net() -> Any:  # noqa: ANN401
                             storage=InMemoryStorage(),
                             failure_limit=_cb_window(break_fail),
                             success_limit=_cb_window(close_success),
-                            cooldown=_dt.timedelta(seconds=_sdk_cb_cooldown()),
+                            cooldown=dt.timedelta(seconds=_sdk_cb_cooldown()),
                             should_handle=_breaker_should_handle,
                         ),
                         rc.RetryWithBackoffPolicy(
                             max_retries=_sdk_max_retries(),
                             backoff=_cancellable_backoff(
-                                min_delay=_dt.timedelta(milliseconds=500),
-                                max_delay=_dt.timedelta(seconds=8),
+                                min_delay=dt.timedelta(milliseconds=500),
+                                max_delay=dt.timedelta(seconds=8),
                                 factor=2,
                                 jitter=0.2,
                             ),

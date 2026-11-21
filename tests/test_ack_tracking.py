@@ -123,12 +123,12 @@ async def test_async_send_require_ack_parity() -> None:
 
 
 def test_parse_duration() -> None:
-    import datetime as _dt
+    import datetime as dt
 
-    assert cli_module._parse_duration("90m") == _dt.timedelta(minutes=90)
-    assert cli_module._parse_duration("2h") == _dt.timedelta(hours=2)
-    assert cli_module._parse_duration("3d") == _dt.timedelta(days=3)
-    assert cli_module._parse_duration("3600") == _dt.timedelta(seconds=3600)
+    assert cli_module._parse_duration("90m") == dt.timedelta(minutes=90)
+    assert cli_module._parse_duration("2h") == dt.timedelta(hours=2)
+    assert cli_module._parse_duration("3d") == dt.timedelta(days=3)
+    assert cli_module._parse_duration("3600") == dt.timedelta(seconds=3600)
 
 
 def test_parse_duration_invalid_raises_clear_error() -> None:

@@ -219,11 +219,11 @@ def test_outer_deadline_returns_on_time_and_abandons() -> None:
 
 
 def test_cancellable_backoff_returns_zero_when_flagged() -> None:
-    import datetime
+    import datetime as dt
 
     backoff = resilience._cancellable_backoff(
-        min_delay=datetime.timedelta(seconds=3),
-        max_delay=datetime.timedelta(seconds=8),
+        min_delay=dt.timedelta(seconds=3),
+        max_delay=dt.timedelta(seconds=8),
         factor=2,
         jitter=0.2,
     )

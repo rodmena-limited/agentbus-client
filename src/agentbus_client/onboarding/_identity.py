@@ -22,7 +22,6 @@ hosts, in one night:
 
 from __future__ import annotations
 
-import contextlib
 import os
 from pathlib import Path
 
@@ -196,11 +195,16 @@ def _write_worktree_identity(name: str, report: list[str]) -> None:
     # subdirectory. `.git` is a file in linked worktrees — exists() covers both.
     if (root / ".git").exists():
         gitignore = root / ".gitignore"
-        with contextlib.suppress(OSError):
+        try:
             lines = gitignore.read_text(errors="replace").splitlines() if gitignore.exists() else []
             if ".agentbus/" not in lines:
                 _append_ignore_entries(gitignore, [".agentbus/"])
                 report.append(f"gitignore: added .agentbus/ ({gitignore})")
+        except OSError as exc:
+            report.append(
+                f"gitignore: NOT updated ({exc.strerror or exc}); add .agentbus/ to "
+                f"{gitignore} by hand so the identity file is never committed"
+            )
     try:
         current = path.read_text().strip() if path.is_file() else None
     except (OSError, ValueError):

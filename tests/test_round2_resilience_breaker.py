@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import time
 from fractions import Fraction
 from typing import Any
@@ -153,11 +153,11 @@ def test_safety_net_wires_the_breaker_classifier_and_windows() -> None:
     assert retry.should_consider_failure is resilience._is_transient_sdk_error
     assert breaker.failure_limit == Fraction(4, 5)
     assert breaker.success_limit == Fraction(1, 2)
-    assert breaker.cooldown == datetime.timedelta(seconds=30)
+    assert breaker.cooldown == dt.timedelta(seconds=30)
     assert retry.max_attempts == 4
     assert retry.backoff.jitter == 0.2
-    assert retry.backoff.min_delay == datetime.timedelta(milliseconds=500)
-    assert retry.backoff.max_delay == datetime.timedelta(seconds=8)
+    assert retry.backoff.min_delay == dt.timedelta(milliseconds=500)
+    assert retry.backoff.max_delay == dt.timedelta(seconds=8)
 
 
 @pytest.mark.parametrize("limit", [1, 2, 3, 5])
@@ -232,7 +232,7 @@ def test_breaker_closes_again_after_the_cooldown(monkeypatch: pytest.MonkeyPatch
 def test_cooldown_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTBUS_SDK_CB_COOLDOWN", "17")
     breaker = resilience._sdk_safety_net().policies[0]
-    assert breaker.cooldown == datetime.timedelta(seconds=17)
+    assert breaker.cooldown == dt.timedelta(seconds=17)
 
 
 def test_cooldown_holds_the_breaker_open(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -16,12 +16,12 @@ from agentbus_client.client.errors import TransportError
 
 if TYPE_CHECKING:
     import argparse
-    import datetime
+    import datetime as dt
 
 _MAX_LITERAL_PATH = 4096
 
 
-def _parse_duration(value: str) -> datetime.timedelta:
+def _parse_duration(value: str) -> dt.timedelta:
     """Parse a human duration like `24h`, `90m`, `2d`, or bare seconds into
     a timedelta.
 
@@ -30,7 +30,7 @@ def _parse_duration(value: str) -> datetime.timedelta:
     clear error on anything unparseable so a typo is caught locally, not by a
     confusing server 422.
     """
-    import datetime as _dt
+    import datetime as dt
     import re as _re
 
     if value is None:
@@ -47,7 +47,7 @@ def _parse_duration(value: str) -> datetime.timedelta:
     num = int(m.group(1))
     unit = m.group(2) or "s"
     seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit] * num
-    return _dt.timedelta(seconds=seconds)
+    return dt.timedelta(seconds=seconds)
 
 
 def _read_problem(exc: OSError | ValueError) -> str:

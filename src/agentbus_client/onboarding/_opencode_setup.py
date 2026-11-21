@@ -31,13 +31,13 @@ from typing import TYPE_CHECKING, Any
 from agentbus_client._settings_env import _settings_agent
 
 from ._agy_setup import _setup_agy, teardown_agy_machine
+from ._atomic_write import _dump_json
 from ._claude_setup import _setup_claude
 from ._credentials import doctor_credential_scope
 from ._identity import _agent_key
 from ._paths import (
     OPENCODE_PLUGIN_NPM,
     _config_dir,
-    _dump_json,
     _git_root_or_none,
     _keys_dir,
     _load_json,

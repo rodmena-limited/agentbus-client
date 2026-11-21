@@ -10,7 +10,7 @@ time with nothing to point at.
 
 from __future__ import annotations
 
-import datetime as _dt
+import datetime as dt
 
 
 def _duration_seconds(value: object) -> int | None:
@@ -22,7 +22,7 @@ def _duration_seconds(value: object) -> int | None:
     """
     if value is None:
         return None
-    if isinstance(value, _dt.timedelta):
+    if isinstance(value, dt.timedelta):
         return int(value.total_seconds())
     if isinstance(value, bool):  # bool is an int subclass; refuse it explicitly
         msg = f"invalid duration: {value!r}"
@@ -50,9 +50,9 @@ def _as_instant(value: object) -> str | None:
         return None
     if isinstance(value, str):
         return value  # already formatted by the caller; server validates
-    if isinstance(value, _dt.datetime):
-        moment = value.astimezone(_dt.timezone.utc) if value.tzinfo else value.astimezone()
-        return moment.astimezone(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    if isinstance(value, dt.datetime):
+        moment = value.astimezone(dt.timezone.utc) if value.tzinfo else value.astimezone()
+        return moment.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     msg = f"expected a datetime or ISO-8601 string, got {type(value).__name__}"
     raise ValueError(msg)
 
@@ -75,12 +75,12 @@ def _expiry_instant(expire: object) -> str | None:
     """
     if expire is None:
         return None
-    if isinstance(expire, (_dt.datetime, str)) and not _looks_like_duration(expire):
+    if isinstance(expire, (dt.datetime, str)) and not _looks_like_duration(expire):
         return _as_instant(expire)
     seconds = _duration_seconds(expire)
     if seconds is None:
         return None
-    return _as_instant(_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=seconds))
+    return _as_instant(dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=seconds))
 
 
 def _looks_like_duration(value: object) -> bool:

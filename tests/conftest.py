@@ -9,12 +9,17 @@ a different test set + order and needs the explicit isolation.
 
 from __future__ import annotations
 
+import os
+import sys
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.dont_write_bytecode = True
 
 
 @pytest.fixture

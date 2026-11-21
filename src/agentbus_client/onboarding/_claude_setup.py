@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentbus_client.client import AgentBus
 
+from ._atomic_write import _dump_json
 from ._credentials import doctor_credential_scope
 from ._identity import _agent_key, _project_claude_dir, _write_worktree_identity
 from ._paths import (
@@ -39,7 +40,6 @@ from ._paths import (
     REWAKE_HOOK_TIMEOUT_SEC,
     STOP_REWAKE_SH,
     _config_dir,
-    _dump_json,
     _ensure_hook_entry,
     _git_root_or_none,
     _keys_dir,

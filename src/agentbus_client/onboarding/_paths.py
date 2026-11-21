@@ -33,7 +33,7 @@ from typing import Any
 from agentbus_client.identity import config_dir as identity_config_dir
 
 from ._plugin import claude_settings_path
-from ._settings_shape import _command_hooks, _names_the_file
+from ._settings_shape import _command_hooks
 
 
 def _device_hash(device_id: str | None) -> str:
@@ -363,17 +363,6 @@ def _load_json(path: Path) -> dict[str, Any]:
         msg = f"refusing to touch {path}: expected a JSON object"
         raise SystemExit(msg)
     return data
-
-
-def _dump_json(path: Path, data: dict[str, Any], *, private: bool = False) -> None:
-    """Write JSON; `private=True` for a file that carries a credential (0600 from birth)."""
-    text = json.dumps(data, indent=2) + "\n"
-    with _names_the_file(path):
-        if private:
-            _write_private(path, text)
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text)
 
 
 def _git_root_or_none() -> Path | None:
